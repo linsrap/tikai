@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tikai.Core\Tikai.Core.csproj" />
+    <ProjectReference Include="..\Tikai.Data\Tikai.Data.csproj" />
+    <ProjectReference Include="..\Tikai.Git\Tikai.Git.csproj" />
+    <ProjectReference Include="..\Tikai.Orchestrator\Tikai.Orchestrator.csproj" />
+    <ProjectReference Include="..\Tikai.Mcp\Tikai.Mcp.csproj" />
+    <ProjectReference Include="..\Tikai.Review\Tikai.Review.csproj" />
+    <ProjectReference Include="..\Tikai.Llm\Tikai.Llm.csproj" />
+    <ProjectReference Include="..\Tikai.Adapters.ClaudeCode\Tikai.Adapters.ClaudeCode.csproj" />
+  </ItemGroup>
+
+</Project>

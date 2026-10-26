@@ -1,0 +1,16 @@
+# Normalize to LF in the repo and in working trees, also on Windows.
+# Shell scripts that run inside Linux images break with CRLF (/bin/sh^M).
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

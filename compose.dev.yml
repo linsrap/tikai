@@ -1,0 +1,22 @@
+# Development database only. The API and the web app run on the host:
+#   docker compose -f compose.dev.yml up -d
+#   dotnet run --project src/Tikai.Api
+#   npm run dev --prefix web
+name: tikai-dev
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: tikai
+      POSTGRES_USER: tikai
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tikai}
+    ports: ["127.0.0.1:${DB_PORT:-5432}:5432"]
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tikai -d tikai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pg:
