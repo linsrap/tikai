@@ -65,6 +65,8 @@ src/
   Tikai.Adapters.ClaudeCode/  IAgentAdapter for Claude Code
 tests/
   Tikai.ArchitectureTests/    enforces the project reference rules below
+  Tikai.Core.Tests/           pure unit tests
+  Tikai.IntegrationTests/     Testcontainers Postgres 17 (needs Docker running): job queue, worker, event bus, entity conventions
 web/                          React + TypeScript (Vite, ESLint, Prettier, Vitest)
 docs/                         contributing.md (later: architecture.md, adr/)
 compose.dev.yml               Postgres 17 for local development
@@ -77,10 +79,12 @@ Commands (PowerShell or any shell, from the repo root):
 
 ```
 dotnet build                             # warnings are errors
-dotnet test                              # Microsoft.Testing.Platform (opted in via global.json)
+dotnet test                              # Microsoft.Testing.Platform (opted in via global.json); integration tests need Docker
+dotnet tool restore                      # once: installs dotnet-ef from dotnet-tools.json
+dotnet ef migrations add <Name> --project src/Tikai.Data --startup-project src/Tikai.Data --output-dir Migrations
 dotnet format --verify-no-changes        # style check, also run in CI
 cd web; npm ci; npm run lint; npm run format:check; npm test; npm run build
 docker compose -f compose.dev.yml up -d  # Postgres on 127.0.0.1:5432 (settings in .env, see .env.example)
-dotnet run --project src/Tikai.Api       # API on http://localhost:5080
+dotnet run --project src/Tikai.Api       # API on http://localhost:5080; applies migrations at startup; /health (live), /health/ready (DB)
 npm run dev --prefix web                 # web on http://localhost:5173, proxies /api and /hubs to the API
 ```

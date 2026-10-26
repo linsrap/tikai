@@ -11,4 +11,8 @@
     <ProjectReference Include="..\Tikai.Adapters.ClaudeCode\Tikai.Adapters.ClaudeCode.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
+  </ItemGroup>
+
 </Project>

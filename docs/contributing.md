@@ -39,6 +39,8 @@ npm test
 npm run build
 ```
 
+`dotnet test` includes integration tests that start a Postgres container with Testcontainers, so Docker must be running.
+
 Warnings are errors in the .NET build. `dotnet format` fixes most style issues for you (run it without `--verify-no-changes`), and `npm run format` does the same for the web app.
 
 ## Run locally
@@ -49,6 +51,15 @@ docker compose -f compose.dev.yml up -d        # Postgres 17
 dotnet run --project src/Tikai.Api             # API on http://localhost:5080
 npm run dev --prefix web                       # web app on http://localhost:5173, proxies /api and /hubs
 ```
+
+The API applies EF Core migrations at startup. To add one after changing the model:
+
+```powershell
+dotnet tool restore    # once
+dotnet ef migrations add <Name> --project src/Tikai.Data --startup-project src/Tikai.Data --output-dir Migrations
+```
+
+Review the generated SQL (`dotnet ef migrations script …`) before committing a migration.
 
 ## Project layout
 
