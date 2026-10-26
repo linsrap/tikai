@@ -110,7 +110,7 @@ internal static class TicketEndpoints
         return TypedResults.Ok(TicketInfo.From(ticket, project.Key));
     }
 
-    /// <summary>Deletes the ticket and its criteria. Its number is not given out again.</summary>
+    /// <summary>Deletes the ticket and its criteria, unless an agent worked on it. Its number is not given out again.</summary>
     private static async Task<Results<NoContent, ProblemHttpResult>> DeleteAsync(
         string slug, int number, TikaiDbContext db, CancellationToken cancellationToken)
     {
@@ -119,8 +119,22 @@ internal static class TicketEndpoints
         {
             return ProjectEndpoints.NotFound();
         }
-        var deleted = await db.Tickets.Where(t => t.ProjectId == project.Id && t.Number == number).ExecuteDeleteAsync(cancellationToken);
-        return deleted == 0 ? NotFound() : TypedResults.NoContent();
+        var ticketId = await db.Tickets.Where(t => t.ProjectId == project.Id && t.Number == number).Select(t => (Guid?)t.Id).SingleOrDefaultAsync(cancellationToken);
+        if (ticketId is null)
+        {
+            return NotFound();
+        }
+        if (await db.AgentRuns.AnyAsync(r => r.TicketId == ticketId, cancellationToken)
+            || await db.AttentionItems.AnyAsync(i => i.TicketId == ticketId, cancellationToken))
+        {
+            // Its runs' answers and decisions are the audit trail.
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The ticket has agent runs",
+                detail: "A ticket an agent has worked on cannot be deleted; close it instead.");
+        }
+        await db.Tickets.Where(t => t.Id == ticketId).ExecuteDeleteAsync(cancellationToken);
+        return TypedResults.NoContent();
     }
 
     internal static Dictionary<string, string[]> Validate(string? title, string? description, IReadOnlyList<string?> criteria)

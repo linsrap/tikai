@@ -3,9 +3,11 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Tikai.Api.Attention;
 using Tikai.Api.Auth;
 using Tikai.Api.Hosting;
 using Tikai.Api.Llm;
+using Tikai.Api.Mcp;
 using Tikai.Api.Projects;
 using Tikai.Api.Security;
 using Tikai.Api.Tickets;
@@ -27,6 +29,7 @@ builder.Services.AddTikaiProjects(builder.Configuration, builder.Environment);
 builder.Services.AddTikaiLlm();
 builder.Services.AddScoped<LlmProviderService>();
 builder.Services.AddScoped<TicketService>();
+builder.Services.AddTikaiMcp(builder.Configuration);
 builder.Services.AddProblemDetails();
 // Enums travel as snake_case strings ("https_token"), the same values the database stores.
 // Numbers are only numbers (the web default also reads "42"), so the OpenAPI types say number, not number | string.
@@ -71,8 +74,12 @@ api.MapProjectEndpoints();
 api.MapLlmProviderEndpoints();
 api.MapTicketEndpoints();
 api.MapRefineSpecEndpoint();
+api.MapAttentionEndpoints();
 // Unknown API routes are 404s, not the web app's index.html.
 api.Map("/{**path}", () => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found"));
+
+// Agents only, with a run token.
+app.MapTikaiMcp();
 
 if (app.Environment.IsDevelopment())
 {

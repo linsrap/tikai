@@ -24,6 +24,11 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Mcp">
+    <PackageVersion Include="ModelContextProtocol" Version="2.3.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.3.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Api">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.14" />

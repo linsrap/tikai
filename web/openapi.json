@@ -1083,10 +1083,273 @@
           }
         }
       }
+    },
+    "/api/attention-items": {
+      "get": {
+        "tags": [
+          "Attention"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AttentionItemInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/attention-items/{id}": {
+      "get": {
+        "tags": [
+          "Attention"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttentionItemInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/attention-items/{id}/answer": {
+      "post": {
+        "tags": [
+          "Attention"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttentionItemInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AnswerRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlanDecision"
+              }
+            ]
+          }
+        }
+      },
+      "AttentionAnswer": {
+        "required": [
+          "text",
+          "decision"
+        ],
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlanDecision"
+              }
+            ]
+          }
+        }
+      },
+      "AttentionItemInfo": {
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "runId",
+          "projectSlug",
+          "ticketNumber",
+          "ticketKey",
+          "question",
+          "plan",
+          "review",
+          "answer",
+          "createdAt",
+          "answeredAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AttentionKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AttentionStatus"
+          },
+          "runId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "projectSlug": {
+            "type": "string"
+          },
+          "ticketNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ticketKey": {
+            "type": "string"
+          },
+          "question": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuestionPayload"
+              }
+            ]
+          },
+          "plan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlanPayload"
+              }
+            ]
+          },
+          "review": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewPayload"
+              }
+            ]
+          },
+          "answer": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AttentionAnswer"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AttentionKind": {
+        "enum": [
+          "question",
+          "permission",
+          "plan_approval",
+          "review",
+          "conflict",
+          "failure"
+        ]
+      },
+      "AttentionStatus": {
+        "enum": [
+          "open",
+          "answered",
+          "dismissed"
+        ]
+      },
       "AuthStatus": {
         "required": [
           "signUpOpen",
@@ -1271,6 +1534,13 @@
           "ssh_key"
         ]
       },
+      "CriterionCoverage": {
+        "enum": [
+          "covered",
+          "partial",
+          "missing"
+        ]
+      },
       "CriterionInfo": {
         "required": [
           "id",
@@ -1302,6 +1572,29 @@
               "string"
             ],
             "format": "uuid"
+          }
+        }
+      },
+      "CriterionMapping": {
+        "required": [
+          "criterionId",
+          "status",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "criterionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CriterionCoverage"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -1469,6 +1762,41 @@
           }
         }
       },
+      "PlanDecision": {
+        "enum": [
+          "approve",
+          "revise",
+          null
+        ]
+      },
+      "PlanPayload": {
+        "required": [
+          "steps",
+          "risks",
+          "filesExpected"
+        ],
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "filesExpected": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ProjectInfo": {
         "required": [
           "id",
@@ -1495,6 +1823,31 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "QuestionPayload": {
+        "required": [
+          "question",
+          "context",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -1590,6 +1943,31 @@
           "ready",
           "failed"
         ]
+      },
+      "ReviewPayload": {
+        "required": [
+          "summary",
+          "criteriaMapping",
+          "openConcerns"
+        ],
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "criteriaMapping": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CriterionMapping"
+            }
+          },
+          "openConcerns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "SignUpRequest": {
         "required": [
@@ -1868,6 +2246,9 @@
     },
     {
       "name": "Tickets"
+    },
+    {
+      "name": "Attention"
     }
   ]
 }

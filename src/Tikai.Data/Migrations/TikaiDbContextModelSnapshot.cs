@@ -184,6 +184,94 @@ namespace Tikai.Data.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("Tikai.Core.Attention.AttentionItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Answer")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("answer");
+
+                    b.Property<DateTimeOffset?>("AnsweredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("answered_at");
+
+                    b.Property<Guid?>("AnsweredById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("answered_by_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("RequestHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("request_hash");
+
+                    b.Property<Guid?>("RunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("run_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_attention_items");
+
+                    b.HasIndex("AnsweredById")
+                        .HasDatabaseName("ix_attention_items_answered_by_id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_attention_items_created_at")
+                        .HasFilter("status = 'open'");
+
+                    b.HasIndex("TicketId")
+                        .HasDatabaseName("ix_attention_items_ticket_id");
+
+                    b.HasIndex("RunId", "CreatedAt")
+                        .HasDatabaseName("ix_attention_items_run_id_created_at");
+
+                    b.ToTable("attention_items", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_attention_items_answered", "(status = 'answered') = (answer IS NOT NULL AND answered_at IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_attention_items_kind", "kind IN ('question', 'permission', 'plan_approval', 'review', 'conflict', 'failure')");
+
+                            t.HasCheckConstraint("ck_attention_items_status", "status IN ('open', 'answered', 'dismissed')");
+                        });
+                });
+
             modelBuilder.Entity("Tikai.Core.Llm.LlmProvider", b =>
                 {
                     b.Property<Guid>("Id")
@@ -413,6 +501,73 @@ namespace Tikai.Data.Migrations
                             t.HasCheckConstraint("ck_repositories_credential_set", "(credential_kind = 'none') = (encrypted_credential IS NULL)");
 
                             t.HasCheckConstraint("ck_repositories_status", "status IN ('cloning', 'ready', 'failed')");
+                        });
+                });
+
+            modelBuilder.Entity("Tikai.Core.Runs.AgentRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("ProgressAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("progress_at");
+
+                    b.Property<string>("ProgressNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("progress_note");
+
+                    b.Property<string>("ProgressStep")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("progress_step");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agent_runs");
+
+                    b.HasIndex("TicketId")
+                        .HasDatabaseName("ix_agent_runs_ticket_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_agent_runs_token_hash");
+
+                    b.ToTable("agent_runs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_agent_runs_state", "state IN ('queued', 'preparing', 'running', 'blocked', 'in_review', 'changes_requested', 'merged', 'failed', 'cancelled')");
+
+                            t.HasCheckConstraint("ck_agent_runs_token_hash", "octet_length(token_hash) = 32");
                         });
                 });
 
@@ -750,6 +905,28 @@ namespace Tikai.Data.Migrations
                         .HasConstraintName("fk_user_tokens_users_user_id");
                 });
 
+            modelBuilder.Entity("Tikai.Core.Attention.AttentionItem", b =>
+                {
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("AnsweredById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_attention_items_users_answered_by_id");
+
+                    b.HasOne("Tikai.Core.Runs.AgentRun", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_attention_items_agent_runs_run_id");
+
+                    b.HasOne("Tikai.Core.Tickets.Ticket", null)
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_attention_items_tickets_ticket_id");
+                });
+
             modelBuilder.Entity("Tikai.Core.Llm.LlmProvider", b =>
                 {
                     b.HasOne("Tikai.Core.Projects.Project", null)
@@ -773,6 +950,16 @@ namespace Tikai.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_repositories_projects_project_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Runs.AgentRun", b =>
+                {
+                    b.HasOne("Tikai.Core.Tickets.Ticket", null)
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agent_runs_tickets_ticket_id");
                 });
 
             modelBuilder.Entity("Tikai.Core.Tickets.AcceptanceCriterion", b =>

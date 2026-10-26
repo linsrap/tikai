@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Tikai.Core.Attention;
 using Tikai.Core.Common;
 using Tikai.Core.Llm;
 using Tikai.Core.Projects;
+using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
 using Tikai.Data.Identity;
 using Tikai.Data.Jobs;
@@ -24,6 +26,10 @@ public class TikaiDbContext(DbContextOptions options)
     public DbSet<Ticket> Tickets => Set<Ticket>();
 
     public DbSet<AcceptanceCriterion> AcceptanceCriteria => Set<AcceptanceCriterion>();
+
+    public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
+
+    public DbSet<AttentionItem> AttentionItems => Set<AttentionItem>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
