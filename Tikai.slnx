@@ -12,5 +12,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tikai.ArchitectureTests/Tikai.ArchitectureTests.csproj" />
+    <Project Path="tests/Tikai.Core.Tests/Tikai.Core.Tests.csproj" />
+    <Project Path="tests/Tikai.IntegrationTests/Tikai.IntegrationTests.csproj" />
   </Folder>
 </Solution>
