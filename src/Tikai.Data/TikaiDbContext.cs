@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Tikai.Core.Common;
+using Tikai.Core.Llm;
 using Tikai.Core.Projects;
 using Tikai.Data.Identity;
 using Tikai.Data.Jobs;
@@ -16,6 +17,8 @@ public class TikaiDbContext(DbContextOptions options)
     public DbSet<Project> Projects => Set<Project>();
 
     public DbSet<Repository> Repositories => Set<Repository>();
+
+    public DbSet<LlmProvider> LlmProviders => Set<LlmProvider>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

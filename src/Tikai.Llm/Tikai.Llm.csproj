@@ -4,4 +4,10 @@
     <ProjectReference Include="..\Tikai.Core\Tikai.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Anthropic" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
 </Project>

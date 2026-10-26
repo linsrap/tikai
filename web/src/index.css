@@ -124,3 +124,7 @@ fieldset {
 .danger {
   color: #b42318;
 }
+
+.success {
+  color: #1a7f37;
+}

@@ -8,7 +8,7 @@ Tikai runs with one `docker compose up` on Linux or on Windows with Docker Deskt
 git clone https://github.com/linsrap/tikai.git
 cd tikai
 Copy-Item .env.example .env      # Linux/macOS: cp .env.example .env
-# Edit .env: set DB_PASSWORD to something only you know.
+# Edit .env: set TIKAI_SECRET (see below) and DB_PASSWORD to something only you know.
 docker compose up -d --build
 ```
 
@@ -18,9 +18,30 @@ Open <http://localhost:8080>. While no account exists, Tikai shows the setup pag
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `TIKAI_SECRET` | none, **required** | Encrypts the hub's key ring, which protects login cookies, stored git credentials and LLM keys. Random, at least 32 characters (see below). |
 | `DB_PASSWORD` | `tikai` | Password of the Postgres user. Change it before the first start. |
 | `TIKAI_BIND` | `127.0.0.1` | Address the web app listens on. `127.0.0.1` = this machine only. Use `0.0.0.0` to reach it from your network, and put a TLS reverse proxy in front: Tikai itself speaks plain HTTP. |
 | `TIKAI_PORT` | `8080` | Port of the web app. |
+
+### `TIKAI_SECRET`
+
+Make one random value and put it in `.env`:
+
+```powershell
+# PowerShell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+# Linux/macOS
+openssl rand -base64 32
+```
+
+Keep a copy outside the server (a password manager). The keys in the `tikai_data` volume are encrypted with it, so a copy of the volume is useless without the secret, and so is the volume to you if the secret is lost.
+
+- **Missing or shorter than 32 characters:** `docker compose up` refuses to start (missing), or the hub stops at startup with a message that says so (short).
+- **Wrong secret** (for example a typo after moving to a new server): the hub stops at startup with "Data Protection key … cannot be decrypted". Nothing is changed; put the right secret back and start again.
+- **Secret lost:** put a new secret in `.env`, stop the hub (`docker compose stop hub`), delete the old keys (`docker compose run --rm --no-deps --entrypoint sh hub -c "rm -rf /data/keys"`), then `docker compose up -d`. Everyone logs in again, and the stored repository credentials and LLM keys have to be entered again. Projects, repositories and tickets are kept.
+- **Changing the secret** is not supported yet (it works like a lost secret).
+
+**Upgrading from a version without `TIKAI_SECRET`:** add it to `.env` and start as usual. At the first start the hub encrypts the existing keys with it (the log says "Encrypted … Data Protection key(s)"); sessions and stored credentials keep working.
 
 ## What runs
 
@@ -31,6 +52,14 @@ Open <http://localhost:8080>. While no account exists, Tikai shows the setup pag
 | `docker-proxy` | Limited access to Docker, for starting agent containers in a later version. |
 
 Data lives in three named volumes: `tikai_pg` (database), `tikai_data` (the keys that sign login cookies and encrypt stored credentials, and the repository mirrors) and `tikai_runs` (agent work directories, later). `docker compose down` keeps them; `docker compose down -v` **deletes everything**. Keep `tikai_data` and `tikai_pg` together: without the keys in `tikai_data`, stored repository credentials cannot be decrypted and have to be entered again.
+
+## LLM providers
+
+Tikai never ships or shares an LLM key: you bring your own. Under **Settings → Your LLM providers** (or on a project page, for a provider the whole project uses) add a provider with a name, a model (default `claude-opus-5-5`) and an Anthropic API key from <https://platform.claude.com>. The key is stored encrypted and never shown again; Tikai shows only its last four characters.
+
+**Test connection** sends one short message ("Reply with OK") with that key and model, which costs a fraction of a cent, and shows the answer and the time, or what went wrong (key rejected, model not found, rate limited, provider not reachable).
+
+The optional **base URL** is for a gateway or proxy in front of the Anthropic API. Tikai sends the key as `Authorization: Bearer …` (Anthropic API version 2026-10-21); a gateway that only reads `X-Api-Key` will reject it.
 
 ## Projects and repositories
 

@@ -5,6 +5,7 @@
     <ProjectReference Include="..\..\src\Tikai.Core\Tikai.Core.csproj" />
     <ProjectReference Include="..\..\src\Tikai.Data\Tikai.Data.csproj" />
     <ProjectReference Include="..\..\src\Tikai.Git\Tikai.Git.csproj" />
+    <ProjectReference Include="..\..\src\Tikai.Llm\Tikai.Llm.csproj" />
   </ItemGroup>
 
   <ItemGroup>

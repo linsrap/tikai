@@ -54,19 +54,20 @@ Core ideas:
 ```
 Tikai.slnx                    .NET solution (global.json pins SDK 10.0.402; Directory.*.props hold shared settings and package versions)
 src/
-  Tikai.Api/                  ASP.NET Core host and composition root; feature folders Auth/, Projects/ (projects, repositories, git jobs, fetch scheduler)
+  Tikai.Api/                  ASP.NET Core host and composition root; feature folders Auth/, Projects/ (projects, repositories, git jobs, fetch scheduler), Llm/ (providers API), Security/ (key ring encryption, secret protector)
   Tikai.Core/                 domain: entities, state machines, interfaces; no packages, no references
   Tikai.Data/                 EF Core, migrations, job queue
   Tikai.Git/                  GitService (git CLI, isolated config, credentials via env only), ProcessRunner
   Tikai.Orchestrator/         run lifecycle, Docker
   Tikai.Mcp/                  MCP tools
   Tikai.Review/               diff model, analysis, ordering
-  Tikai.Llm/                  LLM providers, key protection
+  Tikai.Llm/                  IChatClientFactory (official Anthropic SDK via Microsoft.Extensions.AI), connection test
   Tikai.Adapters.ClaudeCode/  IAgentAdapter for Claude Code
 tests/
   Tikai.ArchitectureTests/    enforces the project reference rules below
   Tikai.Core.Tests/           pure unit tests
-  Tikai.IntegrationTests/     Testcontainers Postgres 17 (needs Docker running): job queue, worker, event bus, entity conventions, auth, projects API;
+  Tikai.IntegrationTests/     Testcontainers Postgres 17 (needs Docker running): job queue, worker, event bus, entity conventions, auth, projects API, key ring encryption, LLM providers API;
+                              LLM client against an in-process fake of the Messages API (no key needed);
                               real git: GitService, token auth via in-process git http-backend, SSH via an sshd container (needs `ssh` on PATH for git)
 web/                          React + TypeScript (Vite, TanStack Router + Query, openapi-fetch, ESLint, Prettier, Vitest)
   openapi.json                API description, written by `dotnet build` of Tikai.Api (committed; CI checks it is current)
@@ -81,6 +82,8 @@ compose.dev.yml               Postgres 17 for local development
 Auth: ASP.NET Core Identity with a cookie (`tikai.auth`). The first sign-up becomes admin, then sign-up closes. Every unsafe `/api` request needs the antiforgery header `X-XSRF-TOKEN` (value from the `XSRF-TOKEN` cookie set by `GET /api/auth/antiforgery`; fetch it again after login and logout). New API endpoints go under the `/api` group so they get this check.
 
 Git: every git call goes through `GitService` (never `Process.Start("git")` elsewhere): argument lists, `--git-dir`, no system/global config, no prompts, `GIT_ALLOW_PROTOCOL` from `Tikai:Git:AllowedProtocols`. Credentials only through env (`GIT_CONFIG_*` extraHeader, `GIT_SSH_COMMAND` with a temp key file), never in arguments, URLs or repo config. Mirrors live at `<data>/repos/<project-id>/<repo-id>.git` (paths from ids only); remote branches in `refs/remotes/origin/*`, the hub's own branches in `refs/heads/*`. Writes to mirrors go through the `git` job queue.
+
+Secrets: `Tikai:EncryptionSecret` (`TIKAI_SECRET` in compose, 32+ characters) encrypts the Data Protection key ring; the hub refuses to start without it or with the wrong one (`Security/KeyRingStartup`). `appsettings.Development.json` has a development-only secret. Stored secrets (git credentials, LLM keys) go through `ISecretProtector` with their own purpose string, are write-only in the API, and never appear in logs (`ToString` of credential and connection records hides them). LLM calls go through `IChatClientFactory`, never `new AnthropicClient()` elsewhere (it would read `ANTHROPIC_*` env vars).
 
 Project references: `Core` references nothing; `Data`, `Git`, `Llm`, `Review`, `Orchestrator`, `Mcp` and `Adapters.ClaudeCode` reference only `Core`; `Api` references everything. A new `src` project needs a rule in `tests/Tikai.ArchitectureTests/ProjectReferenceTests.cs`.
 

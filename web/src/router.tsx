@@ -11,6 +11,7 @@ import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { ProjectPage } from './pages/ProjectPage'
 import { ProjectsPage } from './pages/ProjectsPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { SignUpPage } from './pages/SignUpPage'
 
 type RouterContext = { queryClient: QueryClient }
@@ -70,6 +71,13 @@ const projectRoute = createRoute({
   },
 })
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  beforeLoad: requireUser,
+  component: SettingsPage,
+})
+
 export function createAppRouter(queryClient: QueryClient) {
   return createRouter({
     routeTree: rootRoute.addChildren([
@@ -78,6 +86,7 @@ export function createAppRouter(queryClient: QueryClient) {
       signUpRoute,
       projectsRoute,
       projectRoute,
+      settingsRoute,
     ]),
     context: { queryClient },
   })

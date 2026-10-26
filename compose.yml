@@ -10,8 +10,10 @@ services:
     ports: ["${TIKAI_BIND:-127.0.0.1}:${TIKAI_PORT:-8080}:8080"]
     environment:
       ConnectionStrings__Db: Host=db;Database=tikai;Username=tikai;Password=${DB_PASSWORD:-tikai}
+      # Encrypts the key ring in the data volume (cookies, stored credentials and LLM keys depend on it).
+      Tikai__EncryptionSecret: ${TIKAI_SECRET:?set TIKAI_SECRET in .env (see .env.example)}
     volumes:
-      - data:/data # Data Protection keys (later also repo mirrors); hub only
+      - data:/data # Data Protection keys (encrypted with TIKAI_SECRET) and repository mirrors; hub only
       - runs:/runs # run clones; each agent mounts only its own subdirectory (step 10)
     depends_on:
       db:
