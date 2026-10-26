@@ -18,6 +18,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <strong>Tikai</strong>
           </Link>
           <Link to="/projects">Projects</Link>
+          <Link to="/settings">Settings</Link>
         </nav>
         <span className="row">
           <span>

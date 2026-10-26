@@ -19,6 +19,11 @@
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.14" />
   </ItemGroup>
 
+  <ItemGroup Label="Llm">
+    <PackageVersion Include="Anthropic" Version="13.3.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Api">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.14" />

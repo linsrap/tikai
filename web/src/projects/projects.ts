@@ -1,7 +1,7 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ensureAntiforgery } from '../api/client'
 import type { components } from '../api/schema'
-import { problemMessage } from '../auth/auth'
+import { unwrap } from '../api/result'
 
 export type ProjectInfo = components['schemas']['ProjectInfo']
 export type RepositoryInfo = components['schemas']['RepositoryInfo']
@@ -84,17 +84,6 @@ export function toCreateRepositoryRequest(form: RepositoryForm): CreateRepositor
     defaultBranch,
     credential: toCredentialInput(form) ?? null,
   }
-}
-
-async function unwrap<T>(
-  call: Promise<{ data?: T; error?: unknown; response: Response }>,
-  what: string,
-): Promise<T> {
-  const { data, error, response } = await call
-  if (error !== undefined || !response.ok) {
-    throw new Error(problemMessage(error, `Could not ${what} (${response.status})`))
-  }
-  return data as T
 }
 
 export const projectsQuery = queryOptions({

@@ -17,6 +17,7 @@ import {
   type RepositoryInfo,
 } from '../projects/projects'
 import { AppShell } from './AppShell'
+import { ProvidersSection } from './ProvidersSection'
 
 export function ProjectPage({ slug }: { slug: string }) {
   const project = useQuery(projectQuery(slug))
@@ -48,6 +49,12 @@ export function ProjectPage({ slug }: { slug: string }) {
         <RepositoryCard key={r.id} slug={slug} repository={r} />
       ))}
       <AddRepositoryForm slug={slug} />
+      <h2>LLM providers of this project</h2>
+      <p className="muted">
+        A provider here is shared by everyone working on the project. Your own providers are under
+        Settings.
+      </p>
+      <ProvidersSection owner={{ kind: 'project', slug }} />
       {repositories.data?.length === 0 && (
         <p>
           <button

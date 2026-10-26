@@ -10,17 +10,22 @@ namespace Tikai.IntegrationTests.Auth;
 /// <summary>The real API host on its own empty database, so "first user" rules start from scratch.</summary>
 public sealed class TikaiApiFactory : WebApplicationFactory<Program>
 {
+    public const string TestSecret = "test-secret-0123456789-abcdefghijklmnop";
+
     private readonly string _connectionString;
     private readonly IReadOnlyDictionary<string, string> _settings;
+    private readonly bool _ownsDataPath;
 
-    private TikaiApiFactory(string connectionString, IReadOnlyDictionary<string, string> settings)
+    private TikaiApiFactory(string connectionString, IReadOnlyDictionary<string, string> settings, string? dataPath = null)
     {
         _connectionString = connectionString;
         _settings = settings;
+        _ownsDataPath = dataPath is null;
+        DataPath = dataPath ?? Path.Combine(Path.GetTempPath(), "tikai-tests", Guid.NewGuid().ToString("N"));
     }
 
-    /// <summary>The hub's data directory (keys, repository mirrors), deleted on dispose.</summary>
-    public string DataPath { get; } = Path.Combine(Path.GetTempPath(), "tikai-tests", Guid.NewGuid().ToString("N"));
+    /// <summary>The hub's data directory (keys, repository mirrors), deleted on dispose by the factory that created it.</summary>
+    public string DataPath { get; }
 
     public string ConnectionString => _connectionString;
 
@@ -37,11 +42,16 @@ public sealed class TikaiApiFactory : WebApplicationFactory<Program>
             settings ?? new Dictionary<string, string>());
     }
 
+    /// <summary>A second hub on the same database and data directory, like a restart with other settings.</summary>
+    public TikaiApiFactory Restart(IReadOnlyDictionary<string, string>? settings = null) =>
+        new(_connectionString, settings ?? _settings, DataPath);
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Db", _connectionString);
         builder.UseSetting("Tikai:DataPath", DataPath);
+        builder.UseSetting("Tikai:EncryptionSecret", TestSecret);
         // Tests use file:// remotes (a second bare repo) and a plain-HTTP git server.
         builder.UseSetting("Tikai:Git:AllowedProtocols", "https,ssh,http,file");
         foreach (var (key, value) in _settings)
@@ -55,7 +65,7 @@ public sealed class TikaiApiFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing && Directory.Exists(DataPath))
+        if (disposing && _ownsDataPath && Directory.Exists(DataPath))
         {
             // Git writes read-only object files; on Windows they must be made writable before deleting.
             foreach (var file in Directory.EnumerateFiles(DataPath, "*", SearchOption.AllDirectories))

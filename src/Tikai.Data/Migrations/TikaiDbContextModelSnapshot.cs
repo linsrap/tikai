@@ -184,6 +184,89 @@ namespace Tikai.Data.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("Tikai.Core.Llm.LlmProvider", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BaseUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("base_url");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DefaultModel")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("default_model");
+
+                    b.Property<string>("EncryptedApiKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("encrypted_api_key");
+
+                    b.Property<string>("KeyHint")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("character varying(4)")
+                        .HasColumnName("key_hint");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("OwnerProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_project_id");
+
+                    b.Property<Guid?>("OwnerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_llm_providers");
+
+                    b.HasIndex("OwnerProjectId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_llm_providers_owner_project_id_name")
+                        .HasFilter("owner_project_id IS NOT NULL");
+
+                    b.HasIndex("OwnerUserId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_llm_providers_owner_user_id_name")
+                        .HasFilter("owner_user_id IS NOT NULL");
+
+                    b.ToTable("llm_providers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_llm_providers_kind", "kind IN ('anthropic')");
+
+                            t.HasCheckConstraint("ck_llm_providers_one_owner", "(owner_user_id IS NULL) <> (owner_project_id IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Tikai.Core.Projects.Project", b =>
                 {
                     b.Property<Guid>("Id")
@@ -545,6 +628,21 @@ namespace Tikai.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_user_tokens_users_user_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Llm.LlmProvider", b =>
+                {
+                    b.HasOne("Tikai.Core.Projects.Project", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_llm_providers_projects_owner_project_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_llm_providers_users_owner_user_id");
                 });
 
             modelBuilder.Entity("Tikai.Core.Projects.Repository", b =>

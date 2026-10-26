@@ -8,4 +8,8 @@ internal static class DataPaths
     /// </summary>
     public static string Resolve(IConfiguration configuration, IHostEnvironment environment) =>
         Path.Combine(environment.ContentRootPath, configuration["Tikai:DataPath"] ?? "/data");
+
+    /// <summary>The Data Protection key ring.</summary>
+    public static string Keys(IConfiguration configuration, IHostEnvironment environment) =>
+        Path.Combine(Resolve(configuration, environment), "keys");
 }

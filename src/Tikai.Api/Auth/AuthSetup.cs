@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Tikai.Api.Hosting;
 using Tikai.Api.Security;
 using Tikai.Core.Security;
@@ -18,10 +20,18 @@ internal static class AuthSetup
     public static IServiceCollection AddTikaiAuth(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         // Keys sign the auth and antiforgery cookies; persisting them keeps people logged in across restarts.
-        // They also encrypt stored secrets (ISecretProtector). Encrypting the key ring with TIKAI_SECRET comes with step 06.
+        // They also encrypt stored secrets (ISecretProtector). The key ring itself is encrypted with TIKAI_SECRET,
+        // so a copy of the data volume alone is useless.
+        services.AddOptions<KeyRingOptions>()
+            .Bind(configuration.GetSection("Tikai"))
+            .Validate(o => o.EncryptionSecret?.Length >= KeyRingOptions.MinSecretLength,
+                $"Tikai:EncryptionSecret (TIKAI_SECRET) must be set to a random value of at least {KeyRingOptions.MinSecretLength} characters. See docs/self-hosting.md.")
+            .ValidateOnStart();
         services.AddDataProtection()
             .SetApplicationName("Tikai")
-            .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(DataPaths.Resolve(configuration, environment), "keys")));
+            .PersistKeysToFileSystem(new DirectoryInfo(DataPaths.Keys(configuration, environment)));
+        services.AddOptions<KeyManagementOptions>()
+            .Configure<IOptions<KeyRingOptions>>((options, keyRing) => options.XmlEncryptor = new SecretXmlEncryptor(KeyRingKey.FromOptions(keyRing)));
         services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
 
         services.AddIdentityCore<TikaiUser>(options =>
