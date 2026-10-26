@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Anthropic.Exceptions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -32,7 +33,7 @@ public sealed partial class LlmConnectionTester(IChatClientFactory factory, ILog
         }
         catch (Exception ex) when (Describe(ex, connection, cancellationToken) is { } message)
         {
-            LogTestFailed(connection.Kind, connection.Model, ex.GetType().Name);
+            LogTestFailed(connection.Kind, connection.Model, ex.GetType().Name, message);
             return new LlmTestResult(false, message, null, stopwatch.Elapsed);
         }
     }
@@ -42,16 +43,40 @@ public sealed partial class LlmConnectionTester(IChatClientFactory factory, ILog
     {
         OperationCanceledException when cancellationToken.IsCancellationRequested => null,
         OperationCanceledException => $"No answer within {Limit.TotalSeconds:0} seconds.",
-        AnthropicUnauthorizedException => "The provider rejected the API key.",
-        AnthropicForbiddenException => "The API key is not allowed to use this model or endpoint.",
-        AnthropicNotFoundException => $"The model \"{connection.Model}\" was not found (or the base URL is wrong).",
-        AnthropicRateLimitException => "The provider is rate limiting this key, or it is out of credit. Try again later.",
-        AnthropicBadRequestException bad => $"The provider refused the request: {bad.Message}",
-        Anthropic5xxException => "The provider had an internal error. Try again later.",
+        AnthropicApiException api => Summary(api, connection) + ProviderSays(api),
         AnthropicIOException io => $"Could not reach the provider: {io.Message}",
         _ => $"Unexpected error: {ex.Message}",
     };
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Connection test for {Kind} model {Model} failed with {ErrorType}")]
-    private partial void LogTestFailed(LlmProviderKind kind, string model, string errorType);
+    private static string Summary(AnthropicApiException ex, LlmConnection connection) => ex switch
+    {
+        AnthropicUnauthorizedException => "The provider rejected the API key.",
+        AnthropicForbiddenException => "The API key is not allowed to use this model or endpoint.",
+        AnthropicNotFoundException => $"The model \"{connection.Model}\" was not found (or the base URL is wrong).",
+        AnthropicRateLimitException => "The provider is rate limiting this key, or it is out of credit.",
+        AnthropicBadRequestException => "The provider refused the request.",
+        Anthropic5xxException => "The provider had an internal error. Try again later.",
+        _ => $"The provider answered with status {(int)ex.StatusCode}.",
+    };
+
+    /// <summary>The provider's own explanation (error.message in the JSON body), which says what to do, e.g. buy credit.</summary>
+    private static string ProviderSays(AnthropicApiException ex)
+    {
+        try
+        {
+            using var body = JsonDocument.Parse(ex.ResponseBody);
+            return body.RootElement.TryGetProperty("error", out var error)
+                && error.TryGetProperty("message", out var message)
+                && message.GetString() is { Length: > 0 } text
+                    ? $" Anthropic says: {text}"
+                    : "";
+        }
+        catch (JsonException)
+        {
+            return "";
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Connection test for {Kind} model {Model} failed with {ErrorType}: {Reason}")]
+    private partial void LogTestFailed(LlmProviderKind kind, string model, string errorType, string reason);
 }

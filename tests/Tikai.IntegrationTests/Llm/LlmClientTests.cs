@@ -43,6 +43,18 @@ public sealed class LlmClientTests
         Assert.NotEqual("", request.AnthropicVersion);
     }
 
+    [Fact]
+    public async Task The_providers_own_explanation_is_kept()
+    {
+        await using var server = await FakeAnthropicServer.StartAsync(
+            StatusCodes.Status429TooManyRequests, FakeAnthropicServer.Error("rate_limit_error", "Your credit balance is too low."));
+
+        var result = await _tester.TestAsync(Connection(server.BaseUrl), TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal("The provider is rate limiting this key, or it is out of credit. Anthropic says: Your credit balance is too low.", result.Message);
+    }
+
     [Theory]
     [InlineData(StatusCodes.Status401Unauthorized, "authentication_error", "rejected the API key")]
     [InlineData(StatusCodes.Status404NotFound, "not_found_error", "\"claude-opus-5-5\" was not found")]
