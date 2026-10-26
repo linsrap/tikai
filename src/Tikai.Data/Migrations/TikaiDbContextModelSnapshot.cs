@@ -283,6 +283,11 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("character varying(10)")
                         .HasColumnName("key");
 
+                    b.Property<int>("LastTicketNumber")
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("last_ticket_number");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -408,6 +413,121 @@ namespace Tikai.Data.Migrations
                             t.HasCheckConstraint("ck_repositories_credential_set", "(credential_kind = 'none') = (encrypted_credential IS NULL)");
 
                             t.HasCheckConstraint("ck_repositories_status", "status IN ('cloning', 'ready', 'failed')");
+                        });
+                });
+
+            modelBuilder.Entity("Tikai.Core.Tickets.AcceptanceCriterion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("text");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_acceptance_criteria");
+
+                    b.HasIndex("TicketId", "Position")
+                        .HasDatabaseName("ix_acceptance_criteria_ticket_id_position");
+
+                    b.ToTable("acceptance_criteria", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_acceptance_criteria_position", "position >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Tikai.Core.Tickets.Ticket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(50000)
+                        .HasColumnType("character varying(50000)")
+                        .HasColumnName("description");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer")
+                        .HasColumnName("number");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("priority");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tickets");
+
+                    b.HasIndex("ProjectId", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tickets_project_id_number");
+
+                    b.ToTable("tickets", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tickets_number_positive", "number > 0");
+
+                            t.HasCheckConstraint("ck_tickets_priority", "priority IN ('low', 'normal', 'high', 'urgent')");
+
+                            t.HasCheckConstraint("ck_tickets_status", "status IN ('open', 'in_progress', 'in_review', 'done', 'closed')");
                         });
                 });
 
@@ -653,6 +773,31 @@ namespace Tikai.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_repositories_projects_project_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Tickets.AcceptanceCriterion", b =>
+                {
+                    b.HasOne("Tikai.Core.Tickets.Ticket", null)
+                        .WithMany("Criteria")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_acceptance_criteria_tickets_ticket_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Tickets.Ticket", b =>
+                {
+                    b.HasOne("Tikai.Core.Projects.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_tickets_projects_project_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Tickets.Ticket", b =>
+                {
+                    b.Navigation("Criteria");
                 });
 #pragma warning restore 612, 618
         }

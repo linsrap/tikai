@@ -62,7 +62,7 @@ internal static class ProjectEndpoints
     }
 
     private static async Task<Results<Ok<ProjectInfo>, ValidationProblem, ProblemHttpResult>> UpdateAsync(
-        string slug, UpdateProjectRequest request, TikaiDbContext db, CancellationToken cancellationToken)
+        string slug, UpdateProjectRequest request, TikaiDbContext db, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         var errors = new Dictionary<string, string[]>();
         AddNameError(errors, request.Name);
@@ -71,14 +71,15 @@ internal static class ProjectEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        var project = await FindAsync(db, slug, cancellationToken);
-        if (project is null)
+        // Not a tracked save: creating a ticket changes the project row (its ticket counter), so the xmin check
+        // would fail a rename that overlaps with it. For a name, the last write wins.
+        var renamed = await db.Projects.Where(p => p.Slug == slug).ExecuteUpdateAsync(
+            set => set.SetProperty(p => p.Name, request.Name.Trim()).SetProperty(p => p.UpdatedAt, timeProvider.GetUtcNow()), cancellationToken);
+        if (renamed == 0)
         {
             return NotFound();
         }
-        project.Name = request.Name.Trim();
-        await db.SaveChangesAsync(cancellationToken);
-        return TypedResults.Ok(ProjectInfo.From(project));
+        return TypedResults.Ok(ProjectInfo.From((await FindAsync(db, slug, cancellationToken))!));
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> DeleteAsync(string slug, TikaiDbContext db, CancellationToken cancellationToken)
@@ -94,6 +95,13 @@ internal static class ProjectEndpoints
                 statusCode: StatusCodes.Status409Conflict,
                 title: "The project still has repositories",
                 detail: "Delete its repositories first.");
+        }
+        if (await db.Tickets.AnyAsync(t => t.ProjectId == project.Id, cancellationToken))
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The project still has tickets",
+                detail: "Only a project without tickets can be deleted; close tickets you no longer need.");
         }
         db.Projects.Remove(project);
         await db.SaveChangesAsync(cancellationToken);

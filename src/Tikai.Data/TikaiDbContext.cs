@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Tikai.Core.Common;
 using Tikai.Core.Llm;
 using Tikai.Core.Projects;
+using Tikai.Core.Tickets;
 using Tikai.Data.Identity;
 using Tikai.Data.Jobs;
 
@@ -19,6 +20,10 @@ public class TikaiDbContext(DbContextOptions options)
     public DbSet<Repository> Repositories => Set<Repository>();
 
     public DbSet<LlmProvider> LlmProviders => Set<LlmProvider>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<AcceptanceCriterion> AcceptanceCriteria => Set<AcceptanceCriterion>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
