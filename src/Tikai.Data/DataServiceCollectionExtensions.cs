@@ -15,9 +15,17 @@ public static class DataServiceCollectionExtensions
     public static IServiceCollection AddTikaiData(this IServiceCollection services, string connectionString)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        return services.AddTikaiData(_ => connectionString);
+    }
 
+    /// <summary>
+    /// Same, but the connection string is resolved when the data source is first used,
+    /// so tools that only build the host (OpenAPI generation) need no database settings.
+    /// </summary>
+    public static IServiceCollection AddTikaiData(this IServiceCollection services, Func<IServiceProvider, string> connectionString)
+    {
         services.TryAddSingleton(TimeProvider.System);
-        services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
+        services.AddSingleton(sp => new NpgsqlDataSourceBuilder(connectionString(sp)).Build());
         services.AddSingleton<EntityTimestampsInterceptor>();
         services.AddDbContext<TikaiDbContext>((sp, options) => options.UseTikai(
             sp.GetRequiredService<NpgsqlDataSource>(),

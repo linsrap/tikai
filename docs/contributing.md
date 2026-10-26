@@ -52,6 +52,10 @@ dotnet run --project src/Tikai.Api             # API on http://localhost:5080
 npm run dev --prefix web                       # web app on http://localhost:5173, proxies /api and /hubs
 ```
 
+To run the whole stack as users will, see [self-hosting.md](self-hosting.md) (`docker compose up -d --build`, then <http://localhost:8080>).
+
+When you change the API, `dotnet build` rewrites `web/openapi.json`; then run `npm run api:generate --prefix web` to update the typed client in `web/src/api/schema.d.ts`, and commit both. CI fails if either is stale.
+
 The API applies EF Core migrations at startup. To add one after changing the model:
 
 ```powershell

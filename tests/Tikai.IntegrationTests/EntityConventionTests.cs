@@ -105,10 +105,10 @@ public sealed class EntityConventionTests(PostgresFixture postgres) : IAsyncLife
 
     private sealed class ConventionsContext(DbContextOptions options) : TikaiDbContext(options)
     {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        protected override void OnModelCreating(ModelBuilder builder)
         {
-            modelBuilder.Entity<Widget>().ToTable("widgets");
-            base.OnModelCreating(modelBuilder);
+            builder.Entity<Widget>().ToTable("widgets");
+            base.OnModelCreating(builder);
         }
     }
 }

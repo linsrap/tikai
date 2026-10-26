@@ -18,6 +18,8 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore Tikai.slnx
       - run: dotnet build Tikai.slnx --no-restore
+      - name: OpenAPI document is up to date
+        run: git diff --exit-code -- web/openapi.json || { echo "::error::web/openapi.json is stale. Run dotnet build and commit it."; exit 1; }
       - run: dotnet test --no-build
       - run: dotnet format Tikai.slnx --verify-no-changes --no-restore
 
@@ -34,7 +36,18 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - name: API client types are up to date
+        run: |
+          npm run api:generate
+          git diff --exit-code -- src/api/schema.d.ts || { echo "::error::web/src/api/schema.d.ts is stale. Run npm run api:generate and commit it."; exit 1; }
       - run: npm run lint
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the hub image
+        run: docker build -f images/hub/Dockerfile -t tikai/hub:ci .

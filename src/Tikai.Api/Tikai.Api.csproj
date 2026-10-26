@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <!-- Write the OpenAPI document at build time; the web app generates its typed client from it. -->
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/../../web</OpenApiDocumentsDirectory>
+    <OpenApiGenerateDocumentsOptions>--file-name openapi</OpenApiGenerateDocumentsOptions>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Tikai.Core\Tikai.Core.csproj" />
     <ProjectReference Include="..\Tikai.Data\Tikai.Data.csproj" />
@@ -12,7 +18,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tikai.IntegrationTests" />
   </ItemGroup>
 
 </Project>
