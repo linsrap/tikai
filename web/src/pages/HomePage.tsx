@@ -11,7 +11,8 @@ export function HomePage() {
       <h1>Welcome, {status.user?.displayName}</h1>
       <p>
         Tickets, agents and human review in one place. Start with a{' '}
-        <Link to="/projects">project and its repositories</Link>; tickets come next.
+        <Link to="/projects">project</Link>, add its repositories, and write tickets with acceptance
+        criteria.
       </p>
     </AppShell>
   )

@@ -903,6 +903,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{slug}/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TicketSummary"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TicketInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{slug}/tickets/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    number: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TicketInfo"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    number: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TicketInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    number: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -934,6 +1098,13 @@ export interface components {
             defaultBranch?: null | string;
             credential?: null | components["schemas"]["CredentialInput"];
         };
+        CreateTicketRequest: {
+            title: string;
+            /** @default  */
+            description: string;
+            priority?: components["schemas"]["TicketPriority"];
+            criteria?: null | string[];
+        };
         CredentialInput: {
             kind: components["schemas"]["CredentialKind"];
             username?: null | string;
@@ -942,6 +1113,16 @@ export interface components {
         };
         /** @enum {unknown} */
         CredentialKind: "none" | "https_token" | "ssh_key";
+        CriterionInfo: {
+            /** Format: uuid */
+            id: string;
+            text: string;
+        };
+        CriterionInput: {
+            text: string;
+            /** Format: uuid */
+            id?: null | string;
+        };
         CurrentUser: {
             /** Format: uuid */
             id: string;
@@ -1016,6 +1197,42 @@ export interface components {
             displayName: string;
             password: string;
         };
+        TicketInfo: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            number: number;
+            key: string;
+            title: string;
+            description: string;
+            status: components["schemas"]["TicketStatus"];
+            priority: components["schemas"]["TicketPriority"];
+            criteria: components["schemas"]["CriterionInfo"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @enum {unknown} */
+        TicketPriority: "low" | "normal" | "high" | "urgent";
+        /** @enum {unknown} */
+        TicketStatus: "open" | "in_progress" | "in_review" | "done" | "closed";
+        TicketSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            number: number;
+            key: string;
+            title: string;
+            status: components["schemas"]["TicketStatus"];
+            priority: components["schemas"]["TicketPriority"];
+            /** Format: int32 */
+            criteriaCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         UpdateLlmProviderRequest: {
             name: string;
             defaultModel: string;
@@ -1024,6 +1241,13 @@ export interface components {
         };
         UpdateProjectRequest: {
             name: string;
+        };
+        UpdateTicketRequest: {
+            title: string;
+            description: string;
+            status: components["schemas"]["TicketStatus"];
+            priority: components["schemas"]["TicketPriority"];
+            criteria: components["schemas"]["CriterionInput"][];
         };
     };
     responses: never;

@@ -25,7 +25,10 @@ export function ProjectsPage() {
                 {p.name}
               </Link>{' '}
               <span className="muted">
-                {p.key} · /{p.slug}
+                {p.key} · /{p.slug} ·{' '}
+                <Link to="/projects/$slug/tickets" params={{ slug: p.slug }}>
+                  tickets
+                </Link>
               </span>
             </li>
           ))}

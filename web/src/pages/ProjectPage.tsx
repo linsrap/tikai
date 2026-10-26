@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import {
   branchesQuery,
@@ -43,6 +43,11 @@ export function ProjectPage({ slug }: { slug: string }) {
           Ticket key {project.data.key} · /{project.data.slug}
         </p>
       )}
+      <p>
+        <Link to="/projects/$slug/tickets" params={{ slug }}>
+          Tickets
+        </Link>
+      </p>
       <h2>Repositories</h2>
       {repositories.data?.length === 0 && <p>No repositories yet.</p>}
       {repositories.data?.map((r) => (

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Tikai.Core.Git;
 using Tikai.Core.Projects;
+using Tikai.Data.Tickets;
 
 namespace Tikai.Data.Projects;
 
@@ -15,6 +16,8 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.Property(p => p.Key).HasMaxLength(ProjectKey.MaxLength);
         builder.HasIndex(p => p.Slug).IsUnique();
         builder.HasIndex(p => p.Key).IsUnique();
+        // Only TicketNumbers changes it, with SQL; code never sets it.
+        builder.Property<int>(TicketNumbers.CounterProperty).HasDefaultValue(0).ValueGeneratedNever();
     }
 }
 

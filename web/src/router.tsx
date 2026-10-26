@@ -13,6 +13,8 @@ import { ProjectPage } from './pages/ProjectPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SignUpPage } from './pages/SignUpPage'
+import { TicketPage } from './pages/TicketPage'
+import { NewTicketPage, TicketsPage } from './pages/TicketsPage'
 
 type RouterContext = { queryClient: QueryClient }
 type EntryPath = '/' | '/login' | '/signup'
@@ -71,6 +73,41 @@ const projectRoute = createRoute({
   },
 })
 
+const ticketsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/$slug/tickets',
+  beforeLoad: requireUser,
+  component: function TicketsRouteComponent() {
+    const { slug } = ticketsRoute.useParams()
+    return <TicketsPage slug={slug} />
+  },
+})
+
+const newTicketRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/$slug/tickets/new',
+  beforeLoad: requireUser,
+  component: function NewTicketRouteComponent() {
+    const { slug } = newTicketRoute.useParams()
+    return <NewTicketPage slug={slug} />
+  },
+})
+
+const ticketRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/$slug/tickets/$number',
+  beforeLoad: requireUser,
+  component: function TicketRouteComponent() {
+    const { slug, number } = ticketRoute.useParams()
+    // Keyed by number, so moving to another ticket starts outside edit mode.
+    return /^[1-9][0-9]{0,9}$/.test(number) ? (
+      <TicketPage key={number} slug={slug} number={Number(number)} />
+    ) : (
+      <p className="shell">No ticket {number}.</p>
+    )
+  },
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
@@ -86,6 +123,9 @@ export function createAppRouter(queryClient: QueryClient) {
       signUpRoute,
       projectsRoute,
       projectRoute,
+      ticketsRoute,
+      newTicketRoute,
+      ticketRoute,
       settingsRoute,
     ]),
     context: { queryClient },
