@@ -72,6 +72,8 @@ dotnet_naming_style.i_prefix.required_prefix = I
 [tests/**.cs]
 # Test names use underscores for readability (Project_references_only_allowed_projects).
 dotnet_diagnostic.CA1707.severity = none
+# Constant arrays as test arguments (tool arguments, expected lists) are fine; the rule is about hot paths.
+dotnet_diagnostic.CA1861.severity = none
 
 [src/Tikai.Data/Migrations/**.cs]
 # EF Core migrations are generated; analyzers and style rules skip them.
