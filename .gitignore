@@ -1,0 +1,27 @@
+# AI working docs (local only)
+aidocs/
+
+# Local secrets
+.env
+
+# Spike leftovers from other branches (spike code lives on spike/* branches only)
+spikes/
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Node / web
+node_modules/
+web/dist/
+web/coverage/
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+Thumbs.db
+.DS_Store

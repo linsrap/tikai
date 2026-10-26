@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Tikai.Adapters.ClaudeCode/Tikai.Adapters.ClaudeCode.csproj" />
+    <Project Path="src/Tikai.Api/Tikai.Api.csproj" />
+    <Project Path="src/Tikai.Core/Tikai.Core.csproj" />
+    <Project Path="src/Tikai.Data/Tikai.Data.csproj" />
+    <Project Path="src/Tikai.Git/Tikai.Git.csproj" />
+    <Project Path="src/Tikai.Llm/Tikai.Llm.csproj" />
+    <Project Path="src/Tikai.Mcp/Tikai.Mcp.csproj" />
+    <Project Path="src/Tikai.Orchestrator/Tikai.Orchestrator.csproj" />
+    <Project Path="src/Tikai.Review/Tikai.Review.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tikai.ArchitectureTests/Tikai.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>
