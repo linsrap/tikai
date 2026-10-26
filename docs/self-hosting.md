@@ -28,8 +28,8 @@ Open <http://localhost:8080>. While no account exists, Tikai shows the setup pag
 Make one random value and put it in `.env`:
 
 ```powershell
-# PowerShell
-[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+# PowerShell (Windows PowerShell 5.1 and PowerShell 7)
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
 # Linux/macOS
 openssl rand -base64 32
 ```
