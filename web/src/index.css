@@ -188,3 +188,8 @@ table.tickets td {
 .markdown img {
   max-width: 100%;
 }
+
+.proposal {
+  border-left: 3px solid color-mix(in srgb, currentColor 30%, transparent);
+  padding-left: 0.75rem;
+}

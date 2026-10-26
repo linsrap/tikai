@@ -17,6 +17,16 @@ internal sealed class LlmProviderService(TikaiDbContext db, ISecretProtector pro
     public IQueryable<LlmProvider> Visible(Guid userId) =>
         db.LlmProviders.Where(p => p.OwnerUserId == userId || p.OwnerProjectId != null);
 
+    /// <summary>
+    /// Providers a feature of this project may use for this user: the project's own, then the user's own.
+    /// Other projects' providers are not used, even though they are visible.
+    /// </summary>
+    public IQueryable<LlmProvider> UsableFor(Guid userId, Guid projectId) =>
+        db.LlmProviders
+            .Where(p => p.OwnerProjectId == projectId || p.OwnerUserId == userId)
+            .OrderBy(p => p.OwnerProjectId == null)
+            .ThenBy(p => p.Name);
+
     public static Guid UserId(ClaimsPrincipal principal) =>
         Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new InvalidOperationException("No user id in the session."));
 

@@ -64,3 +64,27 @@ public sealed record UpdateTicketRequest(
 
 /// <param name="Id">Null for a new criterion.</param>
 public sealed record CriterionInput(string Text, Guid? Id = null);
+
+/// <summary>A ticket as it is on screen (maybe not saved yet), to be refined by an LLM.</summary>
+/// <param name="ProviderId">Null: the project's provider, otherwise the user's own.</param>
+public sealed record RefineSpecRequest(
+    string Title,
+    string Description = "",
+    IReadOnlyList<string>? Criteria = null,
+    Guid? ProviderId = null);
+
+/// <summary>
+/// The proposal. Nothing is stored: the person takes over what they want and saves the ticket.
+/// A null title or description means there is no proposal for that field.
+/// </summary>
+/// <param name="PromptVersion">The prompt file that produced it, e.g. "refine-spec.v1".</param>
+public sealed record SpecProposalInfo(
+    string? Title,
+    string? Description,
+    IReadOnlyList<string> Criteria,
+    IReadOnlyList<string> Questions,
+    string PromptVersion,
+    Guid ProviderId,
+    string ProviderName,
+    string Model,
+    int DurationMs);

@@ -1067,6 +1067,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{slug}/refine-spec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RefineSpecRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SpecProposalInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1176,6 +1226,14 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        RefineSpecRequest: {
+            title: string;
+            /** @default  */
+            description: string;
+            criteria?: null | string[];
+            /** Format: uuid */
+            providerId?: null | string;
+        };
         RepositoryInfo: {
             /** Format: uuid */
             id: string;
@@ -1196,6 +1254,19 @@ export interface components {
             email: string;
             displayName: string;
             password: string;
+        };
+        SpecProposalInfo: {
+            title: null | string;
+            description: null | string;
+            criteria: string[];
+            questions: string[];
+            promptVersion: string;
+            /** Format: uuid */
+            providerId: string;
+            providerName: string;
+            model: string;
+            /** Format: int32 */
+            durationMs: number;
         };
         TicketInfo: {
             /** Format: uuid */

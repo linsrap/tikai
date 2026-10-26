@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { MarkdownView } from '../tickets/MarkdownView'
+import { RefinePanel } from './RefinePanel'
 import {
   addCriterion,
   changeCriterion,
@@ -14,6 +15,7 @@ import {
 
 /** The form for a new ticket and for editing one; status only exists once the ticket does. */
 export function TicketFormView({
+  slug,
   initial,
   withStatus,
   submitLabel,
@@ -22,6 +24,7 @@ export function TicketFormView({
   onSubmit,
   onCancel,
 }: {
+  slug: string
   initial: TicketForm
   withStatus: boolean
   submitLabel: string
@@ -155,6 +158,7 @@ export function TicketFormView({
           </button>
         </p>
       </fieldset>
+      <RefinePanel slug={slug} form={form} onChange={setForm} />
       {error && (
         <p role="alert" className="error">
           {error.message}

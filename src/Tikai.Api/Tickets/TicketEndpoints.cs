@@ -123,7 +123,7 @@ internal static class TicketEndpoints
         return deleted == 0 ? NotFound() : TypedResults.NoContent();
     }
 
-    private static Dictionary<string, string[]> Validate(string? title, string? description, IReadOnlyList<string?> criteria)
+    internal static Dictionary<string, string[]> Validate(string? title, string? description, IReadOnlyList<string?> criteria)
     {
         var errors = new Dictionary<string, string[]>();
         ProjectEndpoints.AddError(errors, "title", TicketRules.TitleError(title));
