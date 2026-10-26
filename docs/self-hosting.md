@@ -55,7 +55,7 @@ Data lives in three named volumes: `tikai_pg` (database), `tikai_data` (the keys
 
 ## LLM providers
 
-Tikai never ships or shares an LLM key: you bring your own. Under **Settings → Your LLM providers** (or on a project page, for a provider the whole project uses) add a provider with a name, a model (default `claude-opus-5-5`) and an Anthropic API key from <https://platform.claude.com>. The key is stored encrypted and never shown again; Tikai shows only its last four characters.
+Tikai never ships or shares an LLM key: you bring your own. Under **Settings → Your LLM providers** (or on a project page, for a provider the whole project uses) add a provider with a name, a model (default `claude-opus-5-5`) and an Anthropic API key (`sk-ant-api03-…`) from <https://platform.claude.com>. API usage is billed there, separately from a Claude Pro/Max subscription; a subscription token from `claude setup-token` (`sk-ant-oat01-…`) is not an API key and is refused. The key is stored encrypted and never shown again; Tikai shows only its last four characters.
 
 **Test connection** sends one short message ("Reply with OK") with that key and model, which costs a fraction of a cent, and shows the answer and the time, or what went wrong (key rejected, model not found, rate limited, provider not reachable).
 

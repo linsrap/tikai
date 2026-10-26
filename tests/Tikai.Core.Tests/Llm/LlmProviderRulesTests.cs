@@ -57,6 +57,15 @@ public class LlmProviderRulesTests
     }
 
     [Fact]
+    public void Subscription_tokens_are_explained_not_accepted()
+    {
+        var error = LlmProviderRules.ApiKeyError("sk-ant-oat01-abcdefghijklmnopqrstuvwxyz");
+
+        Assert.NotNull(error);
+        Assert.Contains("subscription token", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_key_hint_is_the_last_four_characters_and_empty_for_short_keys()
     {
         Assert.Equal("WxYz", LlmProviderRules.KeyHint(" sk-ant-api03-abcdefghijWxYz "));

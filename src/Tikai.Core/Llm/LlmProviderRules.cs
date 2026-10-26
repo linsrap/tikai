@@ -22,10 +22,17 @@ public static partial class LlmProviderRules
             ? "Enter a model id such as \"claude-opus-5-5\"."
             : null;
 
-    public static string? ApiKeyError(string? apiKey) =>
-        string.IsNullOrWhiteSpace(apiKey) || apiKey.Trim().Length is < 8 or > MaxApiKeyLength || apiKey.Trim().Any(c => char.IsWhiteSpace(c) || char.IsControl(c))
-            ? "Paste the API key (no spaces or line breaks)."
+    public static string? ApiKeyError(string? apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Trim().Length is < 8 or > MaxApiKeyLength || apiKey.Trim().Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+        {
+            return "Paste the API key (no spaces or line breaks).";
+        }
+        // "claude setup-token" makes OAuth tokens for Claude Code on a Pro/Max plan; the Messages API does not take them as keys.
+        return apiKey.Trim().StartsWith("sk-ant-oat", StringComparison.Ordinal)
+            ? "This is a Claude subscription token (from \"claude setup-token\"), not an API key. Create an API key at platform.claude.com (API usage is billed separately from Pro/Max)."
             : null;
+    }
 
     /// <summary>Optional; only https, without user info, query or fragment (the key is sent there).</summary>
     public static string? BaseUrlError(string? baseUrl)
