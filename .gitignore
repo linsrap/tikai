@@ -1,8 +1,9 @@
 # AI working docs (local only)
 aidocs/
 
-# Local secrets
+# Local secrets and development data (Data Protection keys from dotnet run)
 .env
+.data/
 
 # Spike leftovers from other branches (spike code lives on spike/* branches only)
 spikes/

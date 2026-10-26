@@ -1,0 +1,14 @@
+# Keep the build context small and secret-free.
+.git
+.env
+**/.env
+aidocs/
+spikes/
+**/bin/
+**/obj/
+**/node_modules/
+web/dist/
+web/coverage/
+**/TestResults/
+.vs/
+.idea/

@@ -1,17 +1,23 @@
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Tikai.Core.Common;
+using Tikai.Data.Identity;
 using Tikai.Data.Jobs;
 
 namespace Tikai.Data;
 
-public class TikaiDbContext(DbContextOptions options) : DbContext(options)
+public class TikaiDbContext(DbContextOptions options)
+    : IdentityDbContext<TikaiUser, IdentityRole<Guid>, Guid>(options)
 {
     internal DbSet<JobRecord> Jobs => Set<JobRecord>();
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    protected override void OnModelCreating(ModelBuilder builder)
     {
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(TikaiDbContext).Assembly);
-        ApplyEntityConventions(modelBuilder);
+        base.OnModelCreating(builder);
+        IdentityTableNames.Apply(builder);
+        builder.ApplyConfigurationsFromAssembly(typeof(TikaiDbContext).Assembly);
+        ApplyEntityConventions(builder);
     }
 
     // Every Entity gets a client-generated uuid key, timestamps and xmin as concurrency token.

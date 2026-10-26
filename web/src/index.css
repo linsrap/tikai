@@ -12,3 +12,43 @@ body {
   margin: 4rem auto;
   padding: 0 1rem;
 }
+
+.narrow {
+  max-width: 24rem;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field input,
+button {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+}
+
+button {
+  cursor: pointer;
+}
+
+.error {
+  color: #b42318;
+  margin: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}

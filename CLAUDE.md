@@ -67,11 +67,17 @@ tests/
   Tikai.ArchitectureTests/    enforces the project reference rules below
   Tikai.Core.Tests/           pure unit tests
   Tikai.IntegrationTests/     Testcontainers Postgres 17 (needs Docker running): job queue, worker, event bus, entity conventions
-web/                          React + TypeScript (Vite, ESLint, Prettier, Vitest)
-docs/                         contributing.md (later: architecture.md, adr/)
+web/                          React + TypeScript (Vite, TanStack Router + Query, openapi-fetch, ESLint, Prettier, Vitest)
+  openapi.json                API description, written by `dotnet build` of Tikai.Api (committed; CI checks it is current)
+  src/api/schema.d.ts         typed API client types from openapi.json (`npm run api:generate`; committed; CI checks it)
+images/hub/Dockerfile         hub image: web build → API publish → aspnet runtime with git, serves the SPA from wwwroot
+docs/                         contributing.md, self-hosting.md (start, settings, restart and re-login checklist)
+compose.yml                   self-hosting: hub, db (Postgres 17), docker-proxy; volumes data, runs, pg
 compose.dev.yml               Postgres 17 for local development
-.github/workflows/ci.yml      CI on Linux: .NET build/test/format, web lint/format/test/build
+.github/workflows/ci.yml      CI on Linux: .NET build/test/format, web lint/format/test/build, hub image build, generated-file checks
 ```
+
+Auth: ASP.NET Core Identity with a cookie (`tikai.auth`). The first sign-up becomes admin, then sign-up closes. Every unsafe `/api` request needs the antiforgery header `X-XSRF-TOKEN` (value from the `XSRF-TOKEN` cookie set by `GET /api/auth/antiforgery`; fetch it again after login and logout). New API endpoints go under the `/api` group so they get this check.
 
 Project references: `Core` references nothing; `Data`, `Git`, `Llm`, `Review`, `Orchestrator`, `Mcp` and `Adapters.ClaudeCode` reference only `Core`; `Api` references everything. A new `src` project needs a rule in `tests/Tikai.ArchitectureTests/ProjectReferenceTests.cs`.
 
@@ -87,4 +93,6 @@ cd web; npm ci; npm run lint; npm run format:check; npm test; npm run build
 docker compose -f compose.dev.yml up -d  # Postgres on 127.0.0.1:5432 (settings in .env, see .env.example)
 dotnet run --project src/Tikai.Api       # API on http://localhost:5080; applies migrations at startup; /health (live), /health/ready (DB)
 npm run dev --prefix web                 # web on http://localhost:5173, proxies /api and /hubs to the API
+npm run api:generate --prefix web        # after API changes (dotnet build updates web/openapi.json first)
+docker compose up -d --build             # full stack on http://localhost:8080 (see docs/self-hosting.md)
 ```
