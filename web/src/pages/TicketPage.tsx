@@ -41,6 +41,7 @@ export function TicketPage({ slug, number }: { slug: string; number: number }) {
             <span className="muted mono">{t.key}</span> Edit
           </h1>
           <TicketFormView
+            slug={slug}
             initial={toTicketForm(t)}
             withStatus
             submitLabel="Save"

@@ -9,6 +9,8 @@ export type TicketStatus = components['schemas']['TicketStatus']
 export type TicketPriority = components['schemas']['TicketPriority']
 export type CreateTicketRequest = components['schemas']['CreateTicketRequest']
 export type UpdateTicketRequest = components['schemas']['UpdateTicketRequest']
+export type RefineSpecRequest = components['schemas']['RefineSpecRequest']
+export type SpecProposal = components['schemas']['SpecProposalInfo']
 
 export const statusLabel: Record<TicketStatus, string> = {
   open: 'Open',
@@ -120,6 +122,49 @@ export function toUpdateTicketRequest(form: TicketForm): UpdateTicketRequest {
   }
 }
 
+/** The draft as it is on screen goes to the model; empty criterion rows are left out. */
+export function toRefineSpecRequest(
+  form: TicketForm,
+  providerId: string | null,
+): RefineSpecRequest {
+  return {
+    title: form.title.trim(),
+    description: form.description,
+    criteria: filled(form.criteria).map((c) => c.text.trim()),
+    providerId,
+  }
+}
+
+// Taking over parts of a proposal. Each one changes only the form; nothing is saved until "Save".
+
+export function takeProposedTitle(form: TicketForm, title: string): TicketForm {
+  return { ...form, title }
+}
+
+export function takeProposedDescription(form: TicketForm, description: string): TicketForm {
+  return { ...form, description }
+}
+
+/** Adds one proposed criterion after the existing ones. */
+export function addProposedCriterion(form: TicketForm, text: string): TicketForm {
+  return { ...form, criteria: [...form.criteria, { key: draftKey(), id: null, text }] }
+}
+
+/** Replaces all criteria; replaced criteria get new ids when saved. */
+export function replaceCriteria(form: TicketForm, texts: string[]): TicketForm {
+  return { ...form, criteria: texts.map((text) => ({ key: draftKey(), id: null, text })) }
+}
+
+/** Appends the open questions to the description, so they can be answered there before refining again. */
+export function appendQuestions(form: TicketForm, questions: string[]): TicketForm {
+  const list = questions.map((q) => `- ${q}`).join('\n')
+  const description = form.description.trimEnd()
+  return {
+    ...form,
+    description: `${description}${description ? '\n\n' : ''}## Open questions\n\n${list}\n`,
+  }
+}
+
 export const ticketsQuery = (slug: string) =>
   queryOptions({
     queryKey: ['projects', slug, 'tickets'],
@@ -184,3 +229,15 @@ export const useDeleteTicket = (slug: string, number: number) =>
       'delete the ticket',
     ),
   )
+
+/** Asks the LLM for a proposal. Costs tokens on the provider's key; stores nothing. */
+export const useRefineSpec = (slug: string) =>
+  useMutation({
+    mutationFn: async (body: RefineSpecRequest) => {
+      await ensureAntiforgery()
+      return unwrap(
+        api.POST('/api/projects/{slug}/refine-spec', { params: { path: { slug } }, body }),
+        'refine the ticket',
+      )
+    },
+  })

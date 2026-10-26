@@ -106,6 +106,7 @@ export function NewTicketPage({ slug }: { slug: string }) {
       </p>
       <h1>New ticket</h1>
       <TicketFormView
+        slug={slug}
         initial={emptyTicketForm()}
         withStatus={false}
         submitLabel="Create ticket"

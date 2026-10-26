@@ -10,4 +10,13 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Prompts are versioned files; see Prompts.cs. -->
+    <EmbeddedResource Include="Prompts\*.md" LogicalName="Tikai.Llm.Prompts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tikai.IntegrationTests" />
+  </ItemGroup>
+
 </Project>
