@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Tikai.Core.Common;
+using Tikai.Core.Projects;
 using Tikai.Data.Identity;
 using Tikai.Data.Jobs;
 
@@ -11,6 +12,10 @@ public class TikaiDbContext(DbContextOptions options)
     : IdentityDbContext<TikaiUser, IdentityRole<Guid>, Guid>(options)
 {
     internal DbSet<JobRecord> Jobs => Set<JobRecord>();
+
+    public DbSet<Project> Projects => Set<Project>();
+
+    public DbSet<Repository> Repositories => Set<Repository>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

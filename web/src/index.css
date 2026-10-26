@@ -52,3 +52,75 @@ button {
   padding-bottom: 0.75rem;
   border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
 }
+
+a {
+  color: inherit;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.spread {
+  justify-content: space-between;
+}
+
+.card {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 0.5rem;
+}
+
+.card p {
+  margin: 0;
+}
+
+.list {
+  padding-left: 1.25rem;
+  line-height: 1.8;
+}
+
+.muted {
+  opacity: 0.7;
+}
+
+.mono {
+  font-family: ui-monospace, monospace;
+}
+
+.field select,
+.field textarea {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+}
+
+.field textarea.mono {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.badge {
+  font-size: 0.85rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.badge.ready {
+  color: #1a7f37;
+}
+
+.badge.failed,
+.danger {
+  color: #b42318;
+}

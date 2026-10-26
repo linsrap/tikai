@@ -1,8 +1,11 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Tikai.Api.Auth;
 using Tikai.Api.Hosting;
+using Tikai.Api.Projects;
 using Tikai.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,7 +14,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddTikaiData(sp => sp.GetRequiredService<IConfiguration>().GetConnectionString("Db")
     ?? throw new InvalidOperationException("Connection string 'Db' is missing. Set ConnectionStrings__Db (see .env.example)."));
 builder.Services.AddTikaiAuth(builder.Configuration, builder.Environment);
+builder.Services.AddTikaiProjects(builder.Configuration, builder.Environment);
 builder.Services.AddProblemDetails();
+// Enums travel as snake_case strings ("https_token"), the same values the database stores.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower)));
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<TikaiDbContext>("database", tags: ["ready"]);
@@ -43,6 +50,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check 
 
 var api = app.MapGroup("/api").AddEndpointFilter<AntiforgeryFilter>();
 api.MapAuthEndpoints();
+api.MapProjectEndpoints();
 // Unknown API routes are 404s, not the web app's index.html.
 api.Map("/{**path}", () => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found"));
 

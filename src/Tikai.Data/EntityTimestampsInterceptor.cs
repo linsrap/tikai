@@ -29,7 +29,9 @@ public sealed class EntityTimestampsInterceptor(TimeProvider timeProvider) : Sav
             return;
         }
 
-        var now = timeProvider.GetUtcNow();
+        // Postgres keeps microseconds; rounding here keeps the saved entity equal to what a later read returns.
+        var utcNow = timeProvider.GetUtcNow();
+        var now = utcNow.AddTicks(-(utcNow.Ticks % TimeSpan.TicksPerMicrosecond));
         foreach (var entry in context.ChangeTracker.Entries<Entity>())
         {
             switch (entry.State)

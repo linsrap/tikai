@@ -33,3 +33,10 @@ export async function refreshAntiforgery(): Promise<void> {
     throw new Error(`Could not get an antiforgery token (${response.status})`)
   }
 }
+
+/** Gets a token only if there is none yet, e.g. when the login cookie outlived the browser session. */
+export async function ensureAntiforgery(): Promise<void> {
+  if (!readCookie('XSRF-TOKEN')) {
+    await refreshAntiforgery()
+  }
+}
