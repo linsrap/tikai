@@ -9,6 +9,8 @@ import {
 import { authStatusQuery, entryRouteFor } from './auth/auth'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
+import { ProjectPage } from './pages/ProjectPage'
+import { ProjectsPage } from './pages/ProjectsPage'
 import { SignUpPage } from './pages/SignUpPage'
 
 type RouterContext = { queryClient: QueryClient }
@@ -26,6 +28,9 @@ function guard(path: EntryPath) {
     }
   }
 }
+
+/** Pages behind the login: people without a session go to sign-up or login. */
+const requireUser = guard('/')
 
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -48,9 +53,32 @@ const signUpRoute = createRoute({
   component: SignUpPage,
 })
 
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects',
+  beforeLoad: requireUser,
+  component: ProjectsPage,
+})
+
+const projectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/$slug',
+  beforeLoad: requireUser,
+  component: function ProjectRouteComponent() {
+    const { slug } = projectRoute.useParams()
+    return <ProjectPage slug={slug} />
+  },
+})
+
 export function createAppRouter(queryClient: QueryClient) {
   return createRouter({
-    routeTree: rootRoute.addChildren([homeRoute, loginRoute, signUpRoute]),
+    routeTree: rootRoute.addChildren([
+      homeRoute,
+      loginRoute,
+      signUpRoute,
+      projectsRoute,
+      projectRoute,
+    ]),
     context: { queryClient },
   })
 }

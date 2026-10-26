@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using Tikai.Api.Hosting;
+using Tikai.Api.Security;
+using Tikai.Core.Security;
 using Tikai.Data;
 using Tikai.Data.Identity;
 
@@ -15,12 +18,11 @@ internal static class AuthSetup
     public static IServiceCollection AddTikaiAuth(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         // Keys sign the auth and antiforgery cookies; persisting them keeps people logged in across restarts.
-        // Encrypting the key ring with TIKAI_SECRET comes with step 06.
-        // The hub image sets /data (the data volume); a relative path (development) is under the content root.
-        var dataPath = Path.Combine(environment.ContentRootPath, configuration["Tikai:DataPath"] ?? "/data");
+        // They also encrypt stored secrets (ISecretProtector). Encrypting the key ring with TIKAI_SECRET comes with step 06.
         services.AddDataProtection()
             .SetApplicationName("Tikai")
-            .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataPath, "keys")));
+            .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(DataPaths.Resolve(configuration, environment), "keys")));
+        services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
 
         services.AddIdentityCore<TikaiUser>(options =>
             {

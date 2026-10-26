@@ -54,10 +54,10 @@ Core ideas:
 ```
 Tikai.slnx                    .NET solution (global.json pins SDK 10.0.402; Directory.*.props hold shared settings and package versions)
 src/
-  Tikai.Api/                  ASP.NET Core host and composition root (/health so far)
+  Tikai.Api/                  ASP.NET Core host and composition root; feature folders Auth/, Projects/ (projects, repositories, git jobs, fetch scheduler)
   Tikai.Core/                 domain: entities, state machines, interfaces; no packages, no references
   Tikai.Data/                 EF Core, migrations, job queue
-  Tikai.Git/                  GitService (git CLI)
+  Tikai.Git/                  GitService (git CLI, isolated config, credentials via env only), ProcessRunner
   Tikai.Orchestrator/         run lifecycle, Docker
   Tikai.Mcp/                  MCP tools
   Tikai.Review/               diff model, analysis, ordering
@@ -66,7 +66,8 @@ src/
 tests/
   Tikai.ArchitectureTests/    enforces the project reference rules below
   Tikai.Core.Tests/           pure unit tests
-  Tikai.IntegrationTests/     Testcontainers Postgres 17 (needs Docker running): job queue, worker, event bus, entity conventions
+  Tikai.IntegrationTests/     Testcontainers Postgres 17 (needs Docker running): job queue, worker, event bus, entity conventions, auth, projects API;
+                              real git: GitService, token auth via in-process git http-backend, SSH via an sshd container (needs `ssh` on PATH for git)
 web/                          React + TypeScript (Vite, TanStack Router + Query, openapi-fetch, ESLint, Prettier, Vitest)
   openapi.json                API description, written by `dotnet build` of Tikai.Api (committed; CI checks it is current)
   src/api/schema.d.ts         typed API client types from openapi.json (`npm run api:generate`; committed; CI checks it)
@@ -78,6 +79,8 @@ compose.dev.yml               Postgres 17 for local development
 ```
 
 Auth: ASP.NET Core Identity with a cookie (`tikai.auth`). The first sign-up becomes admin, then sign-up closes. Every unsafe `/api` request needs the antiforgery header `X-XSRF-TOKEN` (value from the `XSRF-TOKEN` cookie set by `GET /api/auth/antiforgery`; fetch it again after login and logout). New API endpoints go under the `/api` group so they get this check.
+
+Git: every git call goes through `GitService` (never `Process.Start("git")` elsewhere): argument lists, `--git-dir`, no system/global config, no prompts, `GIT_ALLOW_PROTOCOL` from `Tikai:Git:AllowedProtocols`. Credentials only through env (`GIT_CONFIG_*` extraHeader, `GIT_SSH_COMMAND` with a temp key file), never in arguments, URLs or repo config. Mirrors live at `<data>/repos/<project-id>/<repo-id>.git` (paths from ids only); remote branches in `refs/remotes/origin/*`, the hub's own branches in `refs/heads/*`. Writes to mirrors go through the `git` job queue.
 
 Project references: `Core` references nothing; `Data`, `Git`, `Llm`, `Review`, `Orchestrator`, `Mcp` and `Adapters.ClaudeCode` reference only `Core`; `Api` references everything. A new `src` project needs a rule in `tests/Tikai.ArchitectureTests/ProjectReferenceTests.cs`.
 

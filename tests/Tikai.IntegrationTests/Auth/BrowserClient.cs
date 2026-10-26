@@ -21,7 +21,7 @@ public sealed class BrowserClient(HttpClient http) : IDisposable
     }
 
     public Task<HttpResponseMessage> PostAsync(string path, object? body = null) =>
-        Http.PostAsJsonAsync(new Uri(path, UriKind.Relative), body ?? new { });
+        Http.PostAsJsonAsync(new Uri(path, UriKind.Relative), body ?? new { }, TikaiJson.Options);
 
     public Task<HttpResponseMessage> SignUpAsync(string email, string password = "correct horse battery", string displayName = "Ada") =>
         PostAsync("/api/auth/signup", new { email, displayName, password });
@@ -30,6 +30,20 @@ public sealed class BrowserClient(HttpClient http) : IDisposable
         PostAsync("/api/auth/login", new { email, password });
 
     public Task<HttpResponseMessage> GetAsync(string path) => Http.GetAsync(new Uri(path, UriKind.Relative));
+
+    public async Task<T> GetJsonAsync<T>(string path) =>
+        (await Http.GetFromJsonAsync<T>(new Uri(path, UriKind.Relative), TikaiJson.Options))!;
+
+    public Task<HttpResponseMessage> PutAsync(string path, object body) => Http.PutAsJsonAsync(new Uri(path, UriKind.Relative), body, TikaiJson.Options);
+
+    public Task<HttpResponseMessage> DeleteAsync(string path) => Http.DeleteAsync(new Uri(path, UriKind.Relative));
+
+    /// <summary>Signs up the first (admin) user and keeps the session, ready for API calls.</summary>
+    public async Task SignUpAdminAsync()
+    {
+        (await SignUpAsync("ada@example.org")).EnsureSuccessStatusCode();
+        await RefreshAntiforgeryAsync();
+    }
 
     public void Dispose() => Http.Dispose();
 }

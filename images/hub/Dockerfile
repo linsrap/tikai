@@ -19,8 +19,9 @@ RUN dotnet publish src/Tikai.Api/Tikai.Api.csproj -c Release -o /app -p:OpenApiG
 
 # 3. Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# openssh-client: SSH remotes (the git package only recommends it). curl: the health check.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git curl \
+ && apt-get install -y --no-install-recommends git openssh-client curl \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=api /app ./
