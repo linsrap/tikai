@@ -1,15 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
+import { PlanAnswer, QuestionAnswer } from '../inbox/AnswerForms'
+import { useWatch } from '../live/live'
+import { RunLog } from '../live/RunLog'
 import { providersQuery } from '../llm/llm'
 import { repositoriesQuery } from '../projects/projects'
 import {
   blockedNote,
-  eventSummary,
+  costText,
   isActive,
-  isMoving,
   resumeLabel,
-  runEventsQuery,
   runsQuery,
   runStateLabel,
   toStartRunRequest,
@@ -20,7 +21,7 @@ import {
 } from '../runs/runs'
 import type { TicketStatus } from '../tickets/tickets'
 
-/** "Assign to agent" and the ticket's runs. No live log yet: the list polls while a run moves. */
+/** "Assign to agent" and the ticket's runs, live (the page watches its project). */
 export function RunsSection({
   slug,
   number,
@@ -30,6 +31,7 @@ export function RunsSection({
   number: number
   status: TicketStatus
 }) {
+  useWatch('WatchProject', slug)
   const runs = useQuery(runsQuery(slug, number))
   const active = runs.data?.find((r) => isActive(r.state))
 
@@ -126,8 +128,8 @@ function AssignBox({ slug, number }: { slug: string; number: number }) {
         )}
       </div>
       <p className="muted">
-        The agent proposes a plan first and waits until it is approved (in the inbox, coming soon;
-        for now through the API). Its API usage is billed to the provider&apos;s key.
+        The agent proposes a plan first and waits until it is approved here or in the{' '}
+        <Link to="/">inbox</Link>. Its API usage is billed to the provider&apos;s key.
       </p>
       {start.error && <p className="error">{start.error.message}</p>}
     </div>
@@ -136,27 +138,21 @@ function AssignBox({ slug, number }: { slug: string; number: number }) {
 
 const time = (iso: string) => new Date(iso).toLocaleString()
 
-/** What a blocked run waits for. Answers go through the inbox (step 12) or the API until then. */
+/** What a blocked run waits for, answered right here (or in the inbox). */
 function Waiting({ run }: { run: RunInfo }) {
   return (
     <div className="stack">
       {run.blockedSince && <p>Waiting for an answer since {time(run.blockedSince)}</p>}
-      {run.waiting.length > 0 && (
-        <ul className="list">
-          {run.waiting.map((item) => (
-            <li key={item.id}>
-              {waitingText(item)} <span className="muted mono">{item.id}</span>
-            </li>
-          ))}
-        </ul>
+      {run.waiting.map((item) =>
+        item.plan ? (
+          <PlanAnswer key={item.id} id={item.id} plan={item.plan} />
+        ) : item.question ? (
+          <QuestionAnswer key={item.id} id={item.id} question={item.question} />
+        ) : (
+          <p key={item.id}>{waitingText(item)}</p>
+        ),
       )}
       {blockedNote(run, time) && <p className="muted">{blockedNote(run, time)}</p>}
-      {run.waiting.length > 0 && (
-        <p className="muted">
-          Answer it in the inbox (coming soon); for now through{' '}
-          <span className="mono">POST /api/attention-items/&#123;id&#125;/answer</span>.
-        </p>
-      )}
     </div>
   )
 }
@@ -164,7 +160,6 @@ function Waiting({ run }: { run: RunInfo }) {
 function RunCard({ slug, run }: { slug: string; run: RunInfo }) {
   const cancel = useCancelRun(slug)
   const [showEvents, setShowEvents] = useState(false)
-  const events = useQuery({ ...runEventsQuery(run.id, isMoving(run.state)), enabled: showEvents })
 
   return (
     <article className="card stack">
@@ -184,11 +179,7 @@ function RunCard({ slug, run }: { slug: string; run: RunInfo }) {
         </p>
       )}
       {run.failureReason && <p className="error">{run.failureReason}</p>}
-      {run.costUsd != null && (
-        <p className="muted">
-          Cost {run.costUsd.toFixed(4)} USD, {run.costTokens?.toLocaleString()} tokens
-        </p>
-      )}
+      <p className="muted">Cost: {costText(run)}</p>
       <div className="row">
         <button type="button" onClick={() => setShowEvents(!showEvents)} aria-pressed={showEvents}>
           Transcript
@@ -213,16 +204,7 @@ function RunCard({ slug, run }: { slug: string; run: RunInfo }) {
         )}
         {cancel.error && <span className="error">{cancel.error.message}</span>}
       </div>
-      {showEvents && (
-        <ol className="list transcript">
-          {events.error && <li className="error">{events.error.message}</li>}
-          {events.data?.map((e) => (
-            <li key={e.seq} className={`event ${e.kind}`}>
-              <span className="muted mono">{e.seq}</span> {eventSummary(e)}
-            </li>
-          ))}
-        </ol>
-      )}
+      {showEvents && <RunLog runId={run.id} />}
     </article>
   )
 }

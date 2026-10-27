@@ -138,6 +138,51 @@ internal sealed class AttentionService(TikaiDbContext db, IJobQueue jobs, IEvent
         }
     }
 
+    /// <summary>
+    /// A person closes an item no agent waits for (a failure, a submitted review). False when it is not open (any more).
+    /// Joins the caller's transaction, if any.
+    /// </summary>
+    public async Task<bool> DismissAsync(Guid itemId, Guid userId, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var updated = await db.AttentionItems
+            .Where(i => i.Id == itemId && i.Status == AttentionStatus.Open && !AttentionKinds.Blocking.Contains(i.Kind))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(i => i.Status, AttentionStatus.Dismissed)
+                .SetProperty(i => i.AnsweredById, userId)
+                .SetProperty(i => i.UpdatedAt, now), cancellationToken);
+        if (updated > 0)
+        {
+            await events.PublishAsync(AttentionItem.Topic, itemId, cancellationToken);
+        }
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return updated > 0;
+    }
+
+    /// <summary>A new run of the ticket answers its earlier failures. Joins the caller's transaction.</summary>
+    public async Task DismissFailuresAsync(Guid ticketId, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        var ids = await db.AttentionItems
+            .Where(i => i.TicketId == ticketId && i.Kind == AttentionKind.Failure && i.Status == AttentionStatus.Open)
+            .Select(i => i.Id)
+            .ToListAsync(cancellationToken);
+        if (ids.Count == 0)
+        {
+            return;
+        }
+        await db.AttentionItems.Where(i => ids.Contains(i.Id) && i.Status == AttentionStatus.Open)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.Status, AttentionStatus.Dismissed).SetProperty(i => i.UpdatedAt, now), cancellationToken);
+        foreach (var id in ids)
+        {
+            await events.PublishAsync(AttentionItem.Topic, id, cancellationToken);
+        }
+    }
+
     public static AttentionAnswer? AnswerOf(AttentionItem item) =>
         item.Status == AttentionStatus.Answered && item.Answer is not null ? AttentionJson.Deserialize<AttentionAnswer>(item.Answer) : null;
 

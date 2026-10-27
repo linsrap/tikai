@@ -55,3 +55,29 @@ jobs:
         run: |
           docker build -t tikai/agent-base:ci images/agent-base
           docker build --build-arg BASE_IMAGE=tikai/agent-base:ci -t tikai/agent-claude-code:ci images/agent-claude-code
+
+  # The main loop in a browser: the hub image with the stub agent in its own compose project (web/e2e/stack.mjs).
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - name: Keep the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 14

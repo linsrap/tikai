@@ -21,15 +21,28 @@ export const runStateLabel: Record<RunState, string> = {
   cancelled: 'Cancelled',
 }
 
-/** States in which the run still changes by itself (so the page polls). */
-export const isMoving = (state: RunState) => ['queued', 'preparing', 'running'].includes(state)
-
 /** States in which the run has not ended (it can be cancelled). */
 export const isActive = (state: RunState) => !['merged', 'failed', 'cancelled'].includes(state)
 
-/** How often the list asks again: often while a run moves, less while it waits (an answer given elsewhere moves it). */
-export const pollInterval = (state: RunState): number | false =>
-  isMoving(state) ? 3000 : state === 'blocked' ? 10000 : false
+/** "1:05:09" or "4:02": how long the run has been going, or went (ended runs). */
+export function elapsed(
+  run: Pick<RunInfo, 'startedAt' | 'createdAt' | 'endedAt'>,
+  now = Date.now(),
+) {
+  const from = new Date(run.startedAt ?? run.createdAt).getTime()
+  const to = run.endedAt ? new Date(run.endedAt).getTime() : now
+  const total = Math.max(0, Math.floor((to - from) / 1000))
+  const [h, m, s] = [Math.floor(total / 3600), Math.floor((total % 3600) / 60), total % 60]
+  const two = (n: number) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`
+}
+
+/** Cost and tokens as the agent reported them when a container ended; nothing while the first one runs. */
+export function costText(run: Pick<RunInfo, 'costUsd' | 'costTokens'>): string {
+  if (run.costUsd == null) return 'reported when the agent finishes'
+  const tokens = run.costTokens != null ? `, ${run.costTokens.toLocaleString()} tokens` : ''
+  return `${run.costUsd.toFixed(4)} USD${tokens}`
+}
 
 /** What the agent waits for, in one line. */
 export function waitingText(item: WaitingItem): string {
@@ -116,25 +129,14 @@ export const runsQuery = (slug: string, number: number) =>
         }),
         'load the runs',
       ),
-    // Poll while a run can change by itself; live updates come with SignalR (roadmap step 12).
-    refetchInterval: (query) => {
-      const intervals = (query.state.data ?? [])
-        .map((r) => pollInterval(r.state))
-        .filter((i) => i !== false)
-      return intervals.length > 0 ? Math.min(...intervals) : false
-    },
+    // Kept fresh by live updates (the page watches its project), not by polling.
   })
 
-export const runEventsQuery = (id: string, moving: boolean) =>
-  queryOptions({
-    queryKey: ['runs', id, 'events'],
-    queryFn: () =>
-      unwrap(
-        api.GET('/api/runs/{id}/events', { params: { path: { id }, query: { limit: 1000 } } }),
-        'load the transcript',
-      ),
-    refetchInterval: moving ? 3000 : false,
-  })
+/** The agent board: runs that have not ended, and those that ended within the hour. Kept fresh by live updates. */
+export const boardQuery = queryOptions({
+  queryKey: ['runs', 'board'],
+  queryFn: () => unwrap(api.GET('/api/runs'), 'load the agent board'),
+})
 
 function useRunMutation<TInput, TResult>(slug: string, send: (input: TInput) => Promise<TResult>) {
   const queryClient = useQueryClient()
@@ -144,7 +146,11 @@ function useRunMutation<TInput, TResult>(slug: string, send: (input: TInput) => 
       return send(input)
     },
     // The ticket's status follows its run.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects', slug, 'tickets'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects', slug, 'tickets'] })
+      void queryClient.invalidateQueries({ queryKey: ['runs'] })
+      void queryClient.invalidateQueries({ queryKey: ['attention-items'] })
+    },
   })
 }
 

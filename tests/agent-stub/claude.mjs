@@ -13,6 +13,10 @@
 //                   1 s apart, like Claude Code's model does), writes the answer to answer.txt, commits, submits
 //   wait-badresume  like wait, but a --resume of its session fails (error result, exit 1)
 //   wait-nosession  like wait, but deletes its own session file before it asks
+//   plan-wait[:<n>] proposes a two-step plan and waits (a revision is proposed again with the notes as a step), commits
+//                   before.txt, asks "Which word?" with the options alpha and beta and waits, prints <n> lines 250 ms
+//                   apart (stdout only, so a hub restart meanwhile loses nothing), then like wait; MCP calls after the
+//                   lines are retried for a minute (the browser test restarts the hub while they print)
 // Like Claude Code it keeps a session file in $CLAUDE_CONFIG_DIR/projects/-run-work/<session>.jsonl, continues it with
 // --resume <session> (the answer comes in the -p message; a missing file is "No conversation found", exit 1), and
 // takes over from a summary prompt in a fresh session. It reports what it sees from the inside (uid, branch, hook,
@@ -188,10 +192,10 @@ async function submit(ticket) {
 }
 
 /** Asks, and asks again when the call drops (Claude Code's model does that, spike Q3a), until it gives up (Q3b). */
-async function askUntilAnswered(question) {
+async function askUntilAnswered(question, extra = {}) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return { answer: JSON.parse(await tool("ask_human", { question }, 3600_000)).answer, asked: attempt };
+      return { answer: JSON.parse(await tool("ask_human", { question, ...extra }, 3600_000)).answer, asked: attempt };
     } catch (e) {
       if (attempt >= 10) return { answer: null, asked: attempt };
       await sleep(1000);
@@ -200,7 +204,46 @@ async function askUntilAnswered(question) {
 }
 
 /** The wait scenarios after the question: write the answer, commit, report, submit. */
-async function finishWait(ticket, answer, extra) {
+/** Calls a tool again while the hub is unreachable (restarting), for up to a minute. */
+async function patiently(call) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await call();
+    } catch (e) {
+      if (attempt >= 60) throw e;
+      await sleep(1000);
+    }
+  }
+}
+
+/** plan-wait: a plan to approve (or revise), then the question, then a stream of lines. */
+async function planAndWait(ticket, lines) {
+  let steps = ["Write before.txt", "Ask which word to use and write it to answer.txt"];
+  for (;;) {
+    const decision = JSON.parse(
+      await tool("propose_plan", { steps, risks: ["None: this is the stub agent"], files_expected: ["before.txt", "answer.txt"] }, 3600_000),
+    );
+    if (decision.decision === "approve") break;
+    steps = [...steps, `Also: ${decision.notes}`];
+  }
+  bash("printf 'before\\n' > before.txt && git add before.txt && git commit --quiet -m 'Add before.txt'");
+  const before = sh("git rev-parse HEAD");
+  session.add({ step: "asking", question: "Which word?" });
+  const { answer, asked } = await askUntilAnswered("Which word?", { context: "It goes into `answer.txt`.", options: ["alpha", "beta"] });
+  if (answer === null) {
+    say("No answer; giving up.");
+    result({ num_turns: 3, result: "gave up waiting", total_cost_usd: 0.001 });
+    return 0;
+  }
+  for (let i = 1; i <= lines; i++) {
+    say(`Line ${i} of ${lines}`);
+    await sleep(250);
+  }
+  await patiently(() => tool("report_progress", { step: "Writing answer.txt", note: answer }));
+  return finishWait(ticket, answer, { asked, before_sha: before }, true);
+}
+
+async function finishWait(ticket, answer, extra, retry = false) {
   bash(`printf '%s\\n' '${answer.replaceAll("'", "")}' > answer.txt && git add answer.txt && git commit --quiet -m 'Add answer.txt'`);
   const stubFacts = {
     ...facts(),
@@ -211,7 +254,7 @@ async function finishWait(ticket, answer, extra) {
     ...extra,
   };
   say("STUB_FACTS " + JSON.stringify(stubFacts));
-  await submit(ticket);
+  await (retry ? patiently(() => submit(ticket)) : submit(ticket));
   result({ result: "Done.", total_cost_usd: 0.002, usage: { input_tokens: 10, output_tokens: 2 } });
   return 0;
 }
@@ -284,6 +327,9 @@ async function main() {
   session.add({ scenario });
   out({ type: "assistant", message: { role: "assistant", content: [{ type: "thinking", thinking: `Scenario ${scenario}.` }, { type: "text", text: `Working on ${ticket.key}.` }] } });
 
+  if (scenario.startsWith("plan-wait")) {
+    return planAndWait(ticket, Number(scenario.split(":")[1] ?? 0));
+  }
   if (scenario.startsWith("wait")) {
     bash("printf 'before\\n' > before.txt && git add before.txt && git commit --quiet -m 'Add before.txt'");
     const before = sh("git rev-parse HEAD");

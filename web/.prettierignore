@@ -4,3 +4,5 @@ node_modules
 # Generated (dotnet build and npm run api:generate)
 openapi.json
 src/api/schema.d.ts
+playwright-report
+test-results

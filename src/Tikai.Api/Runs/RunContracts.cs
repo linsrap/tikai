@@ -9,6 +9,7 @@ namespace Tikai.Api.Runs;
 public sealed record StartRunRequest(Guid? RepositoryId = null, Guid? ProviderId = null);
 
 /// <param name="TicketKey">e.g. "HUB-42".</param>
+/// <param name="ProjectSlug">For links to the ticket.</param>
 /// <param name="ProgressStep">What the agent last reported with report_progress.</param>
 /// <param name="CostUsd">As the agent reported it at its end.</param>
 /// <param name="Attempt">Agent containers so far: 1 for the first, one more for each resume.</param>
@@ -21,6 +22,8 @@ public sealed record RunInfo(
     Guid Id,
     string TicketKey,
     int TicketNumber,
+    string ProjectSlug,
+    string TicketTitle,
     AgentRunState State,
     string? Adapter,
     string? Model,

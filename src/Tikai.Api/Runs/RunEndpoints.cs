@@ -3,15 +3,10 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Npgsql;
 using Tikai.Api.Llm;
 using Tikai.Api.Projects;
 using Tikai.Core.Attention;
-using Tikai.Core.Events;
-using Tikai.Core.Jobs;
-using Tikai.Core.Projects;
 using Tikai.Core.Runs;
-using Tikai.Core.Tickets;
 using Tikai.Data;
 using Tikai.Orchestrator;
 
@@ -21,6 +16,9 @@ internal static class RunEndpoints
 {
     private const int MaxEventsPerPage = 1_000;
 
+    /// <summary>How long an ended run stays on the agent board.</summary>
+    private static readonly TimeSpan _recentlyEnded = TimeSpan.FromHours(1);
+
     public static void MapRunEndpoints(this RouteGroupBuilder api)
     {
         var ticketRuns = api.MapGroup("/projects/{slug}/tickets/{number:int}/runs").WithTags("Runs").RequireAuthorization();
@@ -28,6 +26,7 @@ internal static class RunEndpoints
         ticketRuns.MapGet("/", ListAsync);
 
         var runs = api.MapGroup("/runs").WithTags("Runs").RequireAuthorization();
+        runs.MapGet("/", ListActiveAsync);
         runs.MapGet("/{id:guid}", GetAsync);
         runs.MapGet("/{id:guid}/events", EventsAsync);
         runs.MapPost("/{id:guid}/cancel", CancelAsync);
@@ -35,7 +34,7 @@ internal static class RunEndpoints
 
     /// <summary>
     /// Assigns the ticket to the agent: a queued run on its own branch, started by the orchestrator. The ticket moves to
-    /// in_progress. One active run per ticket and per repository.
+    /// in_progress and its open failure items are dismissed. One active run per ticket and per repository.
     /// </summary>
     private static async Task<Results<Accepted<RunInfo>, ValidationProblem, ProblemHttpResult>> StartAsync(
         string slug,
@@ -43,11 +42,7 @@ internal static class RunEndpoints
         StartRunRequest request,
         ClaimsPrincipal user,
         TikaiDbContext db,
-        LlmProviderService providers,
         RunService runs,
-        IJobQueue jobs,
-        IEventPublisher events,
-        TimeProvider timeProvider,
         IOptions<OrchestratorOptions> options,
         CancellationToken cancellationToken)
     {
@@ -61,71 +56,28 @@ internal static class RunEndpoints
         {
             return ProjectEndpoints.NotFound("Ticket");
         }
-        if (ticket.Status is not (TicketStatus.Open or TicketStatus.InProgress))
-        {
-            return Conflict("Ticket is not open", "Only an open or in-progress ticket can be assigned to an agent. Reopen it first.");
-        }
 
-        var repositories = await db.Repositories.AsNoTracking().Where(r => r.ProjectId == project.Id).OrderBy(r => r.Name).ToListAsync(cancellationToken);
-        var repository = request.RepositoryId is { } repositoryId
-            ? repositories.SingleOrDefault(r => r.Id == repositoryId)
-            : repositories.Count == 1 ? repositories[0] : null;
-        if (repositories.Count == 0)
+        var (run, problem) = await runs.StartAsync(project, ticket, request.RepositoryId, request.ProviderId, LlmProviderService.UserId(user), cancellationToken);
+        if (problem is not null)
         {
-            return Conflict("No repository", "Add a repository to this project first; the agent works on one of them.");
+            return problem.Field is { } field
+                ? TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [problem.Detail] })
+                : TypedResults.Problem(statusCode: problem.Status, title: problem.Title, detail: problem.Detail);
         }
-        if (repository is null)
-        {
-            return Invalid("repositoryId", request.RepositoryId is null
-                ? "This project has several repositories: choose the one the agent works on."
-                : "Choose one of this project's repositories.");
-        }
-        if (repository.Status != RepositoryStatus.Ready)
-        {
-            return Conflict("Repository not ready", $"\"{repository.Name}\" is {SnakeCase(repository.Status)}; wait for the clone to finish or fix it first.");
-        }
+        var info = (await QueryAsync(db, options, db.AgentRuns.Where(r => r.Id == run!.Id), cancellationToken)).Single();
+        return TypedResults.Accepted($"/api/runs/{info.Id}", info);
+    }
 
-        var usable = providers.UsableFor(LlmProviderService.UserId(user), project.Id);
-        var provider = request.ProviderId is { } providerId
-            ? await usable.SingleOrDefaultAsync(p => p.Id == providerId, cancellationToken)
-            : await usable.FirstOrDefaultAsync(cancellationToken);
-        if (provider is null && request.ProviderId is not null)
-        {
-            return Invalid("providerId", "Choose one of this project's providers or one of your own.");
-        }
-        if (provider is null)
-        {
-            return Conflict("No LLM provider", "Add an LLM provider to this project (on the project page) or your own under Settings. The agent uses its API key.");
-        }
-
-        if (await db.AgentRuns.AnyAsync(r => (r.TicketId == ticket.Id || r.RepositoryId == repository.Id) && !AgentRunStates.Ended.Contains(r.State), cancellationToken))
-        {
-            return ActiveRunConflict();
-        }
-
-        AgentRun run;
-        await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
-        {
-            try
-            {
-                run = await runs.CreateAsync(new NewRun(
-                    ticket.Id, TicketKey.Format(project.Key, ticket.Number), repository.Id, provider.Id, provider.DefaultModel, LlmProviderService.UserId(user)),
-                    cancellationToken);
-            }
-            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-            {
-                return ActiveRunConflict();
-            }
-            var now = timeProvider.GetUtcNow();
-            await db.Tickets.Where(t => t.Id == ticket.Id && t.Status == TicketStatus.Open)
-                .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TicketStatus.InProgress).SetProperty(t => t.UpdatedAt, now), cancellationToken);
-            await jobs.EnqueueAsync(RunJob.Queue, new RunJob(run.Id).ToJson(), maxAttempts: 3, cancellationToken: cancellationToken);
-            await events.PublishAsync(AgentRun.Topic, run.Id, cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-
-        var info = (await QueryAsync(db, options, db.AgentRuns.Where(r => r.Id == run.Id), cancellationToken)).Single();
-        return TypedResults.Accepted($"/api/runs/{run.Id}", info);
+    /// <summary>
+    /// For the agent board: every run that has not ended, plus those that ended within the last hour (so a run that
+    /// just finished does not vanish while someone watches it), newest first.
+    /// </summary>
+    private static async Task<Ok<List<RunInfo>>> ListActiveAsync(
+        TikaiDbContext db, TimeProvider timeProvider, IOptions<OrchestratorOptions> options, CancellationToken cancellationToken)
+    {
+        var since = timeProvider.GetUtcNow() - _recentlyEnded;
+        var runs = await QueryAsync(db, options, db.AgentRuns.Where(r => !AgentRunStates.Ended.Contains(r.State) || r.EndedAt >= since), cancellationToken);
+        return TypedResults.Ok(runs.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToList());
     }
 
     /// <summary>The ticket's runs, newest first.</summary>
@@ -166,8 +118,10 @@ internal static class RunEndpoints
             .OrderBy(e => e.Seq)
             .Take(Math.Clamp(limit, 1, MaxEventsPerPage))
             .ToListAsync(cancellationToken);
-        return TypedResults.Ok(rows.Select(e => new RunEventInfo(e.Seq, e.Kind, JsonDocument.Parse(e.Payload).RootElement.Clone(), e.CreatedAt)).ToList());
+        return TypedResults.Ok(rows.Select(ToInfo).ToList());
     }
+
+    internal static RunEventInfo ToInfo(RunEvent e) => new(e.Seq, e.Kind, JsonDocument.Parse(e.Payload).RootElement.Clone(), e.CreatedAt);
 
     /// <summary>Stops the run's agent. The run is cancelled once the container has ended (at once if it has none).</summary>
     private static async Task<Results<Accepted<RunInfo>, ProblemHttpResult>> CancelAsync(
@@ -186,7 +140,7 @@ internal static class RunEndpoints
     }
 
     /// <summary>The runs with what they wait for. Filter <paramref name="runs"/> before calling: EF cannot filter after the projection.</summary>
-    private static async Task<List<RunInfo>> QueryAsync(
+    internal static async Task<List<RunInfo>> QueryAsync(
         TikaiDbContext db, IOptions<OrchestratorOptions> options, IQueryable<AgentRun> runs, CancellationToken cancellationToken)
     {
         var rows = await Query(db, runs).ToListAsync(cancellationToken);
@@ -228,6 +182,8 @@ internal static class RunEndpoints
             r.Id,
             p.Key + "-" + t.Number,
             t.Number,
+            p.Slug,
+            t.Title,
             r.State,
             r.Adapter,
             r.Model,
@@ -253,18 +209,8 @@ internal static class RunEndpoints
             null,
             false));
 
-    private static ProblemHttpResult ActiveRunConflict() =>
-        Conflict("A run is active", "This ticket or this repository already has an active run. Wait for it to end or cancel it.");
-
     private static ProblemHttpResult NotFound() => ProjectEndpoints.NotFound("Run");
 
     private static ProblemHttpResult Conflict(string title, string detail) =>
         TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: title, detail: detail);
-
-    private static ValidationProblem Invalid(string field, string message) =>
-        TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
-
-    private static string SnakeCase<TEnum>(TEnum value)
-        where TEnum : struct, Enum =>
-        JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());
 }
