@@ -1239,6 +1239,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attention-items/{id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AttentionItemInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attention-items/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{slug}/tickets/{number}/runs": {
         parameters: {
             query?: never;
@@ -1306,6 +1389,41 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunInfo"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1445,16 +1563,22 @@ export interface components {
             id: string;
             kind: components["schemas"]["AttentionKind"];
             status: components["schemas"]["AttentionStatus"];
+            blocking: boolean;
             /** Format: uuid */
             runId: null | string;
             projectSlug: string;
             /** Format: int32 */
             ticketNumber: number;
             ticketKey: string;
+            ticketTitle: string;
+            run: null | components["schemas"]["ItemRun"];
             question: null | components["schemas"]["QuestionPayload"];
             plan: null | components["schemas"]["PlanPayload"];
             review: null | components["schemas"]["ReviewPayload"];
+            reviewCoverage: components["schemas"]["ReviewCoverage"][];
+            failure: null | components["schemas"]["FailurePayload"];
             answer: null | components["schemas"]["AttentionAnswer"];
+            excerpt: components["schemas"]["RunEventInfo"][];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1531,6 +1655,11 @@ export interface components {
             displayName: string;
             isAdmin: boolean;
         };
+        FailurePayload: {
+            reason: string;
+            /** Format: int32 */
+            exitCode: null | number;
+        };
         HttpValidationProblemDetails: {
             type?: null | string;
             title?: null | string;
@@ -1541,6 +1670,15 @@ export interface components {
             errors?: {
                 [key: string]: string[];
             };
+        };
+        ItemRun: {
+            state: components["schemas"]["AgentRunState"];
+            adapter: null | string;
+            model: null | string;
+            progressStep: null | string;
+            progressNote: null | string;
+            /** Format: int32 */
+            attempt: number;
         };
         JsonElement: unknown;
         LlmProviderInfo: {
@@ -1614,6 +1752,13 @@ export interface components {
         };
         /** @enum {unknown} */
         RepositoryStatus: "cloning" | "ready" | "failed";
+        ReviewCoverage: {
+            /** Format: uuid */
+            criterionId: string;
+            text: null | string;
+            status: components["schemas"]["CriterionCoverage"];
+            note: null | string;
+        };
         ReviewPayload: {
             summary: string;
             criteriaMapping: components["schemas"]["CriterionMapping"][];
@@ -1637,6 +1782,8 @@ export interface components {
             ticketKey: string;
             /** Format: int32 */
             ticketNumber: number;
+            projectSlug: string;
+            ticketTitle: string;
             state: components["schemas"]["AgentRunState"];
             adapter: null | string;
             model: null | string;

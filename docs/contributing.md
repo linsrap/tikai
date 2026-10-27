@@ -41,6 +41,16 @@ npm run build
 
 `dotnet test` includes integration tests that start a Postgres container with Testcontainers, so Docker must be running.
 
+### Browser test (Playwright)
+
+```powershell
+cd web
+npx playwright install chromium   # once (CI: --with-deps chromium)
+npm run e2e
+```
+
+`npm run e2e` builds the hub image and the stub agent (`tikai/hub:e2e`, `tikai/agent-base:e2e`, `tikai/agent-stub:e2e`), starts them as their own compose project `tikai-e2e` on <http://127.0.0.1:18092> with the test settings in `web/e2e/e2e.env` (never your `.env`), runs the test in Chromium, and removes the stack again (containers, volumes including `tikai-e2e_runs`, network). The test signs up, creates a ticket, assigns it to the stub agent, approves its plan and answers its question in the inbox, restarts the hub while the run's log streams, and checks that the page caught up without a reload. `npm run e2e -- --keep` leaves the stack running (then `npm run e2e:test` runs only the test, and `npm run e2e:down` removes it); `npm run e2e:clean` also removes the e2e images.
+
 Warnings are errors in the .NET build. `dotnet format` fixes most style issues for you (run it without `--verify-no-changes`), and `npm run format` does the same for the web app.
 
 ## Run locally

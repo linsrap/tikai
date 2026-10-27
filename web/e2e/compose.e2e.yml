@@ -1,0 +1,7 @@
+# The browser test's stack: compose.yml with its own image tags and the stub agent (npm run e2e).
+# Used with the project name tikai-e2e and e2e.env, never with a real installation's .env or images.
+services:
+  hub:
+    image: tikai/hub:e2e
+    environment:
+      Tikai__Agents__ClaudeCodeImage: tikai/agent-stub:e2e

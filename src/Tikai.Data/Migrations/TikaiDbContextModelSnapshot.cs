@@ -554,6 +554,11 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("numeric(12,6)")
                         .HasColumnName("cost_usd");
 
+                    b.Property<decimal?>("CostUsdBeforeSession")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("numeric(12,6)")
+                        .HasColumnName("cost_usd_before_session");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");

@@ -7,7 +7,8 @@ import {
   redirect,
 } from '@tanstack/react-router'
 import { authStatusQuery, entryRouteFor } from './auth/auth'
-import { HomePage } from './pages/HomePage'
+import { BoardPage } from './pages/BoardPage'
+import { InboxPage } from './pages/InboxPage'
 import { LoginPage } from './pages/LoginPage'
 import { ProjectPage } from './pages/ProjectPage'
 import { ProjectsPage } from './pages/ProjectsPage'
@@ -35,11 +36,19 @@ function guard(path: EntryPath) {
 /** Pages behind the login: people without a session go to sign-up or login. */
 const requireUser = guard('/')
 
+/** The inbox is the home screen. */
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: guard('/'),
-  component: HomePage,
+  component: InboxPage,
+})
+
+const boardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/board',
+  beforeLoad: requireUser,
+  component: BoardPage,
 })
 
 const loginRoute = createRoute({
@@ -119,6 +128,7 @@ export function createAppRouter(queryClient: QueryClient) {
   return createRouter({
     routeTree: rootRoute.addChildren([
       homeRoute,
+      boardRoute,
       loginRoute,
       signUpRoute,
       projectsRoute,

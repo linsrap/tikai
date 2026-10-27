@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   blockedNote,
+  costText,
+  elapsed,
   eventSummary,
   isActive,
-  isMoving,
-  pollInterval,
   resumeLabel,
   toStartRunRequest,
   waitingText,
@@ -20,11 +20,20 @@ const event = (kind: RunEventInfo['kind'], payload: Record<string, unknown>): Ru
 })
 
 describe('run states', () => {
-  it('polls only while the run moves by itself', () => {
-    expect(isMoving('running')).toBe(true)
-    expect(isMoving('queued')).toBe(true)
-    expect(isMoving('blocked')).toBe(false)
-    expect(isMoving('in_review')).toBe(false)
+  it('shows how long a run has been going, or took', () => {
+    const start = '2026-10-27T10:00:00Z'
+    const now = new Date('2026-10-27T10:04:02Z').getTime()
+    expect(elapsed({ createdAt: start, startedAt: null, endedAt: null }, now)).toBe('4:02')
+    expect(
+      elapsed({ createdAt: start, startedAt: start, endedAt: '2026-10-27T11:05:09Z' }, now),
+    ).toBe('1:05:09')
+  })
+
+  it('says when the cost is not known yet', () => {
+    expect(costText({ costUsd: null, costTokens: null })).toBe('reported when the agent finishes')
+    expect(costText({ costUsd: 0.1234, costTokens: 1500 })).toBe(
+      `0.1234 USD, ${(1500).toLocaleString()} tokens`,
+    )
   })
 
   it('can cancel everything that has not ended', () => {
@@ -94,12 +103,6 @@ describe('blocked runs', () => {
     ...fields,
   })
   const time = (iso: string) => `at ${iso}`
-
-  it('polls a waiting run too, but less often', () => {
-    expect(pollInterval('running')).toBe(3000)
-    expect(pollInterval('blocked')).toBe(10000)
-    expect(pollInterval('in_review')).toBe(false)
-  })
 
   it('shows the question with its options, or the plan steps', () => {
     expect(

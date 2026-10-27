@@ -21,7 +21,21 @@ public sealed class StreamJsonParser : IAgentOutputParser
 
     public AgentResult? Result { get; private set; }
 
-    public AgentCost? Cost { get; private set; }
+    /// <summary>
+    /// The session's cost as Claude Code reports it at the end (after --resume it includes the session's earlier
+    /// containers, also one stopped before it reported), and this container's tokens. Tokens are summed from each
+    /// API message's usage, because the result's usage covers only this process, and a container stopped while it
+    /// waits never prints a result.
+    /// </summary>
+    public AgentCost? Cost =>
+        _messageTokens.Count > 0 ? new AgentCost(_usd, _messageTokens.Values.Sum())
+        : Result is not null ? new AgentCost(_usd, _resultTokens)
+        : null;
+
+    // Per API message id: Claude Code prints one line per content block, each with the message's usage so far.
+    private readonly Dictionary<string, long> _messageTokens = new(StringComparer.Ordinal);
+    private decimal? _usd;
+    private long? _resultTokens;
 
     public IReadOnlyList<ParsedEvent> ParseLine(string line)
     {
@@ -87,8 +101,12 @@ public sealed class StreamJsonParser : IAgentOutputParser
         });
     }
 
-    private static List<ParsedEvent> Assistant(JsonObject message)
+    private List<ParsedEvent> Assistant(JsonObject message)
     {
+        if (message["message"]?["id"] is JsonValue id && id.TryGetValue<string>(out var messageId) && message["message"]?["usage"] is JsonObject usage)
+        {
+            _messageTokens[messageId] = Tokens(usage);
+        }
         var events = new List<ParsedEvent>();
         foreach (var block in Blocks(message))
         {
@@ -147,11 +165,8 @@ public sealed class StreamJsonParser : IAgentOutputParser
         var subtype = Text(message["subtype"]);
         Result = new AgentResult(isError, subtype);
         var usage = message["usage"] as JsonObject;
-        long? tokens = usage is null ? null
-            : _tokenFields
-                .Sum(name => usage[name] is JsonValue v && v.TryGetValue<long>(out var n) ? n : 0);
-        decimal? usd = message["total_cost_usd"] is JsonValue c && c.TryGetValue<decimal>(out var cost) ? cost : null;
-        Cost = new AgentCost(usd, tokens);
+        _resultTokens = usage is null ? null : Tokens(usage);
+        _usd = message["total_cost_usd"] is JsonValue c && c.TryGetValue<decimal>(out var cost) ? cost : null;
 
         return new(RunEventKind.Result, new JsonObject
         {
@@ -166,6 +181,9 @@ public sealed class StreamJsonParser : IAgentOutputParser
             ["session_id"] = Text(message["session_id"]),
         });
     }
+
+    private static long Tokens(JsonObject usage) =>
+        _tokenFields.Sum(name => usage[name] is JsonValue v && v.TryGetValue<long>(out var n) ? n : 0);
 
     public static ParsedEvent Log(string stream, string text) =>
         new(RunEventKind.Log, new JsonObject { ["source"] = "agent", ["stream"] = stream, ["text"] = text });

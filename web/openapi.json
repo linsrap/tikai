@@ -1186,6 +1186,76 @@
         }
       }
     },
+    "/api/attention-items/{id}/dismiss": {
+      "post": {
+        "tags": [
+          "Attention"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttentionItemInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/attention-items/{id}/retry": {
+      "post": {
+        "tags": [
+          "Attention"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{slug}/tickets/{number}/runs": {
       "post": {
         "tags": [
@@ -1265,6 +1335,28 @@
               "format": "int32"
             }
           }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RunInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs": {
+      "get": {
+        "tags": [
+          "Runs"
         ],
         "responses": {
           "200": {
@@ -1461,14 +1553,20 @@
           "id",
           "kind",
           "status",
+          "blocking",
           "runId",
           "projectSlug",
           "ticketNumber",
           "ticketKey",
+          "ticketTitle",
+          "run",
           "question",
           "plan",
           "review",
+          "reviewCoverage",
+          "failure",
           "answer",
+          "excerpt",
           "createdAt",
           "answeredAt"
         ],
@@ -1483,6 +1581,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/AttentionStatus"
+          },
+          "blocking": {
+            "type": "boolean"
           },
           "runId": {
             "type": [
@@ -1500,6 +1601,19 @@
           },
           "ticketKey": {
             "type": "string"
+          },
+          "ticketTitle": {
+            "type": "string"
+          },
+          "run": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemRun"
+              }
+            ]
           },
           "question": {
             "oneOf": [
@@ -1531,6 +1645,22 @@
               }
             ]
           },
+          "reviewCoverage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewCoverage"
+            }
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FailurePayload"
+              }
+            ]
+          },
           "answer": {
             "oneOf": [
               {
@@ -1540,6 +1670,12 @@
                 "$ref": "#/components/schemas/AttentionAnswer"
               }
             ]
+          },
+          "excerpt": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunEventInfo"
+            }
           },
           "createdAt": {
             "type": "string",
@@ -1843,6 +1979,25 @@
           }
         }
       },
+      "FailurePayload": {
+        "required": [
+          "reason",
+          "exitCode"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "exitCode": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "HttpValidationProblemDetails": {
         "type": "object",
         "properties": {
@@ -1885,6 +2040,50 @@
                 "type": "string"
               }
             }
+          }
+        }
+      },
+      "ItemRun": {
+        "required": [
+          "state",
+          "adapter",
+          "model",
+          "progressStep",
+          "progressNote",
+          "attempt"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/AgentRunState"
+          },
+          "adapter": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "progressStep": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "progressNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -2166,6 +2365,36 @@
           "failed"
         ]
       },
+      "ReviewCoverage": {
+        "required": [
+          "criterionId",
+          "text",
+          "status",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "criterionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/CriterionCoverage"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ReviewPayload": {
         "required": [
           "summary",
@@ -2239,6 +2468,8 @@
           "id",
           "ticketKey",
           "ticketNumber",
+          "projectSlug",
+          "ticketTitle",
           "state",
           "adapter",
           "model",
@@ -2276,6 +2507,12 @@
           "ticketNumber": {
             "type": "integer",
             "format": "int32"
+          },
+          "projectSlug": {
+            "type": "string"
+          },
+          "ticketTitle": {
+            "type": "string"
           },
           "state": {
             "$ref": "#/components/schemas/AgentRunState"

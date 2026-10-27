@@ -63,9 +63,16 @@ public class AgentRun : Entity
     /// <summary>Why the run failed, for people.</summary>
     public string? FailureReason { get; set; }
 
+    /// <summary>
+    /// What the run has cost: the cost of earlier sessions (<see cref="CostUsdBeforeSession"/>) plus the current
+    /// session's total as the agent last reported it (Claude Code's total covers a resumed session's earlier containers).
+    /// </summary>
     public decimal? CostUsd { get; set; }
 
-    /// <summary>Input plus output tokens as the agent reported them.</summary>
+    /// <summary>The cost of the sessions before the current one (a summary fallback starts a new session); null before that.</summary>
+    public decimal? CostUsdBeforeSession { get; set; }
+
+    /// <summary>Input, output and cache tokens of all the run's containers, added up as each one ends.</summary>
     public long? CostTokens { get; set; }
 
     public DateTimeOffset? CancelRequestedAt { get; set; }

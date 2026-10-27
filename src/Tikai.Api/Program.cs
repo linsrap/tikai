@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Tikai.Api.Attention;
 using Tikai.Api.Auth;
 using Tikai.Api.Hosting;
+using Tikai.Api.Live;
 using Tikai.Api.Llm;
 using Tikai.Api.Mcp;
 using Tikai.Api.Projects;
@@ -32,6 +33,7 @@ builder.Services.AddScoped<LlmProviderService>();
 builder.Services.AddScoped<TicketService>();
 builder.Services.AddTikaiMcp(builder.Configuration);
 builder.Services.AddTikaiRuns(builder.Configuration);
+builder.Services.AddTikaiLive();
 builder.Services.AddProblemDetails();
 // Enums travel as snake_case strings ("https_token"), the same values the database stores.
 // Numbers are only numbers (the web default also reads "42"), so the OpenAPI types say number, not number | string.
@@ -63,6 +65,7 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseLiveOriginCheck();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -83,6 +86,9 @@ api.Map("/{**path}", () => Results.Problem(statusCode: StatusCodes.Status404NotF
 
 // Agents only, with a run token.
 app.MapTikaiMcp();
+
+// Browsers only, with the login cookie: live updates.
+app.MapTikaiLive();
 
 if (app.Environment.IsDevelopment())
 {

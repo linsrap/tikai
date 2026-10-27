@@ -26,3 +26,5 @@ web/coverage/
 !.vscode/extensions.json
 Thumbs.db
 .DS_Store
+web/playwright-report/
+web/test-results/

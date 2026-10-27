@@ -99,6 +99,8 @@ internal sealed class RunStore(
                 .SetProperty(r => r.LogLinesRead, 0)
                 .SetProperty(r => r.Attempt, r => r.Attempt + 1)
                 .SetProperty(r => r.AttemptKind, kind)
+                // A fresh session reports its own total from zero: keep what the earlier sessions cost.
+                .SetProperty(r => r.CostUsdBeforeSession, r => kind == RunAttemptKind.Summary ? r.CostUsd : r.CostUsdBeforeSession)
                 .SetProperty(r => r.UpdatedAt, now), cancellationToken);
         await events.PublishAsync(AgentRun.Topic, runId, cancellationToken);
     }
@@ -313,8 +315,7 @@ internal sealed class RunStore(
         if (outcome.Trigger == RunTrigger.Block && run.State == AgentRunState.Blocked)
         {
             int? blockedExit = outcome.ExitCode ?? run.ExitCode;
-            decimal? blockedUsd = outcome.Cost?.Usd ?? run.CostUsd;
-            long? blockedTokens = outcome.Cost?.Tokens ?? run.CostTokens;
+            var (blockedUsd, blockedTokens) = RunCost.After(run, outcome.Cost);
             await db.AgentRuns.Where(r => r.Id == runId)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(r => r.ContainerId, (string?)null)
@@ -334,8 +335,7 @@ internal sealed class RunStore(
         var reason = outcome.Reason is { } text && text.Length > RunRules.MaxFailureReasonLength ? text[..RunRules.MaxFailureReasonLength] : outcome.Reason;
         var failureReason = outcome.Trigger == RunTrigger.Fail ? reason : run.FailureReason;
         var exitCode = outcome.ExitCode ?? run.ExitCode;
-        var costUsd = outcome.Cost?.Usd ?? run.CostUsd;
-        var costTokens = outcome.Cost?.Tokens ?? run.CostTokens;
+        var (costUsd, costTokens) = RunCost.After(run, outcome.Cost);
         DateTimeOffset? endedAt = next.IsEnded() ? now : null;
         var updated = await db.AgentRuns
             .Where(r => r.Id == runId && r.State == run.State)
