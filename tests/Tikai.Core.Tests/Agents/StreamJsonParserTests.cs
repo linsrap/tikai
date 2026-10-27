@@ -1,4 +1,5 @@
 using Tikai.Adapters.ClaudeCode;
+using Tikai.Core.Agents;
 using Tikai.Core.Runs;
 
 namespace Tikai.Core.Tests.Agents;
@@ -79,6 +80,26 @@ public class StreamJsonParserTests
         Assert.Equal(new Core.Runs.AgentResult(false, "success"), parser.Result);
         Assert.Equal(0.0025m, parser.Cost!.Usd);
         Assert.Equal(100, parser.Cost.Tokens);
+    }
+
+    [Fact]
+    public void Tokens_come_from_each_messages_usage_once_also_without_a_result()
+    {
+        var parser = new StreamJsonParser();
+        static string Line(string id, int output, string block) =>
+            """{"type":"assistant","message":{"id":"ID","role":"assistant","content":[BLOCK],"usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":OUT}}}"""
+                .Replace("ID", id, StringComparison.Ordinal).Replace("BLOCK", block, StringComparison.Ordinal).Replace("OUT", $"{output}", StringComparison.Ordinal);
+
+        // One API message printed as two lines (thinking, then text), with its usage on each; then a second message.
+        parser.ParseLine(Line("msg_1", 10, """{"type":"thinking","thinking":""}"""));
+        parser.ParseLine(Line("msg_1", 30, """{"type":"text","text":"Asking."}"""));
+        parser.ParseLine(Line("msg_2", 5, """{"type":"tool_use","id":"t","name":"mcp__tikai__ask_human","input":{}}"""));
+
+        // Stopped while waiting: no result, but the tokens are known.
+        Assert.Equal(new AgentCost(null, 1132 + 1107), parser.Cost);
+
+        parser.ParseLine("""{"type":"result","subtype":"success","is_error":false,"num_turns":2,"total_cost_usd":0.163077,"usage":{"input_tokens":1,"output_tokens":1}}""");
+        Assert.Equal(new AgentCost(0.163077m, 1132 + 1107), parser.Cost);
     }
 
     [Fact]

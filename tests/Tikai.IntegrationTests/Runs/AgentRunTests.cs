@@ -92,8 +92,21 @@ public sealed class AgentRunTests(PostgresFixture postgres, AgentHost agents) : 
         Assert.Null(row.ContainerId);
         Assert.True(row.LogLinesRead > 0);
         Assert.Single(await db.AttentionItems.Where(i => i.RunId == run.Id && i.Kind == AttentionKind.Review).ToListAsync(TestContext.Current.CancellationToken));
-        await Assert.ThrowsAsync<DockerContainerNotFoundException>(() =>
-            agents.Docker.Containers.InspectContainerAsync(DockerContainerRuntime.Name(SandboxRole.Agent, run.Id), TestContext.Current.CancellationToken));
+        // The monitor records the end first and removes the container right after.
+        using var removal = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        removal.CancelAfter(TimeSpan.FromSeconds(30));
+        while (true)
+        {
+            try
+            {
+                await agents.Docker.Containers.InspectContainerAsync(DockerContainerRuntime.Name(SandboxRole.Agent, run.Id), removal.Token);
+                await Task.Delay(200, removal.Token);
+            }
+            catch (DockerContainerNotFoundException)
+            {
+                break;
+            }
+        }
     }
 
     [Fact]

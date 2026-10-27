@@ -31,6 +31,7 @@ internal sealed class AgentRunConfiguration : IEntityTypeConfiguration<AgentRun>
         builder.Property(r => r.ContainerId).HasMaxLength(64);
         builder.Property(r => r.SessionId).HasMaxLength(100);
         builder.Property(r => r.CostUsd).HasPrecision(12, 6);
+        builder.Property(r => r.CostUsdBeforeSession).HasPrecision(12, 6);
 
         // Answers and decisions are the audit trail: a ticket with runs cannot be deleted.
         builder.HasOne<Ticket>().WithMany().HasForeignKey(r => r.TicketId).OnDelete(DeleteBehavior.Restrict);

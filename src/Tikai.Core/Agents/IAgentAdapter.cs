@@ -117,7 +117,10 @@ public interface IAgentOutputParser
     /// <summary>Set once the agent printed its final report.</summary>
     AgentResult? Result { get; }
 
-    /// <summary>Cost and tokens from the final report, when the agent gave them.</summary>
+    /// <summary>
+    /// The session's cost so far (from the final report) and this container's tokens (also without a final report,
+    /// e.g. a container stopped while it waited); null when the agent reported neither.
+    /// </summary>
     AgentCost? Cost { get; }
 }
 
@@ -144,4 +147,6 @@ public sealed record ParsedEvent(RunEventKind Kind, JsonObject Payload);
 /// <param name="Problem">Why the tools are not connected, for people.</param>
 public sealed record AgentStart(string? SessionId, bool ToolsConnected, string? Problem);
 
+/// <param name="Usd">What the agent's session has cost so far, including earlier containers of the same session.</param>
+/// <param name="Tokens">Tokens of this container only.</param>
 public sealed record AgentCost(decimal? Usd, long? Tokens);
