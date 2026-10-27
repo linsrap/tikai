@@ -54,3 +54,6 @@ public static class AttentionJson
     public static string RequestHash<T>(AttentionKind kind, T payload) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{kind}\n{Serialize(payload)}")));
 }
+
+/// <summary>Why a run failed, for the inbox (no answer expected; retry and dismiss come with the inbox).</summary>
+public sealed record FailurePayload(string Reason, int? ExitCode);

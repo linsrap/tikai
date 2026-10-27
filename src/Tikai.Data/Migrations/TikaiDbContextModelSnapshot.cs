@@ -510,9 +510,67 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Adapter")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("adapter");
+
+                    b.Property<string>("Branch")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("branch");
+
+                    b.Property<DateTimeOffset?>("CancelRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cancel_requested_at");
+
+                    b.Property<string>("ContainerId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("container_id");
+
+                    b.Property<long?>("CostTokens")
+                        .HasColumnType("bigint")
+                        .HasColumnName("cost_tokens");
+
+                    b.Property<decimal?>("CostUsd")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("numeric(12,6)")
+                        .HasColumnName("cost_usd");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ended_at");
+
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("exit_code");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<long>("LastEventSeq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_event_seq");
+
+                    b.Property<Guid?>("LlmProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("llm_provider_id");
+
+                    b.Property<long>("LogLinesRead")
+                        .HasColumnType("bigint")
+                        .HasColumnName("log_lines_read");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model");
 
                     b.Property<DateTimeOffset?>("ProgressAt")
                         .HasColumnType("timestamp with time zone")
@@ -527,6 +585,23 @@ namespace Tikai.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("progress_step");
+
+                    b.Property<Guid?>("RepositoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("repository_id");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("session_id");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<Guid?>("StartedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("started_by_id");
 
                     b.Property<string>("State")
                         .IsRequired()
@@ -556,6 +631,15 @@ namespace Tikai.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_agent_runs");
 
+                    b.HasIndex("LlmProviderId")
+                        .HasDatabaseName("ix_agent_runs_llm_provider_id");
+
+                    b.HasIndex("RepositoryId")
+                        .HasDatabaseName("ix_agent_runs_repository_id");
+
+                    b.HasIndex("StartedById")
+                        .HasDatabaseName("ix_agent_runs_started_by_id");
+
                     b.HasIndex("TicketId")
                         .HasDatabaseName("ix_agent_runs_ticket_id");
 
@@ -563,11 +647,75 @@ namespace Tikai.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_agent_runs_token_hash");
 
+                    b.HasIndex(new[] { "RepositoryId" }, "ux_agent_runs_active_repository")
+                        .IsUnique()
+                        .HasDatabaseName("ux_agent_runs_active_repository")
+                        .HasFilter("state NOT IN ('merged', 'failed', 'cancelled')");
+
+                    b.HasIndex(new[] { "TicketId" }, "ux_agent_runs_active_ticket")
+                        .IsUnique()
+                        .HasDatabaseName("ux_agent_runs_active_ticket")
+                        .HasFilter("state NOT IN ('merged', 'failed', 'cancelled')");
+
                     b.ToTable("agent_runs", null, t =>
                         {
                             t.HasCheckConstraint("ck_agent_runs_state", "state IN ('queued', 'preparing', 'running', 'blocked', 'in_review', 'changes_requested', 'merged', 'failed', 'cancelled')");
 
                             t.HasCheckConstraint("ck_agent_runs_token_hash", "octet_length(token_hash) = 32");
+                        });
+                });
+
+            modelBuilder.Entity("Tikai.Core.Runs.RunEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("run_id");
+
+                    b.Property<long>("Seq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("seq");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_run_events");
+
+                    b.HasIndex("RunId", "Seq")
+                        .IsUnique()
+                        .HasDatabaseName("ix_run_events_run_id_seq");
+
+                    b.ToTable("run_events", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_run_events_kind", "kind IN ('system', 'message', 'tool_call', 'tool_result', 'progress', 'result', 'log')");
+
+                            t.HasCheckConstraint("ck_run_events_seq", "seq > 0");
                         });
                 });
 
@@ -954,12 +1102,40 @@ namespace Tikai.Data.Migrations
 
             modelBuilder.Entity("Tikai.Core.Runs.AgentRun", b =>
                 {
+                    b.HasOne("Tikai.Core.Llm.LlmProvider", null)
+                        .WithMany()
+                        .HasForeignKey("LlmProviderId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_agent_runs_llm_providers_llm_provider_id");
+
+                    b.HasOne("Tikai.Core.Projects.Repository", null)
+                        .WithMany()
+                        .HasForeignKey("RepositoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agent_runs_repositories_repository_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("StartedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agent_runs_users_started_by_id");
+
                     b.HasOne("Tikai.Core.Tickets.Ticket", null)
                         .WithMany()
                         .HasForeignKey("TicketId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_agent_runs_tickets_ticket_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Runs.RunEvent", b =>
+                {
+                    b.HasOne("Tikai.Core.Runs.AgentRun", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_run_events_agent_runs_run_id");
                 });
 
             modelBuilder.Entity("Tikai.Core.Tickets.AcceptanceCriterion", b =>

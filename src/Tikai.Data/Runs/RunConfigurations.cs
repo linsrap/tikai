@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Tikai.Core.Attention;
+using Tikai.Core.Llm;
+using Tikai.Core.Projects;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
 using Tikai.Data.Identity;
@@ -19,11 +21,42 @@ internal sealed class AgentRunConfiguration : IEntityTypeConfiguration<AgentRun>
         builder.Property(r => r.State).HasConversion(SnakeCaseEnum.Converter<AgentRunState>()).HasMaxLength(20);
         builder.Property(r => r.ProgressStep).HasMaxLength(RunRules.MaxProgressStepLength);
         builder.Property(r => r.ProgressNote).HasMaxLength(RunRules.MaxProgressNoteLength);
+        builder.Property(r => r.FailureReason).HasMaxLength(RunRules.MaxFailureReasonLength);
+        builder.Property(r => r.Adapter).HasMaxLength(40);
+        builder.Property(r => r.Model).HasMaxLength(100);
+        builder.Property(r => r.Branch).HasMaxLength(200);
+        builder.Property(r => r.ContainerId).HasMaxLength(64);
+        builder.Property(r => r.SessionId).HasMaxLength(100);
+        builder.Property(r => r.CostUsd).HasPrecision(12, 6);
 
         // Answers and decisions are the audit trail: a ticket with runs cannot be deleted.
         builder.HasOne<Ticket>().WithMany().HasForeignKey(r => r.TicketId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Repository>().WithMany().HasForeignKey(r => r.RepositoryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<LlmProvider>().WithMany().HasForeignKey(r => r.LlmProviderId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne<TikaiUser>().WithMany().HasForeignKey(r => r.StartedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(r => r.TokenHash).IsUnique();
         builder.HasIndex(r => r.TicketId);
+        builder.HasIndex(r => r.RepositoryId);
+        // Phase 1: one active run per ticket and per repository, also when two people press "assign" at once.
+        var active = $"state NOT IN ({string.Join(", ", AgentRunStates.Ended.Select(s => $"'{SnakeCaseEnum.ToName(s)}'"))})";
+        builder.HasIndex(r => r.TicketId, "ux_agent_runs_active_ticket").IsUnique().HasFilter(active).HasDatabaseName("ux_agent_runs_active_ticket");
+        builder.HasIndex(r => r.RepositoryId, "ux_agent_runs_active_repository").IsUnique().HasFilter(active).HasDatabaseName("ux_agent_runs_active_repository");
+    }
+}
+
+internal sealed class RunEventConfiguration : IEntityTypeConfiguration<RunEvent>
+{
+    public void Configure(EntityTypeBuilder<RunEvent> builder)
+    {
+        builder.ToTable("run_events", table =>
+        {
+            table.HasCheckConstraint("ck_run_events_kind", SnakeCaseEnum.CheckIn<RunEventKind>("kind"));
+            table.HasCheckConstraint("ck_run_events_seq", "seq > 0");
+        });
+        builder.Property(e => e.Kind).HasConversion(SnakeCaseEnum.Converter<RunEventKind>()).HasMaxLength(20);
+        builder.Property(e => e.Payload).HasColumnType("jsonb");
+        builder.HasOne<AgentRun>().WithMany().HasForeignKey(e => e.RunId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(e => new { e.RunId, e.Seq }).IsUnique();
     }
 }
 

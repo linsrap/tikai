@@ -193,3 +193,30 @@ table.tickets td {
   border-left: 3px solid color-mix(in srgb, currentColor 30%, transparent);
   padding-left: 0.75rem;
 }
+
+.badge.queued,
+.badge.preparing,
+.badge.running,
+.badge.blocked,
+.badge.changes_requested {
+  color: #0969da;
+}
+
+.badge.merged {
+  color: #1a7f37;
+}
+
+.badge.cancelled {
+  opacity: 0.6;
+}
+
+.transcript {
+  max-height: 30rem;
+  overflow: auto;
+  font-size: 0.9rem;
+}
+
+.transcript .event {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

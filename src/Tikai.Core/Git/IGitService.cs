@@ -37,6 +37,12 @@ public interface IGitService
     /// <summary>A file's content at a commit, or null when the file does not exist there.</summary>
     Task<byte[]?> ReadFileAsync(string path, string commitSha, string filePath, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Writes a git bundle with only <paramref name="branch"/> (refs/heads) and its history, e.g. for a run clone:
+    /// the run gets that branch and nothing else of the repository.
+    /// </summary>
+    Task CreateBundleAsync(string path, string branch, string outputFile, CancellationToken cancellationToken = default);
+
     /// <summary>Deletes a repository directory, including git's read-only object files on Windows.</summary>
     Task DeleteRepositoryAsync(string path, CancellationToken cancellationToken = default);
 }

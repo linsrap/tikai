@@ -9,6 +9,7 @@ git clone https://github.com/linsrap/tikai.git
 cd tikai
 Copy-Item .env.example .env      # Linux/macOS: cp .env.example .env
 # Edit .env: set TIKAI_SECRET (see below) and DB_PASSWORD to something only you know.
+docker compose --profile agents build   # the agent images (Claude Code); once, and after updates
 docker compose up -d --build
 ```
 
@@ -49,9 +50,10 @@ Keep a copy outside the server (a password manager). The keys in the `tikai_data
 | --- | --- |
 | `hub` | API, web app, background workers. Waits until the database is healthy, applies database migrations at startup. |
 | `db` | Postgres 17. Not reachable from outside the compose network. |
-| `docker-proxy` | Limited access to Docker, for starting agent containers in a later version. |
+| `docker-proxy` | Limited access to Docker: the hub starts agent containers through it. |
+| agent containers | One per agent run, started by the hub (not by compose): `tikai-agent-<run-id>`, plus short-lived `tikai-prep-…` and `tikai-seed-…` containers while a run is prepared. |
 
-Data lives in three named volumes: `tikai_pg` (database), `tikai_data` (the keys that sign login cookies and encrypt stored credentials, and the repository mirrors) and `tikai_runs` (agent work directories, later). `docker compose down` keeps them; `docker compose down -v` **deletes everything**. Keep `tikai_data` and `tikai_pg` together: without the keys in `tikai_data`, stored repository credentials cannot be decrypted and have to be entered again.
+Data lives in three named volumes: `tikai_pg` (database), `tikai_data` (the keys that sign login cookies and encrypt stored credentials, and the repository mirrors) and `tikai_runs` (one directory per agent run: its clone and the agent's session). `docker compose down` keeps them; `docker compose down -v` **deletes** `tikai_pg` and `tikai_data`. `tikai_runs` is created by Docker with the first agent run, so `down -v` leaves it: remove it with `docker volume rm tikai_runs`. Keep `tikai_data` and `tikai_pg` together: without the keys in `tikai_data`, stored repository credentials cannot be decrypted and have to be entered again.
 
 ## LLM providers
 
@@ -89,6 +91,18 @@ Advanced settings (environment variables of the `hub` service):
 | `Tikai__Git__FetchInterval` | `00:05:00` | Time between fetches of one repository. |
 | `Tikai__Git__RemoteTimeout` | `00:30:00` | Limit for one clone or fetch. |
 
+## Agent runs
+
+On a ticket page, **Assign to agent** starts Claude Code on the ticket. The agent works in its own container on its own branch `tikai/<KEY-N>-<8 characters>`, reads the ticket over Tikai's MCP endpoint, proposes a plan and waits until it is approved, then implements, commits, and submits its work for review. Until the inbox exists, plans and questions are answered through the API (`POST /api/attention-items/{id}/answer`).
+
+- **Images:** `docker compose --profile agents build` builds `tikai/agent-base:local` and `tikai/agent-claude-code:local` (Claude Code at the version pinned in `images/agent-claude-code/Dockerfile`). Without them a run fails with "The agent image … is not on this Docker host".
+- **Which key:** the agent uses the API key of the project's LLM provider, or the assigning person's own provider if the project has none (a picker shows when there is a choice), with that provider's model. Its API usage is billed to that key. The key reaches only that run's container, as an environment variable; Tikai removes it (and the run's MCP token) from everything it stores of the agent's output. Anyone who can run `docker inspect` on the host can see it.
+- **One run at a time** per ticket and per repository. A project with several repositories asks which one the agent works on.
+- **The sandbox:** non-root (uid 1000), read-only root file system with a writable `/tmp`, no Linux capabilities, 4 GiB memory, 2 CPUs. The container mounts only its own directory of `tikai_runs`; it never sees `tikai_data`, the database, git credentials or the Docker socket. The hub writes that directory through Docker (as root-owned, read-only files: the MCP config and the ticket), and never runs git in it.
+- **Network (not restricted yet):** agents join the `tikai_agents` network. They reach the hub's MCP endpoint, but not the database or the docker proxy. They **can reach the internet and your local network** (and on Docker Desktop the host through `host.docker.internal`): an egress proxy with an allowlist comes in a later version. Only assign tickets on repositories you would let an agent with internet access work on.
+- **What you see:** the ticket page lists the runs with state, branch, last progress step, failure reason, cost, and the transcript (`GET /api/runs/{id}/events`). A failed run also shows up in the attention items. The full Claude Code transcript stays in the run's directory.
+- **Hub restarts** do not stop agents: after the restart the hub follows them again. Run directories are kept after a run ends (cleanup comes with merging).
+
 ## Health
 
 - `http://localhost:8080/health`: the process runs.
@@ -98,7 +112,7 @@ Advanced settings (environment variables of the `hub` service):
 
 Run this after an update or when something seems off. Each line says what you should see.
 
-1. `docker compose ps`: `hub` and `db` are `healthy`, `docker-proxy` is `Up`.
+1. `docker compose ps`: `hub` and `db` are `healthy`, `docker-proxy` is `Up`. `docker images tikai/agent-claude-code` lists the agent image.
 2. Open <http://localhost:8080> and log in. You see your name with "(admin)".
 3. `docker compose restart hub`, wait until it is `healthy` again, reload the page: you are **still logged in** (the cookie keys are kept in the `tikai_data` volume).
 4. `docker compose down` then `docker compose up -d`, reload: **still logged in**, your account still exists.
@@ -112,7 +126,10 @@ If step 3 or 4 logs you out, the `tikai_data` volume was not kept or not writabl
 
 ```powershell
 git pull
+docker compose --profile agents build
 docker compose up -d --build
 ```
+
+A run that is working during the update keeps running and is picked up again by the new hub.
 
 Database migrations run automatically when the hub starts.

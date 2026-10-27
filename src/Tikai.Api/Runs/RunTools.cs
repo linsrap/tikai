@@ -1,10 +1,13 @@
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Tikai.Api.Attention;
+using Tikai.Core.Agents;
 using Tikai.Core.Attention;
 using Tikai.Core.Events;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
 using Tikai.Data;
+using Tikai.Data.Runs;
 using Tikai.Mcp;
 
 namespace Tikai.Api.Runs;
@@ -12,6 +15,9 @@ namespace Tikai.Api.Runs;
 /// <summary>The hub side of the MCP tools. Every query is bound to the run from the token, never to tool arguments.</summary>
 internal sealed class RunTools(TikaiDbContext db, AttentionService attention, IEventPublisher events, TimeProvider timeProvider) : IRunTools
 {
+    // The transcript keeps no key- or token-shaped text, also not from what the agent reports.
+    private static readonly SecretRedactor _redactor = new([]);
+
     public async Task<TicketResult> GetTicketAsync(RunScope run, CancellationToken cancellationToken)
     {
         var ticket = await db.Tickets.AsNoTracking().Include(t => t.Criteria)
@@ -35,7 +41,11 @@ internal sealed class RunTools(TikaiDbContext db, AttentionService attention, IE
             .SetProperty(r => r.ProgressNote, note)
             .SetProperty(r => r.ProgressAt, now)
             .SetProperty(r => r.UpdatedAt, now), cancellationToken);
+        await db.AppendAsync(run.RunId,
+            [new ParsedEvent(RunEventKind.Progress, new JsonObject { ["step"] = _redactor.Redact(currentStep), ["note"] = note is null ? null : _redactor.Redact(note) })],
+            null, now, cancellationToken);
         await events.PublishAsync(AgentRun.Topic, run.RunId, cancellationToken);
+        await events.PublishAsync(RunEvent.Topic, run.RunId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 

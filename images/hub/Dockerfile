@@ -26,8 +26,8 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=api /app ./
 COPY --from=web /web/dist ./wwwroot
-# Named volumes copy this ownership on first use, so the non-root app user can write to them.
-RUN mkdir -p /data /runs && chown "$APP_UID" /data /runs
+# Named volumes copy this ownership on first use, so the non-root app user can write to it.
+RUN mkdir -p /data && chown "$APP_UID" /data
 USER $APP_UID
 ENV ASPNETCORE_HTTP_PORTS=8080 \
     Tikai__DataPath=/data
