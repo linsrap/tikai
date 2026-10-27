@@ -178,9 +178,10 @@ public sealed class AgentRunTests(PostgresFixture postgres, AgentHost agents) : 
 
         var run = await hub.WaitForEndAsync((await hub.AssignAsync(ticket)).Id);
 
-        Assert.Equal(AgentRunState.InReview, run.State);
         var events = await hub.EventsAsync(run.Id);
-        var big = events.Single(e => e.Kind == RunEventKind.ToolResult && e.Payload.GetProperty("tool_use_id").GetString() == "toolu_big");
+        Assert.True(run.State == AgentRunState.InReview,
+            $"{run.State}: {run.FailureReason}\n" + string.Join("\n", events.TakeLast(12).Select(e => $"{e.Seq} {e.Kind} {e.Payload.GetRawText()[..Math.Min(300, e.Payload.GetRawText().Length)]}")));
+        var big =events.Single(e => e.Kind == RunEventKind.ToolResult && e.Payload.GetProperty("tool_use_id").GetString() == "toolu_big");
         Assert.EndsWith("… [96000 more characters]", big.Payload.GetProperty("content").GetString(), StringComparison.Ordinal);
         Assert.Contains(events, e => e.Kind == RunEventKind.Log && e.Payload.GetProperty("text").GetString() == "A line of 1200000 bytes was too long to store.");
     }
