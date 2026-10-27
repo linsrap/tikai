@@ -1,5 +1,6 @@
 # Tikai, self-hosted: docker compose up
 # Settings come from .env (see .env.example). Open http://localhost:8080 and sign up; the first account is the admin.
+# Agent images are built once (and after updates) with: docker compose --profile agents build
 name: tikai
 services:
   hub:
@@ -12,9 +13,16 @@ services:
       ConnectionStrings__Db: Host=db;Database=tikai;Username=tikai;Password=${DB_PASSWORD:-tikai}
       # Encrypts the key ring in the data volume (cookies, stored credentials and LLM keys depend on it).
       Tikai__EncryptionSecret: ${TIKAI_SECRET:?set TIKAI_SECRET in .env (see .env.example)}
+      # Agent runs: containers are started through the docker proxy, join the agents network and mount only their
+      # own directory of the runs volume. The hub itself never mounts that volume.
+      Tikai__Docker__Host: tcp://docker-proxy:2375
+      Tikai__Agents__Network: ${COMPOSE_PROJECT_NAME}_agents
+      Tikai__Agents__RunsVolume: ${COMPOSE_PROJECT_NAME}_runs
+      Tikai__Agents__McpUrl: http://hub:8080/mcp
+      Tikai__Agents__ClaudeCodeImage: tikai/agent-claude-code:local
     volumes:
       - data:/data # Data Protection keys (encrypted with TIKAI_SECRET) and repository mirrors; hub only
-      - runs:/runs # run clones; each agent mounts only its own subdirectory (step 10)
+    networks: [default, agents]
     depends_on:
       db:
         condition: service_healthy
@@ -36,14 +44,33 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Lets the hub start agent containers with limited rights (step 10). Agents never see this socket.
+  # Lets the hub start agent containers with limited rights. Agents never see this socket.
   docker-proxy:
     image: tecnativa/docker-socket-proxy:v0.4.1
-    environment: { CONTAINERS: 1, POST: 1, IMAGES: 1, NETWORKS: 1 }
+    environment: { CONTAINERS: 1, POST: 1, IMAGES: 1 }
     volumes: [/var/run/docker.sock:/var/run/docker.sock:ro]
     restart: unless-stopped
 
+  # Agent images: only built (docker compose --profile agents build), never started by compose.
+  agent-base:
+    build: images/agent-base
+    image: tikai/agent-base:local
+    profiles: [agents]
+
+  agent-claude-code:
+    build:
+      context: images/agent-claude-code
+      additional_contexts:
+        tikai/agent-base:local: service:agent-base
+    image: tikai/agent-claude-code:local
+    profiles: [agents]
+
+networks:
+  # Not internal: agents need the LLM API, and there is no egress proxy yet (Phase 2). They cannot reach db or
+  # docker-proxy, which are only on the default network.
+  agents: {}
+
 volumes:
   data:
-  runs:
   pg:
+# The runs volume (<project>_runs) is created by Docker with the first agent run; "docker compose down -v" leaves it.

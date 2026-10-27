@@ -181,6 +181,16 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         return output.AsSpan(headerEnd + 1, size).ToArray();
     }
 
+    public async Task CreateBundleAsync(string path, string branch, string outputFile, CancellationToken cancellationToken = default)
+    {
+        CheckBranch(branch);
+        if (await ResolveCommitAsync(path, LocalRefs + branch, cancellationToken) is null)
+        {
+            throw new GitException($"The branch \"{branch}\" has no commits yet.");
+        }
+        await RunAsync(path, ["bundle", "create", "--quiet", Path.GetFullPath(outputFile), LocalRefs + branch], cancellationToken);
+    }
+
     public Task DeleteRepositoryAsync(string path, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {

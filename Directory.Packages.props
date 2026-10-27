@@ -24,6 +24,10 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Orchestrator">
+    <PackageVersion Include="Docker.DotNet.Enhanced" Version="4.3.3" />
+  </ItemGroup>
+
   <ItemGroup Label="Mcp">
     <PackageVersion Include="ModelContextProtocol" Version="2.3.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.3.0" />

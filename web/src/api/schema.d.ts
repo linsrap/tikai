@@ -1239,10 +1239,199 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{slug}/tickets/{number}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    number: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunInfo"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    number: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StartRunRequest"];
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunInfo"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    afterSeq?: number;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunEventInfo"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {unknown} */
+        AgentRunState: "queued" | "preparing" | "running" | "blocked" | "in_review" | "changes_requested" | "merged" | "failed" | "cancelled";
         AnswerRequest: {
             text?: null | string;
             decision?: null | components["schemas"]["PlanDecision"];
@@ -1353,6 +1542,7 @@ export interface components {
                 [key: string]: string[];
             };
         };
+        JsonElement: unknown;
         LlmProviderInfo: {
             /** Format: uuid */
             id: string;
@@ -1429,6 +1619,50 @@ export interface components {
             criteriaMapping: components["schemas"]["CriterionMapping"][];
             openConcerns: string[];
         };
+        RunEventInfo: {
+            /** Format: int64 */
+            seq: number;
+            kind: components["schemas"]["RunEventKind"];
+            payload: components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** @enum {unknown} */
+        RunEventKind: "system" | "message" | "tool_call" | "tool_result" | "progress" | "result" | "log";
+        RunInfo: {
+            /** Format: uuid */
+            id: string;
+            ticketKey: string;
+            /** Format: int32 */
+            ticketNumber: number;
+            state: components["schemas"]["AgentRunState"];
+            adapter: null | string;
+            model: null | string;
+            /** Format: uuid */
+            repositoryId: null | string;
+            repositoryName: null | string;
+            /** Format: uuid */
+            llmProviderId: null | string;
+            branch: null | string;
+            progressStep: null | string;
+            progressNote: null | string;
+            /** Format: date-time */
+            progressAt: null | string;
+            /** Format: int32 */
+            exitCode: null | number;
+            failureReason: null | string;
+            /** Format: double */
+            costUsd: null | number;
+            /** Format: int64 */
+            costTokens: null | number;
+            cancelRequested: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: null | string;
+            /** Format: date-time */
+            endedAt: null | string;
+        };
         SignUpRequest: {
             email: string;
             displayName: string;
@@ -1446,6 +1680,12 @@ export interface components {
             model: string;
             /** Format: int32 */
             durationMs: number;
+        };
+        StartRunRequest: {
+            /** Format: uuid */
+            repositoryId?: null | string;
+            /** Format: uuid */
+            providerId?: null | string;
         };
         TicketInfo: {
             /** Format: uuid */

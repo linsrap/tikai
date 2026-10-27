@@ -51,3 +51,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build the hub image
         run: docker build -f images/hub/Dockerfile -t tikai/hub:ci .
+      - name: Build the agent images
+        run: |
+          docker build -t tikai/agent-base:ci images/agent-base
+          docker build --build-arg BASE_IMAGE=tikai/agent-base:ci -t tikai/agent-claude-code:ci images/agent-claude-code

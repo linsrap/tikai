@@ -38,11 +38,15 @@ internal sealed class AttentionService(TikaiDbContext db, IEventPublisher events
     }
 
     /// <summary>Records an item that does not block the agent (e.g. a submitted review).</summary>
+    /// <remarks>Joins the caller's transaction, if any.</remarks>
     public async Task<AttentionItem> RecordAsync<TPayload>(RunScope run, AttentionKind kind, TPayload payload, CancellationToken cancellationToken)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var item = await AddAsync(run, kind, payload, requestHash: null, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
         return item;
     }
 

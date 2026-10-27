@@ -12,6 +12,7 @@ import {
   useUpdateTicket,
 } from '../tickets/tickets'
 import { AppShell } from './AppShell'
+import { RunsSection } from './RunsSection'
 import { TicketFormView } from './TicketForm'
 
 export function TicketPage({ slug, number }: { slug: string; number: number }) {
@@ -102,6 +103,7 @@ export function TicketPage({ slug, number }: { slug: string; number: number }) {
             </button>
             {remove.error && <span className="error">{remove.error.message}</span>}
           </div>
+          <RunsSection slug={slug} number={number} status={t.status} />
         </article>
       )}
     </AppShell>

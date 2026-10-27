@@ -54,28 +54,32 @@ Core ideas:
 ```
 Tikai.slnx                    .NET solution (global.json pins SDK 10.0.402; Directory.*.props hold shared settings and package versions)
 src/
-  Tikai.Api/                  ASP.NET Core host and composition root; feature folders Auth/, Projects/ (projects, repositories, git jobs, fetch scheduler), Tickets/ (tickets, acceptance criteria, refine spec), Llm/ (providers API), Security/ (key ring encryption, secret protector), Runs/ (runs, run tokens, `RunToken` auth scheme, `IRunTools`), Attention/ (attention items, waiter, answer API), Mcp/ (`/mcp` endpoint)
-  Tikai.Core/                 domain: entities, state machines, interfaces; no packages, no references
-  Tikai.Data/                 EF Core, migrations, job queue, ticket numbers (counter on projects, UPDATE … RETURNING)
+  Tikai.Api/                  ASP.NET Core host and composition root; feature folders Auth/, Projects/ (projects, repositories, git jobs, fetch scheduler), Tickets/ (tickets, acceptance criteria, refine spec), Llm/ (providers API), Security/ (key ring encryption, secret protector), Runs/ (runs, run tokens, `RunToken` auth scheme, `IRunTools`, assign and run endpoints, `RunStore`), Attention/ (attention items, waiter, answer API), Mcp/ (`/mcp` endpoint)
+  Tikai.Core/                 domain: entities, state machines (`RunStateMachine`, `RunExit`), interfaces (`IAgentAdapter`); no packages, no references
+  Tikai.Data/                 EF Core, migrations, job queue, ticket numbers (counter on projects, UPDATE … RETURNING), run event numbers (counter on agent_runs, `RunEventLog`)
   Tikai.Git/                  GitService (git CLI, isolated config, credentials via env only), ProcessRunner
-  Tikai.Orchestrator/         run lifecycle, Docker
+  Tikai.Orchestrator/         run lifecycle on Docker.DotNet.Enhanced: start job (`RunStarter`, queue `runs`), `RunMonitor` (logs → run_events, exit → state, re-attach at startup), `RunControl` (cancel), `IRunStore` (implemented in Api)
   Tikai.Mcp/                  MCP tools on the official C# SDK (`TikaiTools`), `RunScope` from the token's claims, `IRunTools` (implemented in Api)
   Tikai.Review/               diff model, analysis, ordering
   Tikai.Llm/                  IChatClientFactory (official Anthropic SDK via Microsoft.Extensions.AI), connection test, Refine/ (refine spec), Prompts/ (versioned prompt files, embedded)
-  Tikai.Adapters.ClaudeCode/  IAgentAdapter for Claude Code
+  Tikai.Adapters.ClaudeCode/  IAgentAdapter for Claude Code: command line, mcp.json, stream-json parser, Prompts/ (versioned start prompt, embedded)
 tests/
   Tikai.ArchitectureTests/    enforces the project reference rules below
-  Tikai.Core.Tests/           pure unit tests
+  Tikai.Core.Tests/           pure unit tests (also the pure parts of the adapter and the orchestrator: parsing, command line, tar, prep script)
   Tikai.IntegrationTests/     Testcontainers Postgres 17 (needs Docker running): job queue, worker, event bus, entity conventions, auth, projects API, tickets API, key ring encryption, LLM providers API;
                               LLM client and refine spec against an in-process fake of the Messages API (no key needed);
                               MCP tools, run tokens and blocking calls through the SDK's own `McpClient`, attention API;
-                              real git: GitService, token auth via in-process git http-backend, SSH via an sshd container (needs `ssh` on PATH for git)
+                              real git: GitService, token auth via in-process git http-backend, SSH via an sshd container (needs `ssh` on PATH for git);
+                              agent runs with real containers: builds images/agent-base and tests/agent-stub as :test, a hub on a real port (Kestrel)
+  agent-stub/                 stand-in for Claude Code in tests (same command line, MCP over HTTP, stream-json; scenario from the ticket description)
 web/                          React + TypeScript (Vite, TanStack Router + Query, openapi-fetch, react-markdown + remark-gfm, ESLint, Prettier, Vitest)
   openapi.json                API description, written by `dotnet build` of Tikai.Api (committed; CI checks it is current)
   src/api/schema.d.ts         typed API client types from openapi.json (`npm run api:generate`; committed; CI checks it)
 images/hub/Dockerfile         hub image: web build → API publish → aspnet runtime with git, serves the SPA from wwwroot
+images/agent-base/            agent base image (node:24 trixie slim, git, uid 1000)
+images/agent-claude-code/     Claude Code on agent-base, version pinned by ARG CLAUDE_CODE_VERSION
 docs/                         contributing.md, self-hosting.md (start, settings, restart and re-login checklist)
-compose.yml                   self-hosting: hub, db (Postgres 17), docker-proxy; volumes data, runs, pg
+compose.yml                   self-hosting: hub, db (Postgres 17), docker-proxy, agent images (profile `agents`, build only); networks default, agents; volumes data, pg (the runs volume is made by Docker with the first run)
 compose.dev.yml               Postgres 17 for local development
 .github/workflows/ci.yml      CI on Linux: .NET build/test/format, web lint/format/test/build, hub image build, generated-file checks
 ```
@@ -90,7 +94,9 @@ Tickets: numbers come from `TicketNumbers.NextAsync` inside the insert transacti
 
 MCP: `/mcp` is stateless Streamable HTTP (protocol 2026-07-28) and accepts only a run token (`Authorization: Bearer tikai_run_…`, scheme `RunToken`; the login cookie is ignored there, and the token does not open `/api`). Tokens come from `RunService` (stored as SHA-256 only; invalid once the run has ended; `RenewTokenAsync` replaces one). Tools take no run, ticket or project ids: everything comes from `RunScope`. Tool argument names are snake_case (the C# parameter names); errors the agent can fix are thrown as `McpException`. Blocking tools (`ask_human`, `propose_plan`) create or merge an attention item (same run, latest blocking item, same request hash → reused, stored answer returned at once) and wait through `IAttentionWaiter`, which registers before it reads the row; a progress notification and a re-read every `Tikai:Mcp:HeartbeatInterval` (30 s). The database is the source of truth for answers; nothing in memory must survive a restart.
 
-Prompts: one versioned markdown file per prompt in `src/Tikai.Llm/Prompts/` (`refine-spec.v1.md`); a changed prompt is a new file. Structured output uses an explicit JSON schema with a `required` list: the Anthropic SDK silently drops a schema without one (no `output_config` is sent), and schemas inferred from classes with settable properties have none.
+Runs: `POST /api/projects/{slug}/tickets/{n}/runs` creates a queued run (one active run per ticket and per repository, enforced by partial unique indexes) and a `runs` job. `RunStarter` bundles the default branch in the mirror (the only git the hub runs), writes the run directory through the Docker archive API into a never-started `seed` container (tar headers set owner and mode: run root, `mcp.json` and `.tikai/ticket.md` root-owned and read-only; `work/`, `home/`, `claude/` owned by uid 1000), clones in a `prep` container (agent image, agent uid, no network), renews the token, and starts the agent. The hub never mounts the runs volume and never runs git or follows symlinks in a run directory; the subpath mount is exactly the run's GUID. The sandbox (user, read-only root, cap-drop, limits, network, `json-file` log driver) is set only in `DockerContainerRuntime.CreateAsync`; adapters give image, command and environment. State changes are compare-and-set along `RunStateMachine`; a container's end goes through `RunExit.Map` (exit code 0 alone means nothing; the `system/init` MCP status is checked as soon as it arrives). Agent output is redacted (`SecretRedactor`) and trimmed (`RunEventPayload`) before it becomes `run_events`, numbered from `agent_runs.last_event_seq`; after a hub restart the monitor re-reads the log and skips `log_lines_read` lines. Docker log timestamps are not used (Docker splits long lines into 16 KB chunks, each with its own timestamp).
+
+Prompts: one versioned markdown file per prompt in `src/Tikai.Llm/Prompts/` (`refine-spec.v1.md`) or, for agents, in the adapter (`src/Tikai.Adapters.ClaudeCode/Prompts/run-start.v1.md`); a changed prompt is a new file. Structured output uses an explicit JSON schema with a `required` list: the Anthropic SDK silently drops a schema without one (no `output_config` is sent), and schemas inferred from classes with settable properties have none.
 
 Project references: `Core` references nothing; `Data`, `Git`, `Llm`, `Review`, `Orchestrator`, `Mcp` and `Adapters.ClaudeCode` reference only `Core`; `Api` references everything. A new `src` project needs a rule in `tests/Tikai.ArchitectureTests/ProjectReferenceTests.cs`.
 
@@ -98,7 +104,7 @@ Commands (PowerShell or any shell, from the repo root):
 
 ```
 dotnet build                             # warnings are errors
-dotnet test                              # Microsoft.Testing.Platform (opted in via global.json); integration tests need Docker
+dotnet test                              # Microsoft.Testing.Platform (opted in via global.json); integration tests need Docker (agent tests reach the test hub at host.docker.internal; inside a container set TIKAI_TEST_AGENT_NETWORK and TIKAI_TEST_HUB_HOST)
 dotnet tool restore                      # once: installs dotnet-ef from dotnet-tools.json
 dotnet ef migrations add <Name> --project src/Tikai.Data --startup-project src/Tikai.Data --output-dir Migrations
 dotnet format --verify-no-changes        # style check, also run in CI
@@ -107,5 +113,6 @@ docker compose -f compose.dev.yml up -d  # Postgres on 127.0.0.1:5432 (settings 
 dotnet run --project src/Tikai.Api       # API on http://localhost:5080; applies migrations at startup; /health (live), /health/ready (DB)
 npm run dev --prefix web                 # web on http://localhost:5173, proxies /api and /hubs to the API
 npm run api:generate --prefix web        # after API changes (dotnet build updates web/openapi.json first)
+docker compose --profile agents build    # agent images tikai/agent-base:local, tikai/agent-claude-code:local
 docker compose up -d --build             # full stack on http://localhost:8080 (see docs/self-hosting.md)
 ```

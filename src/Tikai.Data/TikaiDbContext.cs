@@ -31,6 +31,8 @@ public class TikaiDbContext(DbContextOptions options)
 
     public DbSet<AttentionItem> AttentionItems => Set<AttentionItem>();
 
+    public DbSet<RunEvent> RunEvents => Set<RunEvent>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

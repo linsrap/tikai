@@ -162,6 +162,25 @@ public sealed class GitServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_bundle_carries_the_default_branch_and_nothing_else()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = _temp.Combine("hub.git");
+        await _git.InitBareAsync(path, "main", ct);
+        var main = await TestGit.CommitAsync(path, "main", "On main", ("a.txt", "a"));
+        var secret = await TestGit.CommitAsync(path, "other-team/secret", "Secret", ("s.txt", "s"));
+        var bundle = _temp.Combine("run.bundle");
+
+        await _git.CreateBundleAsync(path, "main", bundle, ct);
+
+        Assert.Equal($"{main} refs/heads/main", await TestGit.RunAsync(null, "bundle", "list-heads", bundle));
+        var clone = _temp.Combine("clone.git");
+        await TestGit.RunAsync(null, "clone", "--quiet", "--bare", bundle, clone);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => TestGit.RunAsync(clone, "cat-file", "-e", secret));
+        await Assert.ThrowsAsync<GitException>(() => _git.CreateBundleAsync(path, "empty", _temp.Combine("none.bundle"), ct));
+    }
+
+    [Fact]
     public async Task Repositories_with_read_only_object_files_can_be_deleted()
     {
         var ct = TestContext.Current.CancellationToken;
