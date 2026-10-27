@@ -84,7 +84,9 @@ public sealed class AgentHost : IAsyncLifetime
             ["Tikai:Agents:InitTimeout"] = "00:00:30",
             ["Tikai:Agents:MemoryBytes"] = (512L * 1024 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["Tikai:Agents:ReconnectDelay"] = "00:00:01",
+            ["Tikai:Agents:ReconcileInterval"] = "00:00:01",
             ["Tikai:Mcp:HeartbeatInterval"] = "00:00:00.500",
+            [TikaiApiFactory.ReconcilerSetting] = "on",
         };
         if (NetworkOverride is null)
         {
@@ -180,12 +182,31 @@ public sealed class AgentHub : IAsyncDisposable
     }
 
     /// <summary>The same database and port with a new hub process, like a restart; logs in again.</summary>
-    public async Task<AgentHub> RestartAsync()
+    public async Task<AgentHub> RestartAsync() => await StartAgainAsync(await StopAsync(), Port);
+
+    /// <summary>Stops this hub (the agents keep running) and returns the factory for the next one.</summary>
+    public async Task<TikaiApiFactory> StopAsync()
     {
         var next = Factory.Restart();
         await DisposeAsync();
-        return await StartAsync(next, Port, signUp: false);
+        return next;
     }
+
+    /// <summary>A hub from <see cref="StopAsync"/>'s factory on the same port.</summary>
+    public static Task<AgentHub> StartAgainAsync(TikaiApiFactory next, int port) => StartAsync(next, port, signUp: false);
+
+    /// <summary>Answers a question through the API, as a person would.</summary>
+    public async Task AnswerAsync(Guid itemId, string text)
+    {
+        using var response = await Browser.PostAsync($"/api/attention-items/{itemId}/answer", new { text });
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"{(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
+    }
+
+    /// <summary>The texts of the run's assistant messages, oldest first.</summary>
+    public async Task<List<string>> MessagesAsync(Guid runId) =>
+        [.. (await EventsAsync(runId))
+            .Where(e => e.Kind == RunEventKind.Message && e.Payload.TryGetProperty("text", out _))
+            .Select(e => e.Payload.GetProperty("text").GetString()!)];
 
     /// <summary>A project with a local repository, a provider and one ticket whose description picks the stub's scenario.</summary>
     public async Task<TicketInfo> CreateTicketAsync(string scenario, string key = "HUB")

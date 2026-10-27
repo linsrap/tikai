@@ -109,4 +109,65 @@ public class OrchestratorPartsTests
         Assert.Equal(["tikai-prepare", "main", "tikai/HUB-42-1a2b3c4d", RunPrep.AuthorName, RunPrep.AuthorEmail], spec.Command);
         Assert.Empty(spec.Environment);
     }
+
+    [Fact]
+    public void The_inspect_script_takes_its_values_as_arguments_and_reports_the_session_first()
+    {
+        var spec = RunInspect.Container("img", "claude/projects/-run-work/s1.jsonl", "main", "--tikai-m");
+
+        Assert.Equal(["/bin/sh", "-euc"], spec.Entrypoint.Take(2));
+        Assert.StartsWith("if [ -n \"$1\" ] && [ -f \"/run/$1\" ]; then echo \"session: yes\"", spec.Entrypoint[2], StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", spec.Entrypoint[2], StringComparison.Ordinal);
+        Assert.Equal(["tikai-inspect", "claude/projects/-run-work/s1.jsonl", "main", "--tikai-m"], spec.Command);
+        Assert.Equal("", RunInspect.Container("img", null, "main", "m").Command[1]);
+    }
+
+    [Fact]
+    public void Inspect_output_is_split_by_the_marker_only()
+    {
+        var marker = RunInspect.NewMarker();
+        Assert.NotEqual(marker, RunInspect.NewMarker());
+
+        var state = RunInspect.Parse(
+        [
+            "session: yes",
+            marker + " log",
+            "d92f00b Add answer.txt",
+            "fda09dd --tikai-guess status", // a commit message cannot end the section
+            marker + " status",
+            "?? notes.txt",
+        ], marker);
+
+        Assert.True(state.SessionExists);
+        Assert.Equal("d92f00b Add answer.txt\nfda09dd --tikai-guess status", state.GitLog);
+        Assert.Equal("?? notes.txt", state.GitStatus);
+    }
+
+    [Fact]
+    public void Inspect_output_without_the_session_line_first_means_no_session()
+    {
+        var state = RunInspect.Parse(["noise", "session: yes", "m log", "m status"], "m");
+
+        Assert.False(state.SessionExists);
+        Assert.Equal("", state.GitLog);
+        Assert.Equal("", state.GitStatus);
+    }
+
+    [Fact]
+    public void Inspect_sections_are_cut()
+    {
+        var state = RunInspect.Parse(["session: no", "m log", new string('x', 10_000), "m status"], "m");
+
+        Assert.True(state.GitLog.Length < 4_100);
+        Assert.Contains("more characters]", state.GitLog, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_jobs_without_a_kind_are_starts()
+    {
+        Assert.Equal(new RunJob(Guid.Empty), RunJob.FromJson("""{"run_id":"00000000-0000-0000-0000-000000000000"}"""));
+        var resume = new RunJob(Guid.Empty, RunJobKind.Resume);
+        Assert.Contains("\"kind\":\"resume\"", resume.ToJson(), StringComparison.Ordinal);
+        Assert.Equal(resume, RunJob.FromJson(resume.ToJson()));
+    }
 }

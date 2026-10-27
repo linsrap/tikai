@@ -206,6 +206,10 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivered_at");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -515,6 +519,18 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("adapter");
 
+                    b.Property<int>("Attempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt");
+
+                    b.Property<string>("AttemptKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("start")
+                        .HasColumnName("attempt_kind");
+
                     b.Property<string>("Branch")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
@@ -659,6 +675,8 @@ namespace Tikai.Data.Migrations
 
                     b.ToTable("agent_runs", null, t =>
                         {
+                            t.HasCheckConstraint("ck_agent_runs_attempt_kind", "attempt_kind IN ('start', 'resume', 'summary')");
+
                             t.HasCheckConstraint("ck_agent_runs_state", "state IN ('queued', 'preparing', 'running', 'blocked', 'in_review', 'changes_requested', 'merged', 'failed', 'cancelled')");
 
                             t.HasCheckConstraint("ck_agent_runs_token_hash", "octet_length(token_hash) = 32");

@@ -32,8 +32,26 @@ public sealed class OrchestratorOptions
     /// <summary>Size of the writable /tmp (tmpfs); the root file system is read-only.</summary>
     public string TmpSize { get; set; } = "1g";
 
-    /// <summary>How long a blocking MCP call may stay open: the per-server timeout in the agent's MCP config.</summary>
+    /// <summary>
+    /// How long a blocking MCP call may stay open: the per-server timeout in the agent's MCP config, Claude Code's own
+    /// hard limit. It must be longer than <see cref="BlockTimeout"/>, so the hub decides first.
+    /// </summary>
     public TimeSpan ToolCallTimeout { get; set; } = TimeSpan.FromHours(5);
+
+    /// <summary>
+    /// How long an agent's container waits for an answer, from the oldest open question or plan (database time). Then
+    /// the container is stopped; the run stays blocked and continues in a new container once it is answered.
+    /// </summary>
+    public TimeSpan BlockTimeout { get; set; } = TimeSpan.FromHours(4);
+
+    /// <summary>The smallest gap between <see cref="BlockTimeout"/> and <see cref="ToolCallTimeout"/>.</summary>
+    public static readonly TimeSpan BlockTimeoutMargin = TimeSpan.FromMinutes(15);
+
+    /// <summary>How often runs and containers are compared (and the block timeout checked).</summary>
+    public TimeSpan ReconcileInterval { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>Limit for the inspect container that reads the run clone's state before a resume.</summary>
+    public TimeSpan InspectTimeout { get; set; } = TimeSpan.FromMinutes(1);
 
     /// <summary>The agent must report its start (and the MCP server status) within this time, or it is stopped.</summary>
     public TimeSpan InitTimeout { get; set; } = TimeSpan.FromMinutes(3);

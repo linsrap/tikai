@@ -17,8 +17,11 @@ internal sealed class AgentRunConfiguration : IEntityTypeConfiguration<AgentRun>
         {
             table.HasCheckConstraint("ck_agent_runs_state", SnakeCaseEnum.CheckIn<AgentRunState>("state"));
             table.HasCheckConstraint("ck_agent_runs_token_hash", "octet_length(token_hash) = 32");
+            table.HasCheckConstraint("ck_agent_runs_attempt_kind", SnakeCaseEnum.CheckIn<RunAttemptKind>("attempt_kind"));
         });
         builder.Property(r => r.State).HasConversion(SnakeCaseEnum.Converter<AgentRunState>()).HasMaxLength(20);
+        builder.Property(r => r.AttemptKind).HasConversion(SnakeCaseEnum.Converter<RunAttemptKind>()).HasMaxLength(20)
+            .HasDefaultValue(RunAttemptKind.Start).HasSentinel(RunAttemptKind.Start);
         builder.Property(r => r.ProgressStep).HasMaxLength(RunRules.MaxProgressStepLength);
         builder.Property(r => r.ProgressNote).HasMaxLength(RunRules.MaxProgressNoteLength);
         builder.Property(r => r.FailureReason).HasMaxLength(RunRules.MaxFailureReasonLength);

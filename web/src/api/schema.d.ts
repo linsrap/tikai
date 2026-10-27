@@ -1619,6 +1619,8 @@ export interface components {
             criteriaMapping: components["schemas"]["CriterionMapping"][];
             openConcerns: string[];
         };
+        /** @enum {unknown} */
+        RunAttemptKind: "start" | "resume" | "summary";
         RunEventInfo: {
             /** Format: int64 */
             seq: number;
@@ -1662,6 +1664,15 @@ export interface components {
             startedAt: null | string;
             /** Format: date-time */
             endedAt: null | string;
+            /** Format: int32 */
+            attempt: number;
+            attemptKind: components["schemas"]["RunAttemptKind"];
+            waiting: components["schemas"]["WaitingItem"][];
+            /** Format: date-time */
+            blockedSince: null | string;
+            /** Format: date-time */
+            blockTimeoutAt: null | string;
+            agentStopped: boolean;
         };
         SignUpRequest: {
             email: string;
@@ -1738,6 +1749,15 @@ export interface components {
             status: components["schemas"]["TicketStatus"];
             priority: components["schemas"]["TicketPriority"];
             criteria: components["schemas"]["CriterionInput"][];
+        };
+        WaitingItem: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AttentionKind"];
+            question: null | components["schemas"]["QuestionPayload"];
+            plan: null | components["schemas"]["PlanPayload"];
+            /** Format: date-time */
+            createdAt: string;
         };
     };
     responses: never;

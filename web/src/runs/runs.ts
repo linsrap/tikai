@@ -7,6 +7,7 @@ export type RunInfo = components['schemas']['RunInfo']
 export type RunState = components['schemas']['AgentRunState']
 export type RunEventInfo = components['schemas']['RunEventInfo']
 export type StartRunRequest = components['schemas']['StartRunRequest']
+export type WaitingItem = components['schemas']['WaitingItem']
 
 export const runStateLabel: Record<RunState, string> = {
   queued: 'Queued',
@@ -25,6 +26,47 @@ export const isMoving = (state: RunState) => ['queued', 'preparing', 'running'].
 
 /** States in which the run has not ended (it can be cancelled). */
 export const isActive = (state: RunState) => !['merged', 'failed', 'cancelled'].includes(state)
+
+/** How often the list asks again: often while a run moves, less while it waits (an answer given elsewhere moves it). */
+export const pollInterval = (state: RunState): number | false =>
+  isMoving(state) ? 3000 : state === 'blocked' ? 10000 : false
+
+/** What the agent waits for, in one line. */
+export function waitingText(item: WaitingItem): string {
+  if (item.question) {
+    const options =
+      item.question.options.length > 0 ? ` (${item.question.options.join(' / ')})` : ''
+    return `Question: ${item.question.question}${options}`
+  }
+  if (item.plan) {
+    const n = item.plan.steps.length
+    return `Plan with ${n} step${n === 1 ? '' : 's'}: ${item.plan.steps.join('; ')}`
+  }
+  return item.kind
+}
+
+/** What happens to a blocked run's agent; null when the run is not blocked. */
+export function blockedNote(
+  run: Pick<RunInfo, 'state' | 'agentStopped' | 'blockTimeoutAt' | 'waiting'>,
+  time: (iso: string) => string,
+): string | null {
+  if (run.state !== 'blocked') return null
+  if (run.agentStopped) {
+    return run.waiting.length > 0
+      ? 'The agent was stopped while it waited. It continues in a new container once everything is answered.'
+      : 'Everything is answered; the agent is being resumed in a new container.'
+  }
+  return run.blockTimeoutAt
+    ? `The agent waits until ${time(run.blockTimeoutAt)}. Then it is stopped, and it continues in a new container once answered.`
+    : null
+}
+
+/** "Resumed 2×, last in its own session"; null while the run is on its first container. */
+export function resumeLabel(run: Pick<RunInfo, 'attempt' | 'attemptKind'>): string | null {
+  if (run.attempt <= 1) return null
+  const how = run.attemptKind === 'resume' ? 'its own session' : 'a fresh session with a summary'
+  return `Resumed ${run.attempt - 1}×, last in ${how}`
+}
 
 /** Only the choices the person made; the server picks the defaults (the only repository, the project's provider). */
 export function toStartRunRequest(
@@ -74,8 +116,13 @@ export const runsQuery = (slug: string, number: number) =>
         }),
         'load the runs',
       ),
-    // Poll while a run moves by itself; live updates come with SignalR (roadmap step 12).
-    refetchInterval: (query) => (query.state.data?.some((r) => isMoving(r.state)) ? 3000 : false),
+    // Poll while a run can change by itself; live updates come with SignalR (roadmap step 12).
+    refetchInterval: (query) => {
+      const intervals = (query.state.data ?? [])
+        .map((r) => pollInterval(r.state))
+        .filter((i) => i !== false)
+      return intervals.length > 0 ? Math.min(...intervals) : false
+    },
   })
 
 export const runEventsQuery = (id: string, moving: boolean) =>

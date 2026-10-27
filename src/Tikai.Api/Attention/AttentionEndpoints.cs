@@ -44,6 +44,13 @@ internal static class AttentionEndpoints
                 title: "This item is not answered here",
                 detail: "Only questions and plan approvals take an answer.");
         }
+        if (item.Status == AttentionStatus.Dismissed)
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The run has ended",
+                detail: "This question no longer reaches an agent: its run failed or was cancelled.");
+        }
         var (answer, error) = AttentionRules.Answer(item.Kind, request.Text, request.Decision);
         if (error is var (field, message))
         {

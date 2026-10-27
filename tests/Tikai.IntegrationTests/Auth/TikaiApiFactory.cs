@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Tikai.Data.Jobs;
+using Tikai.Orchestrator;
 
 namespace Tikai.IntegrationTests.Auth;
 
@@ -12,15 +14,21 @@ public sealed class TikaiApiFactory : WebApplicationFactory<Program>
 {
     public const string TestSecret = "test-secret-0123456789-abcdefghijklmnop";
 
+    /// <summary>
+    /// Set to "on" to run the reconciler. Off by default: other tests make runs straight in the database that no job
+    /// or container will ever take, which the reconciler would rightly fail.
+    /// </summary>
+    public const string ReconcilerSetting = "Test:Reconciler";
+
     private readonly string _connectionString;
     private readonly IReadOnlyDictionary<string, string> _settings;
-    private readonly bool _ownsDataPath;
+    private bool _ownsDataPath;
 
-    private TikaiApiFactory(string connectionString, IReadOnlyDictionary<string, string> settings, string? dataPath = null)
+    private TikaiApiFactory(string connectionString, IReadOnlyDictionary<string, string> settings, string? dataPath = null, bool ownsDataPath = true)
     {
         _connectionString = connectionString;
         _settings = settings;
-        _ownsDataPath = dataPath is null;
+        _ownsDataPath = ownsDataPath;
         DataPath = dataPath ?? Path.Combine(Path.GetTempPath(), "tikai-tests", Guid.NewGuid().ToString("N"));
     }
 
@@ -42,9 +50,16 @@ public sealed class TikaiApiFactory : WebApplicationFactory<Program>
             settings ?? new Dictionary<string, string>());
     }
 
-    /// <summary>A second hub on the same database and data directory, like a restart with other settings.</summary>
-    public TikaiApiFactory Restart(IReadOnlyDictionary<string, string>? settings = null) =>
-        new(_connectionString, settings ?? _settings, DataPath);
+    /// <summary>
+    /// A second hub on the same database and data directory, like a restart with other settings. The new hub takes
+    /// over the data directory (keys included), so disposing this one first does not delete it.
+    /// </summary>
+    public TikaiApiFactory Restart(IReadOnlyDictionary<string, string>? settings = null)
+    {
+        var next = new TikaiApiFactory(_connectionString, settings ?? _settings, DataPath, _ownsDataPath);
+        _ownsDataPath = false;
+        return next;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -59,7 +74,16 @@ public sealed class TikaiApiFactory : WebApplicationFactory<Program>
             builder.UseSetting(key, value);
         }
         builder.ConfigureTestServices(services =>
-            services.Configure<JobWorkerOptions>(o => o.PollInterval = TimeSpan.FromMilliseconds(100)));
+        {
+            services.Configure<JobWorkerOptions>(o => o.PollInterval = TimeSpan.FromMilliseconds(100));
+            if (_settings.GetValueOrDefault(ReconcilerSetting) != "on")
+            {
+                foreach (var reconciler in services.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(RunReconciler)).ToList())
+                {
+                    services.Remove(reconciler);
+                }
+            }
+        });
     }
 
     protected override void Dispose(bool disposing)

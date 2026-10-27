@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Tikai.Core.Attention;
 using Tikai.Core.Runs;
 
 namespace Tikai.Api.Runs;
@@ -10,6 +11,12 @@ public sealed record StartRunRequest(Guid? RepositoryId = null, Guid? ProviderId
 /// <param name="TicketKey">e.g. "HUB-42".</param>
 /// <param name="ProgressStep">What the agent last reported with report_progress.</param>
 /// <param name="CostUsd">As the agent reported it at its end.</param>
+/// <param name="Attempt">Agent containers so far: 1 for the first, one more for each resume.</param>
+/// <param name="AttemptKind">How the current (or last) container took up the run: start, resume (its session), summary (a fresh session).</param>
+/// <param name="Waiting">The open questions and plans the agent waits for, oldest first.</param>
+/// <param name="BlockedSince">When the oldest of them was asked.</param>
+/// <param name="BlockTimeoutAt">When the waiting container will be stopped (it continues in a new one once answered).</param>
+/// <param name="AgentStopped">Blocked and no container: the agent stopped waiting, or was stopped at the block timeout.</param>
 public sealed record RunInfo(
     Guid Id,
     string TicketKey,
@@ -31,7 +38,16 @@ public sealed record RunInfo(
     bool CancelRequested,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
-    DateTimeOffset? EndedAt);
+    DateTimeOffset? EndedAt,
+    int Attempt,
+    RunAttemptKind AttemptKind,
+    IReadOnlyList<WaitingItem> Waiting,
+    DateTimeOffset? BlockedSince,
+    DateTimeOffset? BlockTimeoutAt,
+    bool AgentStopped);
+
+/// <summary>An open question or plan of a run; answered through <c>POST /api/attention-items/{id}/answer</c>.</summary>
+public sealed record WaitingItem(Guid Id, AttentionKind Kind, QuestionPayload? Question, PlanPayload? Plan, DateTimeOffset CreatedAt);
 
 /// <param name="Seq">1, 2, 3… per run; ask for events after the last one seen.</param>
 /// <param name="Payload">A JSON object; its fields depend on the kind.</param>

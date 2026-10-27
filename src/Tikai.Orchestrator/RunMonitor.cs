@@ -11,16 +11,17 @@ using Tikai.Core.Runs;
 namespace Tikai.Orchestrator;
 
 /// <summary>
-/// Follows every running agent container: its output becomes run events, its start is checked (the Tikai MCP server
-/// must be connected), and its end becomes a run state. Agents keep running when the hub stops; at startup the
-/// monitor picks up every running run again and skips the log lines it already stored.
+/// Follows every agent container: its output becomes run events, its start is checked (the Tikai MCP server must be
+/// connected), and its end becomes a run state. Agents keep running when the hub stops; the <see cref="RunReconciler"/>
+/// hands every container nobody follows (at startup, or after a database error ended a watch) back to the monitor,
+/// which skips the log lines it already stored.
 /// </summary>
 public sealed partial class RunMonitor(
     IServiceScopeFactory scopes,
     IContainerRuntime containers,
     IAgentAdapter adapter,
     IOptions<OrchestratorOptions> options,
-    ILogger<RunMonitor> logger) : BackgroundService
+    ILogger<RunMonitor> logger) : IHostedService, IDisposable
 {
     private readonly OrchestratorOptions _options = options.Value;
     private readonly ConcurrentDictionary<Guid, Task> _watches = new();
@@ -44,6 +45,7 @@ public sealed partial class RunMonitor(
             }
             catch (Exception ex)
             {
+                // E.g. the database is down: the reconciler follows the container again at its next pass.
                 LogWatchFailed(run.RunId, ex);
             }
             finally
@@ -53,26 +55,9 @@ public sealed partial class RunMonitor(
         }));
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        IReadOnlyList<WatchedRun> running;
-        try
-        {
-            running = await WithStoreAsync(store => store.ListRunningAsync(stoppingToken));
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            LogResumeFailed(ex);
-            return;
-        }
-        foreach (var run in running)
-        {
-            LogResuming(run.RunId, run.ContainerId);
-            Watch(run);
-        }
-    }
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public override async Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -83,10 +68,9 @@ public sealed partial class RunMonitor(
             // The host can be disposed before it is stopped; Dispose has cancelled the watches already.
         }
         await Task.WhenAll(_watches.Values).WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        await base.StopAsync(cancellationToken);
     }
 
-    public override void Dispose()
+    public void Dispose()
     {
         try
         {
@@ -96,7 +80,6 @@ public sealed partial class RunMonitor(
         {
         }
         _stopping.Dispose();
-        base.Dispose();
     }
 
     private async Task FollowAsync(WatchedRun run, CancellationToken cancellationToken)
@@ -135,7 +118,7 @@ public sealed partial class RunMonitor(
             {
                 if (await containers.InspectAsync(run.ContainerId, cancellationToken) is null)
                 {
-                    await EndAsync(run, new RunEnd(RunTrigger.Fail, "The agent container disappeared."), cancellationToken);
+                    await EndAsync(run, new RunEnd(RunTrigger.Fail, "The agent container disappeared.", ContainerId: run.ContainerId), cancellationToken);
                     return;
                 }
                 LogReconnecting(run.RunId, ex.Message);
@@ -154,7 +137,22 @@ public sealed partial class RunMonitor(
             exitCode,
             state.Parser?.Result,
             context.HasOpenBlockingItem,
-            context.Submitted));
+            context.Submitted,
+            context.HasUndeliveredAnswer,
+            context.Attempt));
+        // The end first: if recording it fails (database down), the container stays and the reconciler follows it
+        // again, so the note below is written once, by the attempt that recorded the end.
+        if (decision.RetryWithSummary)
+        {
+            await WithStoreAsync(store => store.RetryWithSummaryAsync(run.RunId, run.ContainerId, decision.Reason ?? "", cancellationToken));
+            LogRetrying(run.RunId, decision.Reason);
+        }
+        else
+        {
+            await WithStoreAsync(store => store.EndAsync(run.RunId,
+                new RunEnd(decision.Trigger, decision.Reason, (int)exitCode, state.Parser?.Cost, run.ContainerId), cancellationToken));
+            LogEnded(run.RunId, exitCode, decision.Trigger);
+        }
         await WithStoreAsync(store => store.AppendEventsAsync(run.RunId,
         [
             new ParsedEvent(RunEventKind.Log, new JsonObject
@@ -163,12 +161,11 @@ public sealed partial class RunMonitor(
                 ["text"] = "Agent exited",
                 ["exit_code"] = exitCode,
                 ["oom_killed"] = status?.OomKilled ?? false,
-                ["outcome"] = decision.Trigger.ToString(),
+                ["outcome"] = decision.RetryWithSummary ? "RetryWithSummary" : decision.Trigger.ToString(),
                 ["reason"] = decision.Reason,
             }),
         ], null, cancellationToken));
-        await EndAsync(run, new RunEnd(decision.Trigger, decision.Reason, (int)exitCode, state.Parser?.Cost), cancellationToken);
-        LogEnded(run.RunId, exitCode, decision.Trigger);
+        await containers.RemoveAsync(run.ContainerId, CancellationToken.None);
     }
 
     private static IReadOnlyList<ParsedEvent> Parse(IAgentOutputParser parser, SecretRedactor redactor, LogLine line)
@@ -278,9 +275,6 @@ public sealed partial class RunMonitor(
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Run {RunId}: following agent container {ContainerId} again")]
-    private partial void LogResuming(Guid runId, string containerId);
-
     [LoggerMessage(Level = LogLevel.Information, Message = "Run {RunId}: agent exited with {ExitCode} → {Trigger}")]
     private partial void LogEnded(Guid runId, long exitCode, RunTrigger trigger);
 
@@ -290,6 +284,6 @@ public sealed partial class RunMonitor(
     [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}: following the agent failed")]
     private partial void LogWatchFailed(Guid runId, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Could not list running agent runs at startup")]
-    private partial void LogResumeFailed(Exception exception);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Run {RunId}: the resumed session failed ({Reason}); a fresh session with a summary takes over")]
+    private partial void LogRetrying(Guid runId, string? reason);
 }

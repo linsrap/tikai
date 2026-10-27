@@ -84,4 +84,46 @@ public class RunExitTests
     {
         Assert.Equal(RunTrigger.Fail, RunExit.Map(_submitted with { ExitCode = 1 }).Trigger);
     }
+
+    [Fact]
+    public void An_answer_that_never_reached_the_agent_keeps_the_run_blocked()
+    {
+        var decision = RunExit.Map(_submitted with { HasUndeliveredAnswer = true, Submitted = false, ExitCode = 143, Result = null });
+
+        Assert.Equal(new ExitDecision(RunTrigger.Block, null), decision);
+    }
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    public void A_resumed_session_that_ends_with_an_error_is_retried_with_a_summary(long exitCode, bool hasResult)
+    {
+        var facts = _submitted with { Attempt = RunAttemptKind.Resume, ExitCode = exitCode, Result = hasResult ? new AgentResult(true, "error_during_execution") : null };
+
+        var decision = RunExit.Map(facts);
+
+        Assert.Equal(RunTrigger.Fail, decision.Trigger);
+        Assert.True(decision.RetryWithSummary);
+    }
+
+    [Fact]
+    public void A_summary_session_that_fails_fails_the_run()
+    {
+        var decision = RunExit.Map(_submitted with { Attempt = RunAttemptKind.Summary, ExitCode = 1, Result = null });
+
+        Assert.Equal(RunTrigger.Fail, decision.Trigger);
+        Assert.False(decision.RetryWithSummary);
+    }
+
+    [Fact]
+    public void A_resumed_session_is_not_retried_for_the_hubs_own_stops_or_a_missing_submit()
+    {
+        var resumed = _submitted with { Attempt = RunAttemptKind.Resume };
+
+        Assert.False(RunExit.Map(resumed with { HubStopReason = "MCP not connected" }).RetryWithSummary);
+        Assert.False(RunExit.Map(resumed with { OomKilled = true }).RetryWithSummary);
+        Assert.False(RunExit.Map(resumed with { Submitted = false }).RetryWithSummary);
+        Assert.Equal(RunTrigger.Submit, RunExit.Map(resumed).Trigger);
+    }
 }

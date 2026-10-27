@@ -20,6 +20,9 @@ public enum SandboxRole
     Prep,
 
     Agent,
+
+    /// <summary>Reads the run clone's state (git log, git status, the session file) before a resume, without network.</summary>
+    Inspect,
 }
 
 /// <summary>A container to create: the agent part from the adapter, the sandbox from the orchestrator's settings.</summary>
@@ -66,6 +69,12 @@ public interface IContainerRuntime
 
     /// <summary>Removes the container if it exists (also a running one).</summary>
     Task RemoveAsync(string containerIdOrName, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The containers of this installation that belong to a run (all states): they carry the run id label and mount
+    /// this installation's runs volume, so another installation's containers on the same daemon are never listed.
+    /// </summary>
+    Task<IReadOnlyList<RunContainer>> ListAsync(CancellationToken cancellationToken);
 }
 
 /// <summary><see cref="IContainerRuntime"/> on Docker (Docker.DotNet.Enhanced, which has volume subpath mounts).</summary>
@@ -239,6 +248,30 @@ public sealed class DockerContainerRuntime(IDockerClient docker, IOptions<Orches
         {
             // Removal already in progress.
         }
+    }
+
+    public async Task<IReadOnlyList<RunContainer>> ListAsync(CancellationToken cancellationToken)
+    {
+        var listed = await docker.Containers.ListContainersAsync(new ContainersListParameters
+        {
+            All = true,
+            Filters = new Dictionary<string, IDictionary<string, bool>>
+            {
+                ["label"] = new Dictionary<string, bool> { [RunIdLabel] = true },
+                ["volume"] = new Dictionary<string, bool> { [_options.RunsVolume] = true },
+            },
+        }, cancellationToken);
+        var containers = new List<RunContainer>();
+        foreach (var container in listed)
+        {
+            var labels = container.Labels ?? new Dictionary<string, string>();
+            if (labels.TryGetValue(RunIdLabel, out var label) && Guid.TryParse(label, out var runId))
+            {
+                SandboxRole? role = labels.TryGetValue(RoleLabel, out var name) && Enum.TryParse<SandboxRole>(name, ignoreCase: true, out var r) ? r : null;
+                containers.Add(new RunContainer(container.ID, runId, role, container.State == "running"));
+            }
+        }
+        return containers;
     }
 
     private static Dictionary<string, string> Labels(Guid runId, SandboxRole role) => new()
