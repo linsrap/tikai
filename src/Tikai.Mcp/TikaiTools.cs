@@ -117,6 +117,8 @@ internal sealed partial class TikaiTools(
         LogRaised(kind, item.ItemId, run.RunId, item.Merged, item.Answer is not null);
         if (item.Answer is { } stored)
         {
+            // Asked again after the answer was given (a dropped call, a hub restart): it reaches the agent now.
+            await runs.DeliveredAsync(run, item.ItemId, cancellationToken);
             return stored;
         }
 
@@ -131,6 +133,8 @@ internal sealed partial class TikaiTools(
                 var answer = await wait;
                 var elapsed = timeProvider.GetElapsedTime(started);
                 LogAnswered(item.ItemId, elapsed);
+                // Only while the call is still there: a cancelled call leaves the answer undelivered for a resume.
+                await runs.DeliveredAsync(run, item.ItemId, cancellationToken);
                 return answer;
             }
             await tick;

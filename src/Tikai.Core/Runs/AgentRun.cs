@@ -70,6 +70,12 @@ public class AgentRun : Entity
 
     public DateTimeOffset? CancelRequestedAt { get; set; }
 
+    /// <summary>Agent containers the run has had: 1 for the first, one more for each resume.</summary>
+    public int Attempt { get; set; }
+
+    /// <summary>How the current (or last) agent container continued the run.</summary>
+    public RunAttemptKind AttemptKind { get; set; }
+
     /// <summary>When the agent container started.</summary>
     public DateTimeOffset? StartedAt { get; set; }
 
@@ -88,6 +94,19 @@ public enum AgentRunState
     Merged,
     Failed,
     Cancelled,
+}
+
+/// <summary>How an agent container took up its run.</summary>
+public enum RunAttemptKind
+{
+    /// <summary>The first container, with the start prompt.</summary>
+    Start,
+
+    /// <summary>The agent's own session continued (<c>--resume</c>) with the answers as a message.</summary>
+    Resume,
+
+    /// <summary>A fresh session with a summary of the run, because the session could not be resumed.</summary>
+    Summary,
 }
 
 public static class AgentRunStates

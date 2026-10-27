@@ -1,27 +1,49 @@
 // Stand-in for Claude Code in Tikai's tests. Takes Claude Code's command line, reads the MCP config, calls the Tikai
 // tools like Claude Code does (stateless Streamable HTTP, protocol 2026-07-28) and prints stream-json. What it does
 // is chosen by a "stub:<scenario>" word in the ticket description:
-//   ok (default)  get_ticket, report_progress, commit, submit_for_review, exit 0
-//   no-submit     the same without submit_for_review
-//   error         a result with is_error, exit 1
-//   leak          prints the API key and the run token (the hub must redact them), then ok
-//   big           a huge tool result and a line over 1 MB, then ok
-//   hang          waits until stopped
-//   ask           ask_human, gives up waiting after 2 s, exits 0 (the item stays open)
-//   slow:<s>      waits <s> seconds after get_ticket, then ok
-// It also reports what it sees from the inside (uid, branch, hook, what it can write) as a "STUB_FACTS {json}" message.
+//   ok (default)    get_ticket, report_progress, commit, submit_for_review, exit 0
+//   no-submit       the same without submit_for_review
+//   error           a result with is_error, exit 1
+//   leak            prints the API key and the run token (the hub must redact them), then ok
+//   big             a huge tool result and a line over 1 MB, then ok
+//   hang            waits until stopped
+//   ask             ask_human, gives up waiting after 2 s, exits 0 (the item stays open)
+//   slow:<s>        waits <s> seconds after get_ticket, then ok
+//   wait            commits before.txt, asks "Which word?" and waits (a dropped call is asked again, up to 10 times,
+//                   1 s apart, like Claude Code's model does), writes the answer to answer.txt, commits, submits
+//   wait-badresume  like wait, but a --resume of its session fails (error result, exit 1)
+//   wait-nosession  like wait, but deletes its own session file before it asks
+// Like Claude Code it keeps a session file in $CLAUDE_CONFIG_DIR/projects/-run-work/<session>.jsonl, continues it with
+// --resume <session> (the answer comes in the -p message; a missing file is "No conversation found", exit 1), and
+// takes over from a summary prompt in a fresh session. It reports what it sees from the inside (uid, branch, hook,
+// what it can write, how it was started, the git log) as a "STUB_FACTS {json}" message.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 
 const args = process.argv.slice(2);
 const arg = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const sessionId = randomUUID();
+const prompt = arg("-p") ?? "";
+const resumeId = arg("--resume");
+const isSummary = prompt.startsWith("You are continuing work on the Tikai ticket");
+const mode = resumeId ? "resume" : isSummary ? "summary" : "start";
+const sessionId = resumeId ?? randomUUID();
+const sessionFile = path.join(process.env.CLAUDE_CONFIG_DIR ?? "/tmp", "projects", "-run-work", `${sessionId}.jsonl`);
 const out = (event) => process.stdout.write(JSON.stringify({ ...event, session_id: sessionId }) + "\n");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const say = (text) => out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } });
+
+const session = {
+  read: () => fs.readFileSync(sessionFile, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)),
+  add: (entry) => {
+    fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+    fs.appendFileSync(sessionFile, JSON.stringify(entry) + "\n");
+  },
+};
 
 const config = JSON.parse(fs.readFileSync(arg("--mcp-config"), "utf8"));
 const server = config.mcpServers.tikai;
@@ -54,6 +76,7 @@ async function mcp(method, params, name, timeoutMs = 30000) {
     ? text.split("\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5)))
     : [JSON.parse(text)];
   const result = messages.find((m) => m.id !== undefined);
+  if (!result) throw new Error("transport dropped mid-call; the response was lost");
   if (result.error) throw new Error(result.error.message);
   return result.result;
 }
@@ -62,7 +85,13 @@ let toolNumber = 0;
 async function tool(name, input, timeoutMs) {
   const id = `toolu_stub_${++toolNumber}`;
   out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id, name: `mcp__tikai__${name}`, input }] }, parent_tool_use_id: null });
-  const result = await mcp("tools/call", { name, arguments: input, _meta: { progressToken: id } }, name, timeoutMs);
+  let result;
+  try {
+    result = await mcp("tools/call", { name, arguments: input, _meta: { progressToken: id } }, name, timeoutMs);
+  } catch (e) {
+    out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: `MCP server "tikai": ${e.message}`, is_error: true }] } });
+    throw e;
+  }
   const text = result.content.map((c) => c.text).join("");
   out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: text, is_error: !!result.isError }] } });
   if (result.isError) throw new Error(`${name}: ${text}`);
@@ -93,20 +122,21 @@ const can = (fn) => {
   }
 };
 
+const sh = (c) => {
+  try {
+    return execFileSync("/bin/sh", ["-c", c], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return null;
+  }
+};
+
 function facts() {
-  const sh = (c) => {
-    try {
-      return execFileSync("/bin/sh", ["-c", c], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    } catch {
-      return null;
-    }
-  };
   return {
     uid: process.getuid(),
     gid: process.getgid(),
     cwd: process.cwd(),
     argv: args.map((a, i) => (args[i - 1] === "-p" ? "<prompt>" : a)),
-    prompt_start: (arg("-p") ?? "").slice(0, 120),
+    prompt_start: prompt.slice(0, 120),
     env_names: Object.keys(process.env).sort(),
     home: process.env.HOME,
     claude_config_dir: process.env.CLAUDE_CONFIG_DIR,
@@ -132,15 +162,7 @@ function facts() {
   };
 }
 
-async function main() {
-  // Like Claude Code: connect first, report the MCP status in the init event, carry on even when it failed.
-  let connected = false;
-  try {
-    await mcp("tools/list", {}, undefined, 10000);
-    connected = true;
-  } catch {
-    connected = false;
-  }
+function init(connected) {
   out({
     type: "system",
     subtype: "init",
@@ -152,17 +174,131 @@ async function main() {
     apiKeySource: "ANTHROPIC_API_KEY",
     claude_code_version: "stub",
   });
+}
+
+const result = (fields) =>
+  out({ type: "result", subtype: "success", is_error: false, num_turns: 6, duration_ms: 1234, permission_denials: [], ...fields });
+
+async function submit(ticket) {
+  await tool("submit_for_review", {
+    summary: "Added hello.txt.",
+    criteria_mapping: ticket.criteria.map((c) => ({ criterion_id: c.id, status: "covered", note: "stub" })),
+    open_concerns: [],
+  });
+}
+
+/** Asks, and asks again when the call drops (Claude Code's model does that, spike Q3a), until it gives up (Q3b). */
+async function askUntilAnswered(question) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return { answer: JSON.parse(await tool("ask_human", { question }, 3600_000)).answer, asked: attempt };
+    } catch (e) {
+      if (attempt >= 10) return { answer: null, asked: attempt };
+      await sleep(1000);
+    }
+  }
+}
+
+/** The wait scenarios after the question: write the answer, commit, report, submit. */
+async function finishWait(ticket, answer, extra) {
+  bash(`printf '%s\\n' '${answer.replaceAll("'", "")}' > answer.txt && git add answer.txt && git commit --quiet -m 'Add answer.txt'`);
+  const stubFacts = {
+    ...facts(),
+    mode,
+    session_id: sessionId,
+    answer,
+    git_log: sh("git log --format='%H %s' main..HEAD"),
+    ...extra,
+  };
+  say("STUB_FACTS " + JSON.stringify(stubFacts));
+  await submit(ticket);
+  result({ result: "Done.", total_cost_usd: 0.002, usage: { input_tokens: 10, output_tokens: 2 } });
+  return 0;
+}
+
+async function connect() {
+  try {
+    await mcp("tools/list", {}, undefined, 10000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resume() {
+  // Like Claude Code 2.1.310: an unknown session ends the process before the init event, with an error result.
+  if (!fs.existsSync(sessionFile)) {
+    const error = `No conversation found with session ID: ${sessionId}`;
+    process.stderr.write(error + "\n");
+    out({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 0, total_cost_usd: 0, errors: [error] });
+    return 1;
+  }
+  const entries = session.read();
+  const scenario = entries.find((e) => e.scenario)?.scenario;
+  init(await connect());
+  if (scenario === "wait-badresume") {
+    out({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, result: "could not continue the session" });
+    return 1;
+  }
+  const answer = /The answer is: (.*)/.exec(prompt)?.[1] ?? null;
+  say(`Resumed with the answer ${answer}.`);
+  session.add({ step: "resumed", answer });
+  const ticket = JSON.parse(await tool("get_ticket", {}));
+  return finishWait(ticket, answer, {
+    asked: 0,
+    before_sha: entries.find((e) => e.before_sha)?.before_sha,
+    earlier_steps: entries.map((e) => e.step).filter(Boolean),
+  });
+}
+
+async function fromSummary() {
+  session.add({ step: "summary" });
+  init(await connect());
+  const answer = /^ {2}Answer: (.*)$/m.exec(prompt)?.[1] ?? null;
+  const ticket = JSON.parse(await tool("get_ticket", {}));
+  say(`Taking over from a summary; the answer was ${answer}.`);
+  return finishWait(ticket, answer, {
+    asked: 0,
+    before_sha: sh("git log --format=%H -1 -- before.txt"),
+    summary_git_log: /git log of the run branch, newest first:\n([\s\S]*?)\n\n/.exec(prompt)?.[1] ?? null,
+    summary_has_question: prompt.includes("You asked: Which word?"),
+  });
+}
+
+async function main() {
+  if (mode === "resume") return resume();
+  if (mode === "summary") return fromSummary();
+
+  // Like Claude Code: connect first, report the MCP status in the init event, carry on even when it failed.
+  const connected = await connect();
+  init(connected);
   if (!connected) {
-    out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "The Tikai tools are missing; working without them." }] } });
+    say("The Tikai tools are missing; working without them.");
     await sleep(30000);
-    out({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: "done without tools", total_cost_usd: 0 });
+    result({ num_turns: 1, result: "done without tools", total_cost_usd: 0 });
     return 0;
   }
 
   const ticket = JSON.parse(await tool("get_ticket", {}));
   const scenario = /stub:([a-z-]+(?::\d+)?)/.exec(ticket.description)?.[1] ?? "ok";
+  session.add({ scenario });
   out({ type: "assistant", message: { role: "assistant", content: [{ type: "thinking", thinking: `Scenario ${scenario}.` }, { type: "text", text: `Working on ${ticket.key}.` }] } });
 
+  if (scenario.startsWith("wait")) {
+    bash("printf 'before\\n' > before.txt && git add before.txt && git commit --quiet -m 'Add before.txt'");
+    const before = sh("git rev-parse HEAD");
+    say(`STUB_COMMIT ${before}`);
+    session.add({ step: "committed", before_sha: before });
+    if (scenario === "wait-nosession") fs.rmSync(sessionFile);
+    else session.add({ step: "asking", question: "Which word?" });
+    const { answer, asked } = await askUntilAnswered("Which word?");
+    if (answer === null) {
+      say("No answer; giving up.");
+      result({ num_turns: 3, result: "gave up waiting", total_cost_usd: 0.001 });
+      return 0;
+    }
+    return finishWait(ticket, answer, { asked, before_sha: before });
+  }
   if (scenario === "hang") {
     await sleep(3600_000);
   }
@@ -174,9 +310,9 @@ async function main() {
     try {
       await tool("ask_human", { question: "Which colour?" }, 2000);
     } catch {
-      out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "No answer; giving up." }] } });
+      say("No answer; giving up.");
     }
-    out({ type: "result", subtype: "success", is_error: false, num_turns: 3, result: "gave up waiting", total_cost_usd: 0.001 });
+    result({ num_turns: 3, result: "gave up waiting", total_cost_usd: 0.001 });
     return 0;
   }
   if (scenario.startsWith("slow:")) {
@@ -197,25 +333,15 @@ async function main() {
   bash("printf 'hello\\n' > hello.txt && git add hello.txt && git commit --quiet -m 'Add hello.txt'");
   stubFacts.last_commit = bash("git log -1 --format='%an <%ae>%n%B'");
   stubFacts.files_in_commit = bash("git show --name-only --format= HEAD");
-  out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "STUB_FACTS " + JSON.stringify(stubFacts) }] } });
+  say("STUB_FACTS " + JSON.stringify(stubFacts));
 
   if (scenario !== "no-submit") {
-    await tool("submit_for_review", {
-      summary: "Added hello.txt.",
-      criteria_mapping: ticket.criteria.map((c) => ({ criterion_id: c.id, status: "covered", note: "stub" })),
-      open_concerns: [],
-    });
+    await submit(ticket);
   }
-  out({
-    type: "result",
-    subtype: "success",
-    is_error: false,
-    num_turns: 6,
-    duration_ms: 1234,
+  result({
     result: "Done.",
     total_cost_usd: 0.0123,
     usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 5, cache_read_input_tokens: 7 },
-    permission_denials: [],
   });
   return 0;
 }

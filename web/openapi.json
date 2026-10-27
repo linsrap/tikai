@@ -2191,6 +2191,13 @@
           }
         }
       },
+      "RunAttemptKind": {
+        "enum": [
+          "start",
+          "resume",
+          "summary"
+        ]
+      },
       "RunEventInfo": {
         "required": [
           "seq",
@@ -2249,7 +2256,13 @@
           "cancelRequested",
           "createdAt",
           "startedAt",
-          "endedAt"
+          "endedAt",
+          "attempt",
+          "attemptKind",
+          "waiting",
+          "blockedSince",
+          "blockTimeoutAt",
+          "agentStopped"
         ],
         "type": "object",
         "properties": {
@@ -2371,6 +2384,36 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "attempt": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "attemptKind": {
+            "$ref": "#/components/schemas/RunAttemptKind"
+          },
+          "waiting": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WaitingItem"
+            }
+          },
+          "blockedSince": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "blockTimeoutAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "agentStopped": {
+            "type": "boolean"
           }
         }
       },
@@ -2653,6 +2696,49 @@
             "items": {
               "$ref": "#/components/schemas/CriterionInput"
             }
+          }
+        }
+      },
+      "WaitingItem": {
+        "required": [
+          "id",
+          "kind",
+          "question",
+          "plan",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AttentionKind"
+          },
+          "question": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuestionPayload"
+              }
+            ]
+          },
+          "plan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlanPayload"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }

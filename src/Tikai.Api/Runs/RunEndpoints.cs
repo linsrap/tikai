@@ -2,9 +2,11 @@ using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Tikai.Api.Llm;
 using Tikai.Api.Projects;
+using Tikai.Core.Attention;
 using Tikai.Core.Events;
 using Tikai.Core.Jobs;
 using Tikai.Core.Projects;
@@ -46,6 +48,7 @@ internal static class RunEndpoints
         IJobQueue jobs,
         IEventPublisher events,
         TimeProvider timeProvider,
+        IOptions<OrchestratorOptions> options,
         CancellationToken cancellationToken)
     {
         var project = await ProjectEndpoints.FindAsync(db, slug, cancellationToken);
@@ -121,13 +124,13 @@ internal static class RunEndpoints
             await transaction.CommitAsync(cancellationToken);
         }
 
-        var info = await Query(db, db.AgentRuns.Where(r => r.Id == run.Id)).SingleAsync(cancellationToken);
+        var info = (await QueryAsync(db, options, db.AgentRuns.Where(r => r.Id == run.Id), cancellationToken)).Single();
         return TypedResults.Accepted($"/api/runs/{run.Id}", info);
     }
 
     /// <summary>The ticket's runs, newest first.</summary>
     private static async Task<Results<Ok<List<RunInfo>>, ProblemHttpResult>> ListAsync(
-        string slug, int number, TikaiDbContext db, CancellationToken cancellationToken)
+        string slug, int number, TikaiDbContext db, IOptions<OrchestratorOptions> options, CancellationToken cancellationToken)
     {
         var project = await ProjectEndpoints.FindAsync(db, slug, cancellationToken);
         if (project is null)
@@ -139,13 +142,14 @@ internal static class RunEndpoints
         {
             return ProjectEndpoints.NotFound("Ticket");
         }
-        var runs = await Query(db, db.AgentRuns.Where(r => r.TicketId == ticketId)).ToListAsync(cancellationToken);
+        var runs = await QueryAsync(db, options, db.AgentRuns.Where(r => r.TicketId == ticketId), cancellationToken);
         return TypedResults.Ok(runs.OrderByDescending(r => r.CreatedAt).ToList());
     }
 
-    private static async Task<Results<Ok<RunInfo>, ProblemHttpResult>> GetAsync(Guid id, TikaiDbContext db, CancellationToken cancellationToken)
+    private static async Task<Results<Ok<RunInfo>, ProblemHttpResult>> GetAsync(
+        Guid id, TikaiDbContext db, IOptions<OrchestratorOptions> options, CancellationToken cancellationToken)
     {
-        var run = await Query(db, db.AgentRuns.Where(r => r.Id == id)).SingleOrDefaultAsync(cancellationToken);
+        var run = (await QueryAsync(db, options, db.AgentRuns.Where(r => r.Id == id), cancellationToken)).SingleOrDefault();
         return run is null ? NotFound() : TypedResults.Ok(run);
     }
 
@@ -167,7 +171,7 @@ internal static class RunEndpoints
 
     /// <summary>Stops the run's agent. The run is cancelled once the container has ended (at once if it has none).</summary>
     private static async Task<Results<Accepted<RunInfo>, ProblemHttpResult>> CancelAsync(
-        Guid id, TikaiDbContext db, RunControl control, CancellationToken cancellationToken)
+        Guid id, TikaiDbContext db, RunControl control, IOptions<OrchestratorOptions> options, CancellationToken cancellationToken)
     {
         if (!await db.AgentRuns.AnyAsync(r => r.Id == id, cancellationToken))
         {
@@ -177,18 +181,50 @@ internal static class RunEndpoints
         {
             return Conflict("Run has ended", "This run has already ended.");
         }
-        var info = await Query(db, db.AgentRuns.Where(r => r.Id == id)).SingleAsync(cancellationToken);
+        var info = (await QueryAsync(db, options, db.AgentRuns.Where(r => r.Id == id), cancellationToken)).Single();
         return TypedResults.Accepted($"/api/runs/{id}", info);
     }
 
-    /// <summary>Filter <paramref name="runs"/> before calling: EF cannot filter after the projection.</summary>
-    private static IQueryable<RunInfo> Query(TikaiDbContext db, IQueryable<AgentRun> runs) =>
+    /// <summary>The runs with what they wait for. Filter <paramref name="runs"/> before calling: EF cannot filter after the projection.</summary>
+    private static async Task<List<RunInfo>> QueryAsync(
+        TikaiDbContext db, IOptions<OrchestratorOptions> options, IQueryable<AgentRun> runs, CancellationToken cancellationToken)
+    {
+        var rows = await Query(db, runs).ToListAsync(cancellationToken);
+        var ids = rows.Select(r => r.Id).ToList();
+        var open = await db.AttentionItems.AsNoTracking()
+            .Where(i => i.RunId != null && ids.Contains(i.RunId.Value) && i.Status == AttentionStatus.Open && AttentionKinds.Blocking.Contains(i.Kind))
+            .OrderBy(i => i.CreatedAt).ThenBy(i => i.Id)
+            .ToListAsync(cancellationToken);
+        var byRun = open.ToLookup(i => i.RunId!.Value);
+        return [.. rows.Select(r =>
+        {
+            var waiting = byRun[r.Id].Select(i => new WaitingItem(
+                i.Id,
+                i.Kind,
+                i.Kind == AttentionKind.Question ? AttentionJson.Deserialize<QuestionPayload>(i.Payload) : null,
+                i.Kind == AttentionKind.PlanApproval ? AttentionJson.Deserialize<PlanPayload>(i.Payload) : null,
+                i.CreatedAt)).ToList();
+            DateTimeOffset? since = waiting.Count > 0 ? waiting[0].CreatedAt : null;
+            var blocked = r.Info.State == AgentRunState.Blocked;
+            return r.Info with
+            {
+                Waiting = waiting,
+                BlockedSince = since,
+                BlockTimeoutAt = blocked && r.HasContainer ? since + options.Value.BlockTimeout : null,
+                AgentStopped = blocked && !r.HasContainer,
+            };
+        })];
+    }
+
+    private sealed record RunRow(Guid Id, bool HasContainer, RunInfo Info);
+
+    private static IQueryable<RunRow> Query(TikaiDbContext db, IQueryable<AgentRun> runs) =>
         from r in runs
         join t in db.Tickets on r.TicketId equals t.Id
         join p in db.Projects on t.ProjectId equals p.Id
         join repo in db.Repositories on r.RepositoryId equals repo.Id into repos
         from repo in repos.DefaultIfEmpty()
-        select new RunInfo(
+        select new RunRow(r.Id, r.ContainerId != null, new RunInfo(
             r.Id,
             p.Key + "-" + t.Number,
             t.Number,
@@ -209,7 +245,13 @@ internal static class RunEndpoints
             r.CancelRequestedAt != null,
             r.CreatedAt,
             r.StartedAt,
-            r.EndedAt);
+            r.EndedAt,
+            r.Attempt,
+            r.AttemptKind,
+            Array.Empty<WaitingItem>(),
+            null,
+            null,
+            false));
 
     private static ProblemHttpResult ActiveRunConflict() =>
         Conflict("A run is active", "This ticket or this repository already has an active run. Wait for it to end or cancel it.");

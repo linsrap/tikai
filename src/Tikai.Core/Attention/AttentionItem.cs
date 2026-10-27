@@ -36,6 +36,12 @@ public class AttentionItem : Entity
     public Guid? AnsweredById { get; set; }
 
     public DateTimeOffset? AnsweredAt { get; set; }
+
+    /// <summary>
+    /// When the answer was handed to the agent: as the result of a waiting (or repeated) tool call, or in a resume
+    /// prompt. An answer that is stored but not delivered still has to reach the agent.
+    /// </summary>
+    public DateTimeOffset? DeliveredAt { get; set; }
 }
 
 public enum AttentionKind

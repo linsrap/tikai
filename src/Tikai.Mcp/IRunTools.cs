@@ -19,6 +19,9 @@ public interface IRunTools
     /// Returns the stored answer at once when that item is already answered.
     /// </summary>
     Task<RaisedItem> RaiseAsync<TPayload>(RunScope run, AttentionKind kind, TPayload payload, CancellationToken cancellationToken);
+
+    /// <summary>The item's answer is being returned to the agent; once it has every answer, its run runs again.</summary>
+    Task DeliveredAsync(RunScope run, Guid itemId, CancellationToken cancellationToken);
 }
 
 /// <param name="Merged">True when an earlier identical request's item was reused.</param>

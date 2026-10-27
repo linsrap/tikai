@@ -4,15 +4,18 @@ import { useState } from 'react'
 import { providersQuery } from '../llm/llm'
 import { repositoriesQuery } from '../projects/projects'
 import {
+  blockedNote,
   eventSummary,
   isActive,
   isMoving,
+  resumeLabel,
   runEventsQuery,
   runsQuery,
   runStateLabel,
   toStartRunRequest,
   useCancelRun,
   useStartRun,
+  waitingText,
   type RunInfo,
 } from '../runs/runs'
 import type { TicketStatus } from '../tickets/tickets'
@@ -131,6 +134,33 @@ function AssignBox({ slug, number }: { slug: string; number: number }) {
   )
 }
 
+const time = (iso: string) => new Date(iso).toLocaleString()
+
+/** What a blocked run waits for. Answers go through the inbox (step 12) or the API until then. */
+function Waiting({ run }: { run: RunInfo }) {
+  return (
+    <div className="stack">
+      {run.blockedSince && <p>Waiting for an answer since {time(run.blockedSince)}</p>}
+      {run.waiting.length > 0 && (
+        <ul className="list">
+          {run.waiting.map((item) => (
+            <li key={item.id}>
+              {waitingText(item)} <span className="muted mono">{item.id}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {blockedNote(run, time) && <p className="muted">{blockedNote(run, time)}</p>}
+      {run.waiting.length > 0 && (
+        <p className="muted">
+          Answer it in the inbox (coming soon); for now through{' '}
+          <span className="mono">POST /api/attention-items/&#123;id&#125;/answer</span>.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function RunCard({ slug, run }: { slug: string; run: RunInfo }) {
   const cancel = useCancelRun(slug)
   const [showEvents, setShowEvents] = useState(false)
@@ -145,6 +175,8 @@ function RunCard({ slug, run }: { slug: string; run: RunInfo }) {
           {run.model} · {run.repositoryName} · started {new Date(run.createdAt).toLocaleString()}
         </span>
       </p>
+      {run.state === 'blocked' && <Waiting run={run} />}
+      {resumeLabel(run) && <p className="muted">{resumeLabel(run)}</p>}
       {run.progressStep && (
         <p>
           {run.progressStep}

@@ -51,7 +51,7 @@ Keep a copy outside the server (a password manager). The keys in the `tikai_data
 | `hub` | API, web app, background workers. Waits until the database is healthy, applies database migrations at startup. |
 | `db` | Postgres 17. Not reachable from outside the compose network. |
 | `docker-proxy` | Limited access to Docker: the hub starts agent containers through it. |
-| agent containers | One per agent run, started by the hub (not by compose): `tikai-agent-<run-id>`, plus short-lived `tikai-prep-…` and `tikai-seed-…` containers while a run is prepared. |
+| agent containers | One per agent run, started by the hub (not by compose): `tikai-agent-<run-id>`, plus short-lived `tikai-prep-…`, `tikai-seed-…` and `tikai-inspect-…` containers while a run is prepared or resumed. The hub removes containers of its runs volume that no active run claims. |
 
 Data lives in three named volumes: `tikai_pg` (database), `tikai_data` (the keys that sign login cookies and encrypt stored credentials, and the repository mirrors) and `tikai_runs` (one directory per agent run: its clone and the agent's session). `docker compose down` keeps them; `docker compose down -v` **deletes** `tikai_pg` and `tikai_data`. `tikai_runs` is created by Docker with the first agent run, so `down -v` leaves it: remove it with `docker volume rm tikai_runs`. Keep `tikai_data` and `tikai_pg` together: without the keys in `tikai_data`, stored repository credentials cannot be decrypted and have to be entered again.
 
@@ -101,7 +101,9 @@ On a ticket page, **Assign to agent** starts Claude Code on the ticket. The agen
 - **The sandbox:** non-root (uid 1000), read-only root file system with a writable `/tmp`, no Linux capabilities, 4 GiB memory, 2 CPUs. The container mounts only its own directory of `tikai_runs`; it never sees `tikai_data`, the database, git credentials or the Docker socket. The hub writes that directory through Docker (as root-owned, read-only files: the MCP config and the ticket), and never runs git in it.
 - **Network (not restricted yet):** agents join the `tikai_agents` network. They reach the hub's MCP endpoint, but not the database or the docker proxy. They **can reach the internet and your local network** (and on Docker Desktop the host through `host.docker.internal`): an egress proxy with an allowlist comes in a later version. Only assign tickets on repositories you would let an agent with internet access work on.
 - **What you see:** the ticket page lists the runs with state, branch, last progress step, failure reason, cost, and the transcript (`GET /api/runs/{id}/events`). A failed run also shows up in the attention items. The full Claude Code transcript stays in the run's directory.
-- **Hub restarts** do not stop agents: after the restart the hub follows them again. Run directories are kept after a run ends (cleanup comes with merging).
+- **Waiting for an answer:** while a plan or question is open, the run is `blocked` and its container waits with the call open (the runs list shows the question, since when it waits, and until when). After `Tikai__Agents__BlockTimeout` (default `04:00:00`, counted from when the agent asked) the hub stops the container; the run stays blocked. Once everything is answered, a new container continues the run: Claude Code resumes its own session (`--resume`) with the answer, or, if the session cannot be resumed, a fresh session gets a summary (ticket, approved plan, questions and answers, `git log` and `git status` of the run clone). Commits and files in the run clone are kept either way. Answering a question of a run that failed or was cancelled is refused: those questions are dismissed when the run ends.
+- **Timeouts:** `Tikai__Agents__ToolCallTimeout` (default `05:00:00`) is Claude Code's own limit for one waiting call; it must be at least the block timeout plus 15 minutes (the hub refuses to start otherwise), so the hub always decides first. `Tikai__Agents__ReconcileInterval` (default `00:01:00`) is how often the hub checks the timeouts and compares runs with containers.
+- **Hub restarts** do not stop agents: after the restart the hub follows them again. An agent that waited for an answer asks again and gets the same question (answered or not); one that gave up while the hub was down is resumed once its question is answered. At startup and every minute the hub also fails runs whose start job gave up, and removes containers no run claims. Run directories are kept after a run ends (cleanup comes with merging).
 
 ## Health
 
@@ -130,6 +132,6 @@ docker compose --profile agents build
 docker compose up -d --build
 ```
 
-A run that is working during the update keeps running and is picked up again by the new hub.
+A run that is working during the update keeps running and is picked up again by the new hub; an agent waiting for an answer during the update asks again or is resumed later (see Agent runs).
 
 Database migrations run automatically when the hub starts.

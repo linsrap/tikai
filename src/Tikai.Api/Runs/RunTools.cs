@@ -66,6 +66,9 @@ internal sealed class RunTools(TikaiDbContext db, AttentionService attention, IE
     public Task<RaisedItem> RaiseAsync<TPayload>(RunScope run, AttentionKind kind, TPayload payload, CancellationToken cancellationToken) =>
         attention.RaiseAsync(run, kind, payload, cancellationToken);
 
+    public Task DeliveredAsync(RunScope run, Guid itemId, CancellationToken cancellationToken) =>
+        attention.DeliveredAsync(run, itemId, cancellationToken);
+
     private static string SnakeCase<TEnum>(TEnum value)
         where TEnum : struct, Enum =>
         System.Text.Json.JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());
