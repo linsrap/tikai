@@ -10,6 +10,7 @@ using Tikai.Core.Runs;
 using Tikai.Data;
 using Tikai.IntegrationTests.Auth;
 using Tikai.IntegrationTests.Mcp;
+using Tikai.Mcp;
 
 namespace Tikai.IntegrationTests.Attention;
 
@@ -117,14 +118,9 @@ public sealed class InboxTests(PostgresFixture postgres) : IAsyncLifetime
         var question = Assert.Single(await McpTestKit.WaitForOpenItemsAsync(_browser));
 
         var reviewTicket = await McpTestKit.CreateTicketAsync(_browser, "review", "RV", "Review");
-        var (_, reviewToken) = await McpTestKit.StartRunAsync(_factory, reviewTicket.Id);
-        var submitter = await ConnectAsync(reviewToken);
-        await submitter.CallAsync("submit_for_review", new
-        {
-            summary = "Done.",
-            criteria_mapping = new[] { new { criterion_id = reviewTicket.Criteria[0].Id, status = "partial", note = "half" } },
-            open_concerns = new[] { "Untested" },
-        });
+        var (reviewRunId, _) = await McpTestKit.StartRunAsync(_factory, reviewTicket.Id);
+        // A review item as runs from before change sets have it (a submission needs a real container, see ReviewTests).
+        await RecordReviewAsync(reviewRunId, new ReviewPayload("Done.", [new CriterionMapping(reviewTicket.Criteria[0].Id, CriterionCoverage.Partial, "half")], ["Untested"]));
         await FailedRunAsync("fail", "FA");
 
         var items = await McpTestKit.WaitForOpenItemsAsync(_browser, 3);
@@ -142,7 +138,20 @@ public sealed class InboxTests(PostgresFixture postgres) : IAsyncLifetime
         // A question is answered or its run cancelled, not dismissed.
         Assert.Equal(HttpStatusCode.Conflict, (await _browser.PostAsync($"/api/attention-items/{question.Id}/dismiss")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await _browser.PostAsync($"/api/attention-items/{question.Id}/retry")).StatusCode);
+        // A review is given a verdict on the review screen, not answered; one without a change set can be dismissed.
+        Assert.Null(review.ChangeSetId);
+        Assert.Equal(HttpStatusCode.Conflict, (await _browser.PostAsync($"/api/attention-items/{review.Id}/answer", new { text = "ok" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _browser.PostAsync($"/api/attention-items/{review.Id}/dismiss")).StatusCode);
+    }
+
+    private async Task RecordReviewAsync(Guid runId, ReviewPayload payload)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
+        var run = await db.AgentRuns.AsNoTracking().SingleAsync(r => r.Id == runId, TestContext.Current.CancellationToken);
+        var projectId = await db.Tickets.Where(t => t.Id == run.TicketId).Select(t => t.ProjectId).SingleAsync(TestContext.Current.CancellationToken);
+        await scope.ServiceProvider.GetRequiredService<AttentionService>()
+            .RecordAsync(new RunScope(runId, run.TicketId, projectId), AttentionKind.Review, payload, TestContext.Current.CancellationToken);
     }
 
     [Fact]

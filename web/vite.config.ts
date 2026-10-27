@@ -6,6 +6,10 @@ const api = 'http://localhost:5080'
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // Monaco (the review diff) is one lazy chunk of about 2.7 MB; everything else stays far below.
+    chunkSizeWarningLimit: 3000,
+  },
   server: {
     proxy: {
       '/api': api,

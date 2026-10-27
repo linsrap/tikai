@@ -115,7 +115,9 @@ public sealed partial class RunStarter(
         var bundle = Path.Combine(Path.GetTempPath(), $"tikai-run-{runId:N}.bundle");
         try
         {
-            await git.CreateBundleAsync(info.MirrorPath, info.DefaultBranch, bundle, cancellationToken);
+            var baseSha = await git.CreateBundleAsync(info.MirrorPath, info.DefaultBranch, bundle, cancellationToken);
+            // Where the run starts: the submitted work is bundled from here.
+            await store.SetBaseShaAsync(runId, baseSha, cancellationToken);
 
             // 2. The run directory: root-owned run root and hub files, agent-owned work/, home/ and the adapter's directories.
             await UploadIntoRunsAsync(runId, RunPrep.Skeleton(info.TicketKey, bundle, adapter.RunFiles(context)), cancellationToken);
@@ -283,31 +285,13 @@ public sealed partial class RunStarter(
     /// <summary>Starts a helper container, waits for it, and returns its output; a non-zero exit is an error for people.</summary>
     private async Task<HelperOutput> RunToEndAsync(string containerId, TimeSpan limit, string what, CancellationToken cancellationToken)
     {
-        await containers.StartAsync(containerId, cancellationToken);
-        long exitCode;
-        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        var output = await HelperContainer.RunToEndAsync(containers, containerId, limit, cancellationToken)
+            ?? throw new RunStartException($"{what} took longer than {limit}.");
+        if (output.ExitCode != 0)
         {
-            timeout.CancelAfter(limit);
-            try
-            {
-                exitCode = await containers.WaitAsync(containerId, timeout.Token);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new RunStartException($"{what} took longer than {limit}.");
-            }
+            throw new RunStartException($"{what} failed (exit code {output.ExitCode}): {output.Text}");
         }
-        var lines = new List<string>();
-        await foreach (var line in containers.ReadLogAsync(containerId, follow: false, cancellationToken))
-        {
-            lines.Add(line.Text);
-        }
-        var text = RunEventPayload.Cut(string.Join("\n", lines), 2_000);
-        if (exitCode != 0)
-        {
-            throw new RunStartException($"{what} failed (exit code {exitCode}): {text}");
-        }
-        return new HelperOutput(lines, text);
+        return output;
     }
 
     private Task NoteAsync(Guid runId, string text, JsonObject details, CancellationToken cancellationToken)
@@ -335,8 +319,6 @@ public sealed partial class RunStarter(
     /// <summary>A session id goes into a path and a command line: only the shape Claude Code uses (a UUID) is accepted.</summary>
     [GeneratedRegex("^[A-Za-z0-9-]{1,100}$")]
     private static partial Regex SessionIdShape();
-
-    private sealed record HelperOutput(IReadOnlyList<string> Lines, string Text);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Run {RunId}: agent container {ContainerId} started")]
     private partial void LogStarted(Guid runId, string containerId);

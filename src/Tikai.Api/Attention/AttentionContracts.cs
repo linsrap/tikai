@@ -14,6 +14,7 @@ namespace Tikai.Api.Attention;
 /// <param name="Run">The run that raised it, as it is now.</param>
 /// <param name="ReviewCoverage">For a review: the agent's coverage per criterion, with the criterion's current text.</param>
 /// <param name="Excerpt">The run's last transcript events before the item was raised (for a failure: the run's last events).</param>
+/// <param name="ChangeSetId">For a review: the submitted work, opened on the review screen (null for reviews from before change sets).</param>
 public sealed record AttentionItemInfo(
     Guid Id,
     AttentionKind Kind,
@@ -33,7 +34,8 @@ public sealed record AttentionItemInfo(
     AttentionAnswer? Answer,
     IReadOnlyList<RunEventInfo> Excerpt,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? AnsweredAt);
+    DateTimeOffset? AnsweredAt,
+    Guid? ChangeSetId);
 
 /// <param name="ProgressStep">What the agent last reported with report_progress.</param>
 public sealed record ItemRun(AgentRunState State, string? Adapter, string? Model, string? ProgressStep, string? ProgressNote, int Attempt);

@@ -12,6 +12,7 @@ import { InboxPage } from './pages/InboxPage'
 import { LoginPage } from './pages/LoginPage'
 import { ProjectPage } from './pages/ProjectPage'
 import { ProjectsPage } from './pages/ProjectsPage'
+import { ReviewPage } from './pages/ReviewPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SignUpPage } from './pages/SignUpPage'
 import { TicketPage } from './pages/TicketPage'
@@ -117,6 +118,20 @@ const ticketRoute = createRoute({
   },
 })
 
+const reviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reviews/$id',
+  beforeLoad: requireUser,
+  component: function ReviewRouteComponent() {
+    const { id } = reviewRoute.useParams()
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? (
+      <ReviewPage key={id} id={id} />
+    ) : (
+      <p className="shell">No review {id}.</p>
+    )
+  },
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
@@ -136,6 +151,7 @@ export function createAppRouter(queryClient: QueryClient) {
       ticketsRoute,
       newTicketRoute,
       ticketRoute,
+      reviewRoute,
       settingsRoute,
     ]),
     context: { queryClient },

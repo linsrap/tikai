@@ -39,6 +39,7 @@ internal sealed partial class GitJobHandler(
     TikaiDbContext db,
     IGitService git,
     MirrorPaths paths,
+    MirrorLocks locks,
     RepositoryCredentials credentials,
     IOptions<RepositorySyncOptions> options,
     TimeProvider timeProvider,
@@ -46,16 +47,18 @@ internal sealed partial class GitJobHandler(
 {
     public string Queue => GitJob.Queue;
 
-    public Task HandleAsync(JobLease job, CancellationToken cancellationToken)
+    public async Task HandleAsync(JobLease job, CancellationToken cancellationToken)
     {
         var payload = JsonSerializer.Deserialize<GitJob.Payload>(job.Payload, JsonSerializerOptions.Web)!;
-        return payload.Kind switch
+        // A submission may be writing into the same mirror (see MirrorLocks).
+        using var mirror = await locks.AcquireAsync(payload.RepositoryId, cancellationToken);
+        await (payload.Kind switch
         {
             GitJob.Clone => CloneAsync(payload.RepositoryId, cancellationToken),
             GitJob.Fetch => FetchAsync(payload.RepositoryId, cancellationToken),
             GitJob.Delete => DeleteAsync(payload.ProjectId, payload.RepositoryId, cancellationToken),
             _ => throw new InvalidOperationException($"Unknown git job kind '{payload.Kind}'."),
-        };
+        });
     }
 
     private async Task CloneAsync(Guid repositoryId, CancellationToken cancellationToken)

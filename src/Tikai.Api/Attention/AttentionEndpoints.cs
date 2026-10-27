@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Tikai.Api.Llm;
 using Tikai.Api.Runs;
 using Tikai.Core.Attention;
+using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
 using Tikai.Data;
@@ -88,6 +89,10 @@ internal static class AttentionEndpoints
         {
             return Conflict("An agent waits for this item", "Answer it, or cancel the run if it should stop.");
         }
+        if (item.Kind == AttentionKind.Review && await db.ChangeSets.AnyAsync(c => c.RunId == item.RunId && c.Status == ChangeSetStatus.Open, cancellationToken))
+        {
+            return Conflict("The work waits for a review", "Open the review and give a verdict instead.");
+        }
         if (!await attention.DismissAsync(id, LlmProviderService.UserId(user), cancellationToken))
         {
             return Conflict("The item is not open", "It was dismissed or retried already. Reload to see it.");
@@ -143,6 +148,9 @@ internal static class AttentionEndpoints
             .Where(r => runIds.Contains(r.Id))
             .Select(r => new { r.Id, Run = new ItemRun(r.State, r.Adapter, r.Model, r.ProgressStep, r.ProgressNote, r.Attempt) })
             .ToDictionaryAsync(r => r.Id, r => r.Run, cancellationToken);
+        var changeSets = await db.ChangeSets.AsNoTracking()
+            .Where(c => runIds.Contains(c.RunId))
+            .ToDictionaryAsync(c => c.RunId, c => c.Id, cancellationToken);
 
         var criterionIds = rows.Where(x => x.Item.Kind == AttentionKind.Review)
             .SelectMany(x => AttentionJson.Deserialize<ReviewPayload>(x.Item.Payload).CriteriaMapping.Select(m => m.CriterionId))
@@ -175,7 +183,8 @@ internal static class AttentionEndpoints
                 AttentionService.AnswerOf(item),
                 await ExcerptAsync(db, item, cancellationToken),
                 item.CreatedAt,
-                item.AnsweredAt));
+                item.AnsweredAt,
+                item.Kind == AttentionKind.Review && item.RunId is { } reviewed && changeSets.TryGetValue(reviewed, out var changeSetId) ? changeSetId : null));
         }
         return [.. result.OrderByDescending(i => i.Blocking).ThenByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id)];
     }

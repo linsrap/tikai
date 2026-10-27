@@ -39,13 +39,66 @@ public interface IGitService
 
     /// <summary>
     /// Writes a git bundle with only <paramref name="branch"/> (refs/heads) and its history, e.g. for a run clone:
-    /// the run gets that branch and nothing else of the repository.
+    /// the run gets that branch and nothing else of the repository. Returns the commit the bundle holds.
     /// </summary>
-    Task CreateBundleAsync(string path, string branch, string outputFile, CancellationToken cancellationToken = default);
+    Task<string> CreateBundleAsync(string path, string branch, string outputFile, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Takes work from an untrusted bundle (made from a run clone): checks that the mirror has its prerequisites, fetches
+    /// <paramref name="branch"/> with every object checked (fsck), and points each of <paramref name="targetRefs"/> at
+    /// it (forced: they are the hub's own refs). Returns the fetched commit.
+    /// </summary>
+    Task<string> ImportBundleAsync(
+        string path, string bundleFile, string branch, IReadOnlyList<string> targetRefs, CancellationToken cancellationToken = default);
+
+    /// <summary>The best common ancestor of two commits, or null when they share no history.</summary>
+    Task<string?> MergeBaseAsync(string path, string first, string second, CancellationToken cancellationToken = default);
+
+    /// <summary>The files changed between two commits (renames detected), at most <paramref name="maxFiles"/>.</summary>
+    Task<GitDiff> DiffAsync(string path, string baseSha, string headSha, int maxFiles, CancellationToken cancellationToken = default);
+
+    /// <summary>A blob's size, and its content when it is at most <paramref name="maxBytes"/>; null when it does not exist.</summary>
+    Task<GitBlob?> ReadBlobAsync(string path, string blobSha, long maxBytes, CancellationToken cancellationToken = default);
 
     /// <summary>Deletes a repository directory, including git's read-only object files on Windows.</summary>
     Task DeleteRepositoryAsync(string path, CancellationToken cancellationToken = default);
 }
+
+/// <param name="Truncated">There were more files than asked for.</param>
+public sealed record GitDiff(IReadOnlyList<GitDiffEntry> Files, bool Truncated);
+
+/// <summary>One changed file. Paths are null on the side where the file does not exist (added, deleted).</summary>
+/// <param name="OldBlob">Null when the file was added.</param>
+/// <param name="NewBlob">Null when the file was deleted.</param>
+/// <param name="Additions">Changed lines; null for a binary file.</param>
+public sealed record GitDiffEntry(
+    GitChangeKind Kind,
+    string? OldPath,
+    string? NewPath,
+    string? OldBlob,
+    string? NewBlob,
+    string OldMode,
+    string NewMode,
+    int? Additions,
+    int? Deletions)
+{
+    /// <summary>The path the file has now, or had before it was deleted.</summary>
+    public string Path => NewPath ?? OldPath!;
+}
+
+public enum GitChangeKind
+{
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+
+    /// <summary>Only the type changed, e.g. a file became a symlink.</summary>
+    TypeChanged,
+}
+
+/// <param name="Content">Null when the blob is bigger than asked for.</param>
+public sealed record GitBlob(long Size, byte[]? Content);
 
 /// <param name="IsEmpty">The remote has no commits on the default branch yet.</param>
 public sealed record MirrorResult(string DefaultBranch, bool IsEmpty);

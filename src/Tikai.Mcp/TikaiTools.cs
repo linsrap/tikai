@@ -48,7 +48,7 @@ internal sealed partial class TikaiTools(
     }
 
     [McpServerTool(Name = "submit_for_review")]
-    [Description("Submits your work for human review with a self-report. Commit your changes first. Does not wait for the review.")]
+    [Description("Submits your work for human review with a self-report: the committed state of your branch is taken, uncommitted changes are not. Commit first. Does not wait for the review; stop after it.")]
     public async Task<string> SubmitForReview(
         RequestContext<CallToolRequestParams> request,
         [Description("What you changed and why.")] string summary,
@@ -57,11 +57,8 @@ internal sealed partial class TikaiTools(
         [Description("What you are unsure about or deliberately left out.")] IReadOnlyList<string>? open_concerns = null,
         CancellationToken cancellationToken = default)
     {
-        if (await runs.SubmitForReviewAsync(RunScope.From(request.User), summary, criteria_mapping, open_concerns, cancellationToken) is { } error)
-        {
-            throw new McpException(error);
-        }
-        return "Submitted for review.";
+        var result = await runs.SubmitForReviewAsync(RunScope.From(request.User), summary, criteria_mapping, open_concerns, cancellationToken);
+        return result.Accepted ? result.Message : throw new McpException(result.Message);
     }
 
     [McpServerTool(Name = "propose_plan")]

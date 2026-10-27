@@ -23,6 +23,9 @@ public enum SandboxRole
 
     /// <summary>Reads the run clone's state (git log, git status, the session file) before a resume, without network.</summary>
     Inspect,
+
+    /// <summary>Bundles the run branch for the hub when the agent submits its work, without network.</summary>
+    Bundle,
 }
 
 /// <summary>A container to create: the agent part from the adapter, the sandbox from the orchestrator's settings.</summary>
@@ -54,6 +57,12 @@ public interface IContainerRuntime
 
     /// <summary>Extracts a tar into the container's file system; the tar headers set owner and mode.</summary>
     Task UploadAsync(string containerId, string path, Stream tar, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A tar of <paramref name="path"/> in the container (also a stopped one, including its mounts); Docker resolves the
+    /// path inside the container and packs a symlink as a link, not its target. Null when the path does not exist.
+    /// </summary>
+    Task<Stream?> DownloadAsync(string containerId, string path, CancellationToken cancellationToken);
 
     Task StartAsync(string containerId, CancellationToken cancellationToken);
 
@@ -169,6 +178,21 @@ public sealed class DockerContainerRuntime(IDockerClient docker, IOptions<Orches
 
     public Task UploadAsync(string containerId, string path, Stream tar, CancellationToken cancellationToken) =>
         docker.Containers.ExtractArchiveToContainerAsync(containerId, new CopyToContainerParameters { Path = path }, tar, cancellationToken);
+
+    public async Task<Stream?> DownloadAsync(string containerId, string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await docker.Containers.GetArchiveFromContainerAsync(
+                containerId, new ContainerPathStatParameters { Path = path }, statOnly: false, cancellationToken);
+            return response.Stream;
+        }
+        catch (DockerContainerNotFoundException)
+        {
+            // Docker answers 404 for a missing container and for a missing path alike.
+            return null;
+        }
+    }
 
     public Task StartAsync(string containerId, CancellationToken cancellationToken) =>
         docker.Containers.StartContainerAsync(containerId, new ContainerStartParameters(), cancellationToken);

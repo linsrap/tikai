@@ -53,6 +53,12 @@ public sealed class OrchestratorOptions
     /// <summary>Limit for the inspect container that reads the run clone's state before a resume.</summary>
     public TimeSpan InspectTimeout { get; set; } = TimeSpan.FromMinutes(1);
 
+    /// <summary>Limit for the bundle container that packs the run branch when the agent submits its work.</summary>
+    public TimeSpan BundleTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>The largest bundle of submitted work the hub takes.</summary>
+    public long MaxBundleBytes { get; set; } = 256L * 1024 * 1024;
+
     /// <summary>The agent must report its start (and the MCP server status) within this time, or it is stopped.</summary>
     public TimeSpan InitTimeout { get; set; } = TimeSpan.FromMinutes(3);
 

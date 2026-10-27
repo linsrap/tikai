@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Tikai.Core.Attention;
 using Tikai.Core.Events;
+using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Data;
 
@@ -24,6 +25,7 @@ internal sealed partial class LiveUpdates(IEventBus bus, IHubContext<LiveHub, IL
             bus.Subscribe(AgentRun.Topic, OnRunAsync),
             bus.Subscribe(AttentionItem.Topic, OnItemAsync),
             bus.Subscribe(RunEvent.Topic, OnRunEventsAsync),
+            bus.Subscribe(ChangeSet.Topic, OnChangeSetAsync),
         ];
         return Task.CompletedTask;
     }
@@ -77,6 +79,27 @@ internal sealed partial class LiveUpdates(IEventBus bus, IHubContext<LiveHub, IL
         if (target is not null)
         {
             await hub.Clients.Groups(LiveGroups.All, LiveGroups.Project(target.ProjectId)).AttentionChanged(new(itemId, target.Slug, target.Number));
+        }
+    }
+
+    private async Task OnChangeSetAsync(BusEvent e, CancellationToken cancellationToken)
+    {
+        if (e.Id is not { } changeSetId)
+        {
+            await ResyncAsync();
+            return;
+        }
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
+        var target = await (
+            from c in db.ChangeSets
+            join t in db.Tickets on c.TicketId equals t.Id
+            join p in db.Projects on t.ProjectId equals p.Id
+            where c.Id == changeSetId
+            select new { ProjectId = p.Id, p.Slug, t.Number }).SingleOrDefaultAsync(cancellationToken);
+        if (target is not null)
+        {
+            await hub.Clients.Groups(LiveGroups.All, LiveGroups.Project(target.ProjectId)).ChangeSetChanged(new(changeSetId, target.Slug, target.Number));
         }
     }
 

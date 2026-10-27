@@ -55,7 +55,8 @@ public static class RunReconciliation
                     actions.Add(new FailAction(run.RunId, run.State, run.ContainerId,
                         "The start job gave up" + (run.LastJobError is { } error ? $" ({error})" : "") + ". Start a new run."));
                     break;
-                case { State: AgentRunState.Running or AgentRunState.Blocked, ContainerId: { } containerId }:
+                // In review: the agent submitted during its call and its container is still finishing.
+                case { State: AgentRunState.Running or AgentRunState.Blocked or AgentRunState.InReview, ContainerId: { } containerId }:
                     if (!listed.Contains(containerId))
                     {
                         actions.Add(new ContainerGoneAction(run.RunId, run.State, containerId));
@@ -84,8 +85,9 @@ public static class RunReconciliation
 
         foreach (var container in containers)
         {
+            // A bundle container belongs to a submit_for_review call in progress; it removes its own.
             var claimed = active.TryGetValue(container.RunId, out var run)
-                && (run.ContainerId == container.Id || run.HasLiveJob);
+                && (run.ContainerId == container.Id || run.HasLiveJob || container.Role == SandboxRole.Bundle);
             if (!claimed)
             {
                 actions.Add(new RemoveAction(container.RunId, container.Id));
@@ -177,9 +179,13 @@ public sealed partial class RunReconciler(
                 {
                     break;
                 }
-                var end = gone.State == AgentRunState.Blocked
-                    ? new RunEnd(RunTrigger.Block, null, ContainerId: gone.ContainerId)
-                    : new RunEnd(RunTrigger.Fail, "The agent container disappeared.", ContainerId: gone.ContainerId);
+                var end = gone.State switch
+                {
+                    AgentRunState.Blocked => new RunEnd(RunTrigger.Block, null, ContainerId: gone.ContainerId),
+                    // The work is submitted; only the container is forgotten.
+                    AgentRunState.InReview => new RunEnd(RunTrigger.Submit, null, ContainerId: gone.ContainerId),
+                    _ => new RunEnd(RunTrigger.Fail, "The agent container disappeared.", ContainerId: gone.ContainerId),
+                };
                 await WithStoreAsync(store => store.EndAsync(gone.RunId, end, cancellationToken));
                 break;
             case ResumeAction resume:

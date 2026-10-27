@@ -36,6 +36,12 @@ public class AgentRun : Entity
     /// <summary>tikai/&lt;KEY-N&gt;-&lt;run8&gt;, see <see cref="RunBranch"/>.</summary>
     public string? Branch { get; set; }
 
+    /// <summary>
+    /// The default branch's commit the run clone was made from; the work is bundled from there. Null for runs started
+    /// before it was recorded.
+    /// </summary>
+    public string? BaseSha { get; set; }
+
     /// <summary>The agent container of the current attempt; null before it was created and after it was removed.</summary>
     public string? ContainerId { get; set; }
 

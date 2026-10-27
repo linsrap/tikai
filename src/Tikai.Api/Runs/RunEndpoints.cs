@@ -178,6 +178,8 @@ internal static class RunEndpoints
         join p in db.Projects on t.ProjectId equals p.Id
         join repo in db.Repositories on r.RepositoryId equals repo.Id into repos
         from repo in repos.DefaultIfEmpty()
+        join c in db.ChangeSets on r.Id equals c.RunId into changeSets
+        from c in changeSets.DefaultIfEmpty()
         select new RunRow(r.Id, r.ContainerId != null, new RunInfo(
             r.Id,
             p.Key + "-" + t.Number,
@@ -207,7 +209,8 @@ internal static class RunEndpoints
             Array.Empty<WaitingItem>(),
             null,
             null,
-            false));
+            false,
+            c == null ? null : c.Id));
 
     private static ProblemHttpResult NotFound() => ProjectEndpoints.NotFound("Run");
 

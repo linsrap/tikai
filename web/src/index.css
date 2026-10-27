@@ -301,3 +301,138 @@ button.primary {
 .badge.missing {
   color: #b42318;
 }
+
+/* The review screen needs the width for a side-by-side diff. */
+.shell.wide {
+  max-width: 96rem;
+  margin-top: 2rem;
+}
+
+a.button {
+  display: inline-block;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 0.25rem;
+  text-decoration: none;
+}
+
+a.button.primary {
+  font-weight: bold;
+}
+
+.pre-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review h1 {
+  margin-bottom: 0;
+}
+
+.review details > summary {
+  cursor: pointer;
+}
+
+.review details[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 60rem) {
+  .review-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.file-tree {
+  margin: 0;
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  font-size: 0.9rem;
+}
+
+.file-tree .directory {
+  margin: 0.5rem 0 0.15rem;
+  overflow-wrap: anywhere;
+}
+
+ul.files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.file-row.viewed .file-name {
+  opacity: 0.55;
+}
+
+.file-name {
+  flex: 1;
+  min-width: 0;
+  padding: 0.15rem 0.25rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+}
+
+.file-name[aria-current='true'] {
+  border-color: #0969da;
+  background: color-mix(in srgb, #0969da 12%, transparent);
+}
+
+.file-row .counts {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.kind {
+  display: inline-block;
+  width: 1.1rem;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  font-weight: bold;
+}
+
+.kind.added {
+  color: #1a7f37;
+}
+
+.kind.deleted {
+  color: #b42318;
+}
+
+.kind.modified,
+.kind.renamed,
+.kind.type_changed {
+  color: #bf8700;
+}
+
+.diff-pane {
+  min-width: 0;
+}
+
+.file-header strong {
+  overflow-wrap: anywhere;
+}
+
+.diff-editor {
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}

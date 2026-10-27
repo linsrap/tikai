@@ -46,6 +46,22 @@ public class RunReconciliationTests
     }
 
     [Fact]
+    public void A_run_in_review_whose_container_is_still_finishing_is_followed_and_checked_like_a_running_one()
+    {
+        Assert.IsType<WatchAction>(Assert.Single(Plan([Container("c1")], [Run(AgentRunState.InReview, "c1")])));
+        Assert.Equal([new ContainerGoneAction(_runId, AgentRunState.InReview, "c1")], Plan([], [Run(AgentRunState.InReview, "c1")]));
+        Assert.Empty(Plan([], [Run(AgentRunState.InReview)]));
+    }
+
+    [Fact]
+    public void A_bundle_container_belongs_to_a_submission_in_progress()
+    {
+        Assert.Empty(Plan([Container("c1"), Container("b1", running: false, role: SandboxRole.Bundle)], [Run(AgentRunState.Running, "c1")], _runId));
+        // Once the run has ended nobody uses it any more.
+        Assert.Equal([new RemoveAction(_runId, "b1")], Plan([Container("b1", running: false, role: SandboxRole.Bundle)], []));
+    }
+
+    [Fact]
     public void A_followed_container_needs_nothing()
     {
         Assert.Empty(Plan([Container("c1")], [Run(AgentRunState.Running, "c1")], _runId));

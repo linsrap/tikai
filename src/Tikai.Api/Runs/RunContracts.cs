@@ -18,6 +18,7 @@ public sealed record StartRunRequest(Guid? RepositoryId = null, Guid? ProviderId
 /// <param name="BlockedSince">When the oldest of them was asked.</param>
 /// <param name="BlockTimeoutAt">When the waiting container will be stopped (it continues in a new one once answered).</param>
 /// <param name="AgentStopped">Blocked and no container: the agent stopped waiting, or was stopped at the block timeout.</param>
+/// <param name="ChangeSetId">The run's submitted work, for the review screen; null before it submitted.</param>
 public sealed record RunInfo(
     Guid Id,
     string TicketKey,
@@ -47,7 +48,8 @@ public sealed record RunInfo(
     IReadOnlyList<WaitingItem> Waiting,
     DateTimeOffset? BlockedSince,
     DateTimeOffset? BlockTimeoutAt,
-    bool AgentStopped);
+    bool AgentStopped,
+    Guid? ChangeSetId);
 
 /// <summary>An open question or plan of a run; answered through <c>POST /api/attention-items/{id}/answer</c>.</summary>
 public sealed record WaitingItem(Guid Id, AttentionKind Kind, QuestionPayload? Question, PlanPayload? Plan, DateTimeOffset CreatedAt);

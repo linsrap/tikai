@@ -1544,6 +1544,213 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/change-sets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChangeSetInfo"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change-sets/{id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    round?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReviewFilesInfo"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change-sets/{id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    path: string;
+                    round?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FileContentsInfo"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change-sets/{id}/viewed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ViewedRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ViewedInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change-sets/{id}/verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["VerdictRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChangeSetInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1583,6 +1790,8 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             answeredAt: null | string;
+            /** Format: uuid */
+            changeSetId: null | string;
         };
         /** @enum {unknown} */
         AttentionKind: "question" | "permission" | "plan_approval" | "review" | "conflict" | "failure";
@@ -1597,6 +1806,29 @@ export interface components {
             sha: string;
             isRemote: boolean;
         };
+        ChangeSetInfo: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["ChangeSetStatus"];
+            projectSlug: string;
+            /** Format: int32 */
+            ticketNumber: number;
+            ticketKey: string;
+            ticketTitle: string;
+            /** Format: uuid */
+            runId: string;
+            runState: components["schemas"]["AgentRunState"];
+            model: null | string;
+            branch: string;
+            repositoryName: string;
+            defaultBranch: string;
+            criteria: components["schemas"]["CriterionInfo"][];
+            rounds: components["schemas"]["ReviewRoundInfo"][];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** @enum {unknown} */
+        ChangeSetStatus: "open" | "merged" | "closed";
         CreateLlmProviderRequest: {
             name: string;
             defaultModel: string;
@@ -1660,6 +1892,22 @@ export interface components {
             /** Format: int32 */
             exitCode: null | number;
         };
+        FileContentsInfo: {
+            path: string;
+            oldPath: null | string;
+            old: null | components["schemas"]["FileSide"];
+            new: null | components["schemas"]["FileSide"];
+            language: string;
+        };
+        FileSide: {
+            /** Format: int64 */
+            size: number;
+            text: null | string;
+            binary: boolean;
+            tooLarge: boolean;
+        };
+        /** @enum {unknown} */
+        GitChangeKind: "added" | "modified" | "deleted" | "renamed" | "type_changed";
         HttpValidationProblemDetails: {
             type?: null | string;
             title?: null | string;
@@ -1759,11 +2007,50 @@ export interface components {
             status: components["schemas"]["CriterionCoverage"];
             note: null | string;
         };
+        ReviewFileInfo: {
+            path: string;
+            oldPath: null | string;
+            kind: components["schemas"]["GitChangeKind"];
+            /** Format: int32 */
+            additions: null | number;
+            /** Format: int32 */
+            deletions: null | number;
+            binary: boolean;
+            lock: boolean;
+            generated: boolean;
+            large: boolean;
+            viewed: boolean;
+            language: string;
+        };
+        ReviewFilesInfo: {
+            /** Format: int32 */
+            roundNo: number;
+            baseSha: string;
+            headSha: string;
+            files: components["schemas"]["ReviewFileInfo"][];
+            truncated: boolean;
+        };
         ReviewPayload: {
             summary: string;
             criteriaMapping: components["schemas"]["CriterionMapping"][];
             openConcerns: string[];
         };
+        ReviewRoundInfo: {
+            /** Format: int32 */
+            roundNo: number;
+            baseSha: string;
+            headSha: string;
+            selfReport: components["schemas"]["ReviewPayload"];
+            coverage: components["schemas"]["ReviewCoverage"][];
+            uncommitted: string[];
+            verdict: null | components["schemas"]["ReviewVerdict"];
+            /** Format: date-time */
+            verdictAt: null | string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** @enum {unknown} */
+        ReviewVerdict: "approve" | "request_changes" | "reject" | null;
         /** @enum {unknown} */
         RunAttemptKind: "start" | "resume" | "summary";
         RunEventInfo: {
@@ -1820,6 +2107,8 @@ export interface components {
             /** Format: date-time */
             blockTimeoutAt: null | string;
             agentStopped: boolean;
+            /** Format: uuid */
+            changeSetId: null | string;
         };
         SignUpRequest: {
             email: string;
@@ -1896,6 +2185,19 @@ export interface components {
             status: components["schemas"]["TicketStatus"];
             priority: components["schemas"]["TicketPriority"];
             criteria: components["schemas"]["CriterionInput"][];
+        };
+        VerdictRequest: {
+            verdict: components["schemas"]["ReviewVerdict"];
+        };
+        ViewedInfo: {
+            path: string;
+            viewed: boolean;
+        };
+        ViewedRequest: {
+            path: string;
+            viewed: boolean;
+            /** Format: int32 */
+            round?: null | number;
         };
         WaitingItem: {
             /** Format: uuid */

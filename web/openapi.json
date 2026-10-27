@@ -1485,6 +1485,210 @@
           }
         }
       }
+    },
+    "/api/change-sets/{id}": {
+      "get": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/change-sets/{id}/files": {
+      "get": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "round",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewFilesInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/change-sets/{id}/file": {
+      "get": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "round",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileContentsInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/change-sets/{id}/viewed": {
+      "put": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewedInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/change-sets/{id}/verdict": {
+      "post": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerdictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetInfo"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1568,7 +1772,8 @@
           "answer",
           "excerpt",
           "createdAt",
-          "answeredAt"
+          "answeredAt",
+          "changeSetId"
         ],
         "type": "object",
         "properties": {
@@ -1687,6 +1892,13 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "changeSetId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -1747,6 +1959,93 @@
             "type": "boolean"
           }
         }
+      },
+      "ChangeSetInfo": {
+        "required": [
+          "id",
+          "status",
+          "projectSlug",
+          "ticketNumber",
+          "ticketKey",
+          "ticketTitle",
+          "runId",
+          "runState",
+          "model",
+          "branch",
+          "repositoryName",
+          "defaultBranch",
+          "criteria",
+          "rounds",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChangeSetStatus"
+          },
+          "projectSlug": {
+            "type": "string"
+          },
+          "ticketNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ticketKey": {
+            "type": "string"
+          },
+          "ticketTitle": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runState": {
+            "$ref": "#/components/schemas/AgentRunState"
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "branch": {
+            "type": "string"
+          },
+          "repositoryName": {
+            "type": "string"
+          },
+          "defaultBranch": {
+            "type": "string"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CriterionInfo"
+            }
+          },
+          "rounds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewRoundInfo"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ChangeSetStatus": {
+        "enum": [
+          "open",
+          "merged",
+          "closed"
+        ]
       },
       "CreateLlmProviderRequest": {
         "required": [
@@ -1997,6 +2296,86 @@
             "format": "int32"
           }
         }
+      },
+      "FileContentsInfo": {
+        "required": [
+          "path",
+          "oldPath",
+          "old",
+          "new",
+          "language"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "oldPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "old": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FileSide"
+              }
+            ]
+          },
+          "new": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FileSide"
+              }
+            ]
+          },
+          "language": {
+            "type": "string"
+          }
+        }
+      },
+      "FileSide": {
+        "required": [
+          "size",
+          "text",
+          "binary",
+          "tooLarge"
+        ],
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "binary": {
+            "type": "boolean"
+          },
+          "tooLarge": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GitChangeKind": {
+        "enum": [
+          "added",
+          "modified",
+          "deleted",
+          "renamed",
+          "type_changed"
+        ]
       },
       "HttpValidationProblemDetails": {
         "type": "object",
@@ -2395,6 +2774,99 @@
           }
         }
       },
+      "ReviewFileInfo": {
+        "required": [
+          "path",
+          "oldPath",
+          "kind",
+          "additions",
+          "deletions",
+          "binary",
+          "lock",
+          "generated",
+          "large",
+          "viewed",
+          "language"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "oldPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GitChangeKind"
+          },
+          "additions": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "deletions": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "binary": {
+            "type": "boolean"
+          },
+          "lock": {
+            "type": "boolean"
+          },
+          "generated": {
+            "type": "boolean"
+          },
+          "large": {
+            "type": "boolean"
+          },
+          "viewed": {
+            "type": "boolean"
+          },
+          "language": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewFilesInfo": {
+        "required": [
+          "roundNo",
+          "baseSha",
+          "headSha",
+          "files",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "roundNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "baseSha": {
+            "type": "string"
+          },
+          "headSha": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewFileInfo"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "ReviewPayload": {
         "required": [
           "summary",
@@ -2419,6 +2891,76 @@
             }
           }
         }
+      },
+      "ReviewRoundInfo": {
+        "required": [
+          "roundNo",
+          "baseSha",
+          "headSha",
+          "selfReport",
+          "coverage",
+          "uncommitted",
+          "verdict",
+          "verdictAt",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "roundNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "baseSha": {
+            "type": "string"
+          },
+          "headSha": {
+            "type": "string"
+          },
+          "selfReport": {
+            "$ref": "#/components/schemas/ReviewPayload"
+          },
+          "coverage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewCoverage"
+            }
+          },
+          "uncommitted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "verdict": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewVerdict"
+              }
+            ]
+          },
+          "verdictAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReviewVerdict": {
+        "enum": [
+          "approve",
+          "request_changes",
+          "reject",
+          null
+        ]
       },
       "RunAttemptKind": {
         "enum": [
@@ -2493,7 +3035,8 @@
           "waiting",
           "blockedSince",
           "blockTimeoutAt",
-          "agentStopped"
+          "agentStopped",
+          "changeSetId"
         ],
         "type": "object",
         "properties": {
@@ -2651,6 +3194,13 @@
           },
           "agentStopped": {
             "type": "boolean"
+          },
+          "changeSetId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -2936,6 +3486,54 @@
           }
         }
       },
+      "VerdictRequest": {
+        "required": [
+          "verdict"
+        ],
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "$ref": "#/components/schemas/ReviewVerdict"
+          }
+        }
+      },
+      "ViewedInfo": {
+        "required": [
+          "path",
+          "viewed"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "viewed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ViewedRequest": {
+        "required": [
+          "path",
+          "viewed"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "viewed": {
+            "type": "boolean"
+          },
+          "round": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "WaitingItem": {
         "required": [
           "id",
@@ -2999,6 +3597,9 @@
     },
     {
       "name": "Runs"
+    },
+    {
+      "name": "Reviews"
     }
   ]
 }

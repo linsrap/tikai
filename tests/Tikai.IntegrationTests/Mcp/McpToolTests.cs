@@ -1,8 +1,6 @@
-using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Tikai.Api.Attention;
-using Tikai.Core.Attention;
 using Tikai.Data;
 using Tikai.IntegrationTests.Auth;
 
@@ -100,11 +98,11 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Submit_for_review_records_the_self_report_and_checks_the_criterion_ids()
+    public async Task Submit_for_review_checks_the_self_report_and_takes_work_only_from_a_running_agent()
     {
         var ticket = await McpTestKit.CreateTicketAsync(_browser, "hub", "HUB", "Ticket");
         var other = await McpTestKit.CreateTicketAsync(_browser, "web", "WEB", "Other");
-        var (runId, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
+        var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
         await using var agent = await McpTestKit.ConnectAsync(_factory, token);
 
         var foreign = await agent.CallAsync("submit_for_review", new
@@ -115,29 +113,15 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Contains(other.Criteria[0].Id.ToString(), foreign.Error(), StringComparison.Ordinal);
         Assert.Contains("summary", (await agent.CallAsync("submit_for_review", new { summary = "" })).Error(), StringComparison.Ordinal);
 
-        var submitted = await agent.CallAsync("submit_for_review", new
+        // A valid self-report from a run without an agent container (queued here): there is no clone to take work from.
+        // Submissions with real containers are in ReviewTests.
+        var queued = await agent.CallAsync("submit_for_review", new
         {
             summary = "Added the table and the API.",
-            criteria_mapping = new object[]
-            {
-                new { criterion_id = ticket.Criteria[0].Id, status = "covered", note = "TableTests" },
-                new { criterion_id = ticket.Criteria[1].Id, status = "partial" },
-            },
-            open_concerns = new[] { "No paging yet" },
+            criteria_mapping = new[] { new { criterion_id = ticket.Criteria[0].Id, status = "covered", note = "TableTests" } },
         });
-        Assert.Equal("Submitted for review.", submitted.Text());
-
-        var review = (await _browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items")).Single();
-        Assert.Equal(AttentionKind.Review, review.Kind);
-        Assert.Equal(runId, review.RunId);
-        Assert.Equal("Added the table and the API.", review.Review!.Summary);
-        Assert.Equal(
-            [new CriterionMapping(ticket.Criteria[0].Id, CriterionCoverage.Covered, "TableTests"), new CriterionMapping(ticket.Criteria[1].Id, CriterionCoverage.Partial, null)],
-            review.Review.CriteriaMapping.ToArray());
-        Assert.Equal(["No paging yet"], review.Review.OpenConcerns);
-        // A review is opened in the review screen (step 13), not answered.
-        using var answer = await _browser.PostAsync($"/api/attention-items/{review.Id}/answer", new { text = "ok" });
-        Assert.Equal(HttpStatusCode.Conflict, answer.StatusCode);
+        Assert.Contains("only a running agent can submit", queued.Error(), StringComparison.Ordinal);
+        Assert.Empty(await _browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items"));
     }
 
     [Fact]

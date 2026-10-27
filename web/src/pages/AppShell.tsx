@@ -6,7 +6,7 @@ import { inboxQuery, waitingCount } from '../inbox/inbox'
 import { live, useLiveConnection, useLiveStatus, useWatch } from '../live/live'
 
 /** Top bar with navigation and the logged-in user, around a page. Keeps the live connection open. */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   const { data: status } = useSuspenseQuery(authStatusQuery)
   const logout = useLogout()
   const navigate = useNavigate()
@@ -19,7 +19,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const liveStatus = useLiveStatus()
 
   return (
-    <main className="shell" data-live-status={liveStatus}>
+    <main className={wide ? 'shell wide' : 'shell'} data-live-status={liveStatus}>
       <header className="topbar">
         <nav className="row">
           <Link to="/">

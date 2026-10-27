@@ -18,8 +18,9 @@ internal static class RunsSetup
                 "Agent limits must be positive (and the agent uid must not be root).")
             .Validate(o => o.ToolCallTimeout >= TimeSpan.FromSeconds(1) && o.InitTimeout > TimeSpan.Zero && o.PrepareTimeout > TimeSpan.Zero,
                 "Agent timeouts must be positive (the tool call timeout at least 1 s).")
-            .Validate(o => o.BlockTimeout > TimeSpan.Zero && o.ReconcileInterval > TimeSpan.Zero && o.InspectTimeout > TimeSpan.Zero,
-                "Tikai:Agents:BlockTimeout, ReconcileInterval and InspectTimeout must be positive.")
+            .Validate(o => o.BlockTimeout > TimeSpan.Zero && o.ReconcileInterval > TimeSpan.Zero && o.InspectTimeout > TimeSpan.Zero
+                    && o.BundleTimeout > TimeSpan.Zero && o.MaxBundleBytes > 0,
+                "Tikai:Agents:BlockTimeout, ReconcileInterval, InspectTimeout, BundleTimeout and MaxBundleBytes must be positive.")
             .Validate(o => o.ToolCallTimeout >= o.BlockTimeout + OrchestratorOptions.BlockTimeoutMargin,
                 "Tikai:Agents:ToolCallTimeout must be at least BlockTimeout + 15 minutes, so the hub stops a waiting agent before Claude Code gives up on its own.")
             .ValidateOnStart();

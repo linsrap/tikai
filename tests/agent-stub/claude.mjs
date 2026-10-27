@@ -3,6 +3,9 @@
 // is chosen by a "stub:<scenario>" word in the ticket description:
 //   ok (default)    get_ticket, report_progress, commit, submit_for_review, exit 0
 //   no-submit       the same without submit_for_review
+//   no-commit       submits before committing (refused), commits hello.txt, submits again
+//   review          changes, deletes, renames and adds files (the test seeds the default branch, else it commits the
+//                   files first), leaves notes.txt uncommitted, submits, submits again, asks a question (refused)
 //   error           a result with is_error, exit 1
 //   leak            prints the API key and the run token (the hub must redact them), then ok
 //   big             a huge tool result and a line over 1 MB, then ok
@@ -203,7 +206,48 @@ async function askUntilAnswered(question, extra = {}) {
   }
 }
 
-/** The wait scenarios after the question: write the answer, commit, report, submit. */
+/**
+ * review: every kind of change on top of the files the test put on the default branch (change.txt, gone.txt,
+ * old-name.txt), one file left uncommitted; then a second submit (already in review) and a question (refused).
+ */
+async function reviewChanges(ticket) {
+  // The browser test cannot seed the default branch: then the files come in a commit of the run itself.
+  if (!fs.existsSync("change.txt")) {
+    bash(
+      "printf 'first line\\n' > change.txt && printf 'bye\\n' > gone.txt && printf 'a file that moves\\n' > old-name.txt" +
+        " && git add -A && git commit --quiet -m 'Seed files'",
+    );
+  }
+  bash(
+    [
+      "printf 'one more line\\n' >> change.txt",
+      "git rm --quiet gone.txt",
+      "git mv old-name.txt new-name.txt",
+      "mkdir -p src && printf 'export const answer = 42;\\n' > src/added.ts",
+      "printf '\\211PNG\\r\\n\\032\\n\\000\\000\\001' > image.png",
+      "printf '{\"lockfileVersion\": 3}\\n' > package-lock.json",
+      "head -c 2000000 /dev/zero | tr '\\000' 'a' | fold -w 99 > big.txt",
+      "git add -A && git commit --quiet -m 'Review changes'",
+      "printf 'work in progress\\n' > notes.txt",
+    ].join(" && "),
+  );
+  const submitted = await tool("submit_for_review", {
+    summary: "Changed, removed, renamed and added files.",
+    criteria_mapping: ticket.criteria.map((c, i) => ({ criterion_id: c.id, status: i === 0 ? "covered" : "partial", note: `note ${i + 1}` })),
+    open_concerns: ["big.txt is large"],
+  });
+  const again = await tool("submit_for_review", { summary: "Again." });
+  let asked = "accepted";
+  try {
+    await tool("ask_human", { question: "Anything else?" }, 10000);
+  } catch (e) {
+    asked = e.message;
+  }
+  say("STUB_REVIEW " + JSON.stringify({ submitted, again, asked }));
+  result({ result: "Done.", total_cost_usd: 0.003 });
+  return 0;
+}
+
 /** Calls a tool again while the hub is unreachable (restarting), for up to a minute. */
 async function patiently(call) {
   for (let attempt = 1; ; attempt++) {
@@ -243,6 +287,7 @@ async function planAndWait(ticket, lines) {
   return finishWait(ticket, answer, { asked, before_sha: before }, true);
 }
 
+/** The wait scenarios after the question: write the answer, commit, report, submit. */
 async function finishWait(ticket, answer, extra, retry = false) {
   bash(`printf '%s\\n' '${answer.replaceAll("'", "")}' > answer.txt && git add answer.txt && git commit --quiet -m 'Add answer.txt'`);
   const stubFacts = {
@@ -344,6 +389,22 @@ async function main() {
       return 0;
     }
     return finishWait(ticket, answer, { asked, before_sha: before });
+  }
+  if (scenario === "review") {
+    return reviewChanges(ticket);
+  }
+  if (scenario === "no-commit") {
+    let first = "accepted";
+    try {
+      await submit(ticket);
+    } catch (e) {
+      first = e.message;
+    }
+    bash("printf 'hello\\n' > hello.txt && git add hello.txt && git commit --quiet -m 'Add hello.txt'");
+    await submit(ticket);
+    say("STUB_REVIEW " + JSON.stringify({ first }));
+    result({ result: "Done.", total_cost_usd: 0.002 });
+    return 0;
   }
   if (scenario === "hang") {
     await sleep(3600_000);

@@ -28,6 +28,7 @@ internal sealed class AgentRunConfiguration : IEntityTypeConfiguration<AgentRun>
         builder.Property(r => r.Adapter).HasMaxLength(40);
         builder.Property(r => r.Model).HasMaxLength(100);
         builder.Property(r => r.Branch).HasMaxLength(200);
+        builder.Property(r => r.BaseSha).HasMaxLength(64);
         builder.Property(r => r.ContainerId).HasMaxLength(64);
         builder.Property(r => r.SessionId).HasMaxLength(100);
         builder.Property(r => r.CostUsd).HasPrecision(12, 6);

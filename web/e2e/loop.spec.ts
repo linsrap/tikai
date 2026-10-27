@@ -121,11 +121,15 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
   await expect(run).toHaveAttribute('data-state', 'in_review', { timeout: 120_000 })
   await expect(run.getByText('In review')).toBeVisible()
 
-  // The log holds every event exactly once: seqs 1…n with nothing missing, the same as the server's.
+  // The log holds every event exactly once: seqs 1…n with nothing missing, the same as the server's. The run is in
+  // review from the submit call on; its container's last output and the hub's exit note come right after.
   const runId = (await (await request.get('/api/runs')).json())[0].id as string
-  const events = (await (
-    await request.get(`/api/runs/${runId}/events?limit=1000`)
-  ).json()) as RunEvent[]
+  const readEvents = async () =>
+    (await (await request.get(`/api/runs/${runId}/events?limit=1000`)).json()) as RunEvent[]
+  await expect
+    .poll(async () => (await readEvents()).some((e) => e.payload.text === 'Agent exited'))
+    .toBe(true)
+  const events = await readEvents()
   const last = events.length
   expect(events.map((e) => e.seq)).toEqual(Array.from({ length: last }, (_, i) => i + 1))
   await expect(log).toHaveAttribute('data-last-seq', String(last))
@@ -144,4 +148,85 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
 
   // Still the page loaded before the ticket was created: nothing reloaded it.
   expect(await page.evaluate(() => Reflect.get(window, 'loadedOnce'))).toBe(true)
+
+  // The review screen, from the inbox. Monaco and its worker come from the hub, not from a CDN.
+  const origin = new URL(page.url()).origin
+  const foreign: string[] = []
+  page.on('request', (r) => {
+    if (new URL(r.url()).origin !== origin && !r.url().startsWith('data:')) foreign.push(r.url())
+  })
+  await nav.getByRole('link', { name: /^Inbox/ }).click()
+  const review = page.getByRole('article', { name: 'Ready for review: E2E-1' })
+  await review.getByRole('link', { name: 'Open review' }).click()
+  await expect(page.getByRole('heading', { name: /Write the chosen word/ })).toBeVisible()
+  const tree = page.getByRole('navigation', { name: 'Changed files' })
+  await expect(tree.getByText('0 of 2 files viewed')).toBeVisible()
+  await tree.getByRole('button', { name: /answer\.txt/ }).click()
+  await expect(page.locator('.monaco-diff-editor')).toContainText('beta')
+
+  // Viewed is stored on the hub: it is still there after a reload.
+  await tree.getByLabel('Viewed answer.txt').check()
+  await expect(tree.getByText('1 of 2 files viewed')).toBeVisible()
+  await page.reload()
+  await expect(tree.getByText('1 of 2 files viewed')).toBeVisible()
+  await expect(tree.getByLabel('Viewed answer.txt')).toBeChecked()
+  await expect(tree.getByLabel('Viewed before.txt')).not.toBeChecked()
+  expect(foreign).toEqual([])
+})
+
+test('the review screen flags files, warns about uncommitted work, and rejects', async ({
+  page,
+  context,
+}) => {
+  // The stack of the first test: log in again, then a project of its own (one active run per repository).
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('ada@example.org')
+  await page.getByLabel('Password').fill('correct horse battery')
+  await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible()
+  const request = page.request
+  await post(request, context, '/api/projects', { name: 'Flags', slug: 'flags', key: 'FL' })
+  await post(request, context, '/api/projects/flags/repositories', { name: 'app' })
+  await post(request, context, '/api/projects/flags/llm-providers', {
+    name: 'Stub key',
+    defaultModel: 'claude-haiku-5-5',
+    apiKey: 'stub-key-not-used-0123456789',
+  })
+  await post(request, context, '/api/projects/flags/tickets', {
+    title: 'Change some files',
+    description: 'Every kind of change. stub:review',
+    criteria: ['Files changed', 'Files renamed'],
+  })
+  await post(request, context, '/api/projects/flags/tickets/1/runs', {})
+
+  // The ticket page links to the review as soon as the agent has submitted.
+  await page.goto('/projects/flags/tickets/1')
+  await page.getByRole('link', { name: 'Review', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /Change some files/ })).toBeVisible()
+
+  // The agent's report, with what it left uncommitted.
+  await expect(page.getByText('Left out: 1 uncommitted file')).toBeVisible()
+  await expect(page.getByText('?? notes.txt')).toBeVisible()
+  await expect(page.getByText('Criteria: 1 covered, 1 partial')).toBeVisible()
+
+  // Lock files apart; binary and large files not shown until asked for.
+  const tree = page.getByRole('navigation', { name: 'Changed files' })
+  await expect(tree.getByText('Generated and lock files (1)')).toBeVisible()
+  await tree.getByRole('button', { name: /image\.png/ }).click()
+  const pane = page.getByRole('region', { name: 'Diff' })
+  await expect(pane.getByText('A binary file.')).toBeVisible()
+  await pane.getByRole('button', { name: 'Show diff' }).click()
+  await expect(pane.getByText(/Binary file \(.*\); it cannot be shown as text/)).toBeVisible()
+  await tree.getByRole('button', { name: /big\.txt/ }).click()
+  await expect(pane.getByText('large', { exact: true })).toBeVisible()
+  await pane.getByRole('button', { name: 'Show diff' }).click()
+  await expect(pane.getByText(/Too large to show here/)).toBeVisible()
+
+  // Approve and request changes come later; reject closes the run.
+  const verdicts = page.getByLabel('Verdict')
+  await expect(verdicts.getByRole('button', { name: 'Approve' })).toBeDisabled()
+  page.once('dialog', (dialog) => void dialog.accept())
+  await verdicts.getByRole('button', { name: 'Reject' }).click()
+  await expect(page.getByText('rejected', { exact: true })).toBeVisible()
+  await expect(page.getByText('Cancelled', { exact: true })).toBeVisible()
 })

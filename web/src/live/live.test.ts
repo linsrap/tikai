@@ -11,7 +11,24 @@ describe('live updates', () => {
       ['projects', 'hub', 'tickets', 7, 'runs'],
       ['projects', 'hub', 'tickets'],
       ['attention-items'],
+      ['change-sets'],
     ])
+  })
+
+  it('re-reads the review and the links to it when a change set changes, not its files', () => {
+    const keys = staleKeys('ChangeSetChanged', {
+      projectSlug: 'hub',
+      ticketNumber: 7,
+      changeSetId: 'cs1',
+    })
+
+    expect(keys).toEqual([
+      ['change-sets', 'cs1'],
+      ['projects', 'hub', 'tickets', 7, 'runs'],
+      ['runs'],
+      ['attention-items'],
+    ])
+    expect(keys.some((k) => k[0] === 'change-set-files' || k[0] === 'change-set-file')).toBe(false)
   })
 
   it('re-reads the inbox and what runs wait for when an item changes', () => {

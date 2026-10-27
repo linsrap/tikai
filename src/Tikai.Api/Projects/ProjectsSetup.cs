@@ -40,6 +40,7 @@ internal static class ProjectsSetup
 
         services.AddTikaiGit();
         services.AddSingleton(new MirrorPaths(Path.Combine(DataPaths.Resolve(configuration, environment), "repos")));
+        services.AddSingleton<MirrorLocks>();
         services.AddSingleton<RepositoryCredentials>();
         services.AddScoped<RepositoryService>();
         services.AddJobHandler<GitJobHandler>(GitJob.Queue);

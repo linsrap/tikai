@@ -14,6 +14,23 @@ public class RunExitTests
         Assert.Equal(new ExitDecision(RunTrigger.Submit, null), RunExit.Map(_submitted));
     }
 
+    [Theory]
+    [InlineData(RunTrigger.Submit)]
+    [InlineData(RunTrigger.Fail)]
+    [InlineData(RunTrigger.Block)]
+    public void A_container_end_after_the_submission_keeps_the_run_in_review(RunTrigger trigger)
+    {
+        Assert.True(RunExit.KeepsReview(AgentRunState.InReview, trigger));
+        Assert.False(RunExit.KeepsReview(AgentRunState.Running, trigger));
+    }
+
+    [Fact]
+    public void Only_a_cancel_ends_a_run_in_review()
+    {
+        Assert.False(RunExit.KeepsReview(AgentRunState.InReview, RunTrigger.Cancel));
+        Assert.Equal(AgentRunState.Cancelled, RunStateMachine.Next(AgentRunState.InReview, RunTrigger.Cancel));
+    }
+
     [Fact]
     public void A_clean_exit_without_submitting_fails()
     {

@@ -5,6 +5,7 @@ using Tikai.Core.Attention;
 using Tikai.Core.Common;
 using Tikai.Core.Llm;
 using Tikai.Core.Projects;
+using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
 using Tikai.Data.Identity;
@@ -32,6 +33,12 @@ public class TikaiDbContext(DbContextOptions options)
     public DbSet<AttentionItem> AttentionItems => Set<AttentionItem>();
 
     public DbSet<RunEvent> RunEvents => Set<RunEvent>();
+
+    public DbSet<ChangeSet> ChangeSets => Set<ChangeSet>();
+
+    public DbSet<ReviewRound> ReviewRounds => Set<ReviewRound>();
+
+    public DbSet<FileViewState> FileViewStates => Set<FileViewState>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

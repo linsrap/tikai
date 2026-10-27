@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using ModelContextProtocol;
 using Tikai.Api.Attention;
+using Tikai.Api.Reviews;
 using Tikai.Core.Agents;
 using Tikai.Core.Attention;
 using Tikai.Core.Events;
@@ -13,7 +15,8 @@ using Tikai.Mcp;
 namespace Tikai.Api.Runs;
 
 /// <summary>The hub side of the MCP tools. Every query is bound to the run from the token, never to tool arguments.</summary>
-internal sealed class RunTools(TikaiDbContext db, AttentionService attention, IEventPublisher events, TimeProvider timeProvider) : IRunTools
+internal sealed class RunTools(
+    TikaiDbContext db, AttentionService attention, ReviewSubmissions submissions, IEventPublisher events, TimeProvider timeProvider) : IRunTools
 {
     // The transcript keeps no key- or token-shaped text, also not from what the agent reports.
     private static readonly SecretRedactor _redactor = new([]);
@@ -49,22 +52,23 @@ internal sealed class RunTools(TikaiDbContext db, AttentionService attention, IE
         await transaction.CommitAsync(cancellationToken);
     }
 
-    public async Task<string?> SubmitForReviewAsync(
+    public async Task<SubmitResult> SubmitForReviewAsync(
         RunScope run, string? summary, IReadOnlyList<CriterionMapping>? criteriaMapping, IReadOnlyList<string?>? openConcerns, CancellationToken cancellationToken)
     {
         var criterionIds = (await db.AcceptanceCriteria.Where(c => c.TicketId == run.TicketId).Select(c => c.Id).ToListAsync(cancellationToken)).ToHashSet();
         var (payload, error) = AttentionRules.Review(summary, criteriaMapping, openConcerns, criterionIds);
-        if (payload is null)
-        {
-            return error;
-        }
-        // The git part (bundle, change set, review round, run state) comes with roadmap step 13.
-        await attention.RecordAsync(run, AttentionKind.Review, payload, cancellationToken);
-        return null;
+        return payload is null ? new SubmitResult(false, error!) : await submissions.SubmitAsync(run, payload, cancellationToken);
     }
 
-    public Task<RaisedItem> RaiseAsync<TPayload>(RunScope run, AttentionKind kind, TPayload payload, CancellationToken cancellationToken) =>
-        attention.RaiseAsync(run, kind, payload, cancellationToken);
+    public async Task<RaisedItem> RaiseAsync<TPayload>(RunScope run, AttentionKind kind, TPayload payload, CancellationToken cancellationToken)
+    {
+        // Nobody would see the question as one an agent waits for: the run is not blocked by it.
+        if (await db.AgentRuns.AnyAsync(r => r.Id == run.RunId && r.State == AgentRunState.InReview, cancellationToken))
+        {
+            throw new McpException("Your work is in review; there is nothing to ask now. Stop here: review comments come back to you through get_review_comments.");
+        }
+        return await attention.RaiseAsync(run, kind, payload, cancellationToken);
+    }
 
     public Task DeliveredAsync(RunScope run, Guid itemId, CancellationToken cancellationToken) =>
         attention.DeliveredAsync(run, itemId, cancellationToken);

@@ -9,6 +9,7 @@ using Tikai.Core.Events;
 using Tikai.Core.Jobs;
 using Tikai.Core.Llm;
 using Tikai.Core.Projects;
+using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
 using Tikai.Data;
@@ -82,6 +83,13 @@ internal sealed class RunStore(
     }
 
     public Task<string?> RenewTokenAsync(Guid runId, CancellationToken cancellationToken) => runs.RenewTokenAsync(runId, cancellationToken);
+
+    public async Task SetBaseShaAsync(Guid runId, string baseSha, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        await db.AgentRuns.Where(r => r.Id == runId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.BaseSha, baseSha).SetProperty(r => r.UpdatedAt, now), cancellationToken);
+    }
 
     public async Task SetContainerAsync(Guid runId, string? containerId, CancellationToken cancellationToken)
     {
@@ -327,6 +335,22 @@ internal sealed class RunStore(
             await events.PublishAsync(AgentRun.Topic, runId, cancellationToken);
             return true;
         }
+        // The agent submitted during its call (the run moved to in_review then); its container's end changes nothing but
+        // the container, exit code and cost.
+        if (RunExit.KeepsReview(run.State, outcome.Trigger))
+        {
+            int? reviewExit = outcome.ExitCode ?? run.ExitCode;
+            var (reviewUsd, reviewTokens) = RunCost.After(run, outcome.Cost);
+            await db.AgentRuns.Where(r => r.Id == runId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.ContainerId, (string?)null)
+                    .SetProperty(r => r.ExitCode, reviewExit)
+                    .SetProperty(r => r.CostUsd, reviewUsd)
+                    .SetProperty(r => r.CostTokens, reviewTokens)
+                    .SetProperty(r => r.UpdatedAt, now), cancellationToken);
+            await events.PublishAsync(AgentRun.Topic, runId, cancellationToken);
+            return true;
+        }
         if (RunStateMachine.Next(run.State, outcome.Trigger) is not { } next)
         {
             return false;
@@ -369,6 +393,18 @@ internal sealed class RunStore(
         {
             // No agent will ever get these answers: they leave the open list, and answering one is refused.
             await attention.DismissOpenBlockingAsync(runId, cancellationToken);
+            // A run that ends without a merge leaves its change set closed (the branch stays in the mirror).
+            if (next != AgentRunState.Merged)
+            {
+                var closed = await db.ChangeSets.Where(c => c.RunId == runId && c.Status == ChangeSetStatus.Open)
+                    .Select(c => c.Id).ToListAsync(cancellationToken);
+                await db.ChangeSets.Where(c => closed.Contains(c.Id))
+                    .ExecuteUpdateAsync(s => s.SetProperty(c => c.Status, ChangeSetStatus.Closed).SetProperty(c => c.UpdatedAt, now), cancellationToken);
+                foreach (var id in closed)
+                {
+                    await events.PublishAsync(ChangeSet.Topic, id, cancellationToken);
+                }
+            }
         }
         if (outcome.Trigger == RunTrigger.Fail)
         {

@@ -17,7 +17,7 @@ public sealed class RunControl(IRunStore store, IContainerRuntime containers, IO
         var target = await store.RequestCancelAsync(runId, cancellationToken);
         for (var attempt = 0; attempt < 3 && target is not null && !target.State.IsEnded(); attempt++)
         {
-            if (target is { State: AgentRunState.Running or AgentRunState.Blocked, ContainerId: { } containerId })
+            if (target is { State: AgentRunState.Running or AgentRunState.Blocked or AgentRunState.InReview, ContainerId: { } containerId })
             {
                 await containers.StopAsync(containerId, options.Value.StopTimeout, cancellationToken);
                 return true;

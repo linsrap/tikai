@@ -10,6 +10,7 @@ using Tikai.Api.Live;
 using Tikai.Api.Llm;
 using Tikai.Api.Mcp;
 using Tikai.Api.Projects;
+using Tikai.Api.Reviews;
 using Tikai.Api.Runs;
 using Tikai.Api.Security;
 using Tikai.Api.Tickets;
@@ -33,6 +34,7 @@ builder.Services.AddScoped<LlmProviderService>();
 builder.Services.AddScoped<TicketService>();
 builder.Services.AddTikaiMcp(builder.Configuration);
 builder.Services.AddTikaiRuns(builder.Configuration);
+builder.Services.AddTikaiReviews();
 builder.Services.AddTikaiLive();
 builder.Services.AddProblemDetails();
 // Enums travel as snake_case strings ("https_token"), the same values the database stores.
@@ -81,6 +83,7 @@ api.MapTicketEndpoints();
 api.MapRefineSpecEndpoint();
 api.MapAttentionEndpoints();
 api.MapRunEndpoints();
+api.MapChangeSetEndpoints();
 // Unknown API routes are 404s, not the web app's index.html.
 api.Map("/{**path}", () => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found"));
 

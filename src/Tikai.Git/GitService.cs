@@ -181,14 +181,95 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         return output.AsSpan(headerEnd + 1, size).ToArray();
     }
 
-    public async Task CreateBundleAsync(string path, string branch, string outputFile, CancellationToken cancellationToken = default)
+    public async Task<string> CreateBundleAsync(string path, string branch, string outputFile, CancellationToken cancellationToken = default)
     {
         CheckBranch(branch);
         if (await ResolveCommitAsync(path, LocalRefs + branch, cancellationToken) is null)
         {
             throw new GitException($"The branch \"{branch}\" has no commits yet.");
         }
-        await RunAsync(path, ["bundle", "create", "--quiet", Path.GetFullPath(outputFile), LocalRefs + branch], cancellationToken);
+        var bundle = Path.GetFullPath(outputFile);
+        await RunAsync(path, ["bundle", "create", "--quiet", bundle, LocalRefs + branch], cancellationToken);
+        // From the bundle itself: the branch may have moved since (a fetch fast-forwarded it).
+        var heads = await RunAsync(path, ["bundle", "list-heads", bundle, LocalRefs + branch], cancellationToken);
+        return heads.OutputText.Split(' ', 2)[0].Trim();
+    }
+
+    public async Task<string> ImportBundleAsync(
+        string path, string bundleFile, string branch, IReadOnlyList<string> targetRefs, CancellationToken cancellationToken = default)
+    {
+        CheckBranch(branch);
+        foreach (var target in targetRefs)
+        {
+            CheckRef(target);
+        }
+        var bundle = Path.GetFullPath(bundleFile);
+
+        // The bundle comes from a run clone, so it is untrusted: its prerequisites must be in the mirror, and every object
+        // it brings is checked before it lands. Not `git fetch <bundle>` with fetch.fsckObjects: git before 2.46 ignores
+        // that setting for bundles (the hub image has 2.43). index-pack --strict checks every object (fsck) and installs
+        // the pack only when all of them pass.
+        // Not --quiet: that also drops the reason (e.g. which prerequisite commits are missing).
+        await RunAsync(path, ["bundle", "verify", bundle], cancellationToken);
+        var heads = await RunAsync(path, ["bundle", "list-heads", bundle, LocalRefs + branch], cancellationToken);
+        var head = heads.OutputText.Split((char[])[' ', '\n'], 2)[0].Trim();
+        if (!ObjectId().IsMatch(head))
+        {
+            throw new GitException($"The bundle has no commit on \"{branch}\".");
+        }
+        await RunAsync(path, ["index-pack", "--strict", "--fix-thin", "--stdin"], cancellationToken, input: await BundlePack.ReadAsync(bundle, cancellationToken));
+        if (await ResolveCommitAsync(path, head, cancellationToken) is null)
+        {
+            throw new GitException($"The bundle's head {head} is not a commit.");
+        }
+        foreach (var target in targetRefs)
+        {
+            await RunAsync(path, ["update-ref", target, head], cancellationToken);
+        }
+        return head;
+    }
+
+    public async Task<string?> MergeBaseAsync(string path, string first, string second, CancellationToken cancellationToken = default)
+    {
+        CheckRevision(first);
+        CheckRevision(second);
+        var result = await RunAsync(path, ["merge-base", first, second], cancellationToken, check: false);
+        return result.ExitCode switch
+        {
+            0 => result.OutputText.Trim(),
+            1 => null,
+            _ => throw Failure(["merge-base"], result),
+        };
+    }
+
+    public async Task<GitDiff> DiffAsync(string path, string baseSha, string headSha, int maxFiles, CancellationToken cancellationToken = default)
+    {
+        CheckObjectId(baseSha);
+        CheckObjectId(headSha);
+        // Same options for both calls, so the entries come in the same order.
+        string[] options = ["diff-tree", "-r", "-z", "-M", "--no-commit-id", "--no-abbrev"];
+        var raw = await RunAsync(path, [.. options, "--raw", baseSha, headSha], cancellationToken);
+        var numstat = await RunAsync(path, [.. options, "--numstat", baseSha, headSha], cancellationToken);
+        var files = GitDiffParser.Parse(raw.OutputText, numstat.OutputText);
+        return new GitDiff([.. files.Take(maxFiles)], files.Count > maxFiles);
+    }
+
+    public async Task<GitBlob?> ReadBlobAsync(string path, string blobSha, long maxBytes, CancellationToken cancellationToken = default)
+    {
+        CheckObjectId(blobSha);
+        // "<id> blob <size>", or "<id> missing"; the name comes through stdin, never as an argument.
+        var check = await RunAsync(path, ["cat-file", "--batch-check"], cancellationToken, input: Encoding.ASCII.GetBytes(blobSha + "\n"));
+        if (check.OutputText.Trim().Split(' ') is not [_, "blob", var sizeText])
+        {
+            return null;
+        }
+        var size = long.Parse(sizeText, CultureInfo.InvariantCulture);
+        if (size > maxBytes)
+        {
+            return new GitBlob(size, null);
+        }
+        var content = await RunAsync(path, ["cat-file", "blob", blobSha], cancellationToken);
+        return new GitBlob(size, content.StandardOutput);
     }
 
     public Task DeleteRepositoryAsync(string path, CancellationToken cancellationToken = default) =>
@@ -385,6 +466,31 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         if (BranchName.ValidationError(branch) is { } error)
         {
             throw new ArgumentException(error, nameof(branch));
+        }
+    }
+
+    private static void CheckRef(string name)
+    {
+        if (!name.StartsWith("refs/", StringComparison.Ordinal) || name.Contains("..", StringComparison.Ordinal)
+            || name.Any(c => c <= ' ' || c is '~' or '^' or ':' or '?' or '*' or '[' or '\\'))
+        {
+            throw new ArgumentException($"Invalid ref '{name}'.", nameof(name));
+        }
+    }
+
+    private static void CheckRevision(string revision)
+    {
+        if (string.IsNullOrWhiteSpace(revision) || revision.StartsWith('-'))
+        {
+            throw new ArgumentException($"Invalid revision '{revision}'.", nameof(revision));
+        }
+    }
+
+    private static void CheckObjectId(string id)
+    {
+        if (!ObjectId().IsMatch(id))
+        {
+            throw new ArgumentException($"'{id}' is not a full object id.", nameof(id));
         }
     }
 

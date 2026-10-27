@@ -2,9 +2,10 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import type { components } from '../api/schema'
 import { RunLog } from '../live/RunLog'
+import { SelfReport } from '../review/SelfReport'
 import { eventSummary, runStateLabel } from '../runs/runs'
 import { PlanAnswer, QuestionAnswer } from './AnswerForms'
-import { ago, coverageSummary, kindLabel, useDismiss, useRetry, type AttentionItem } from './inbox'
+import { ago, kindLabel, useDismiss, useRetry, type AttentionItem } from './inbox'
 
 type FailurePayload = components['schemas']['FailurePayload']
 type ReviewPayload = components['schemas']['ReviewPayload']
@@ -51,7 +52,12 @@ export function AttentionCard({ item }: { item: AttentionItem }) {
       {item.question && <QuestionAnswer id={item.id} question={item.question} />}
       {item.failure && <FailureActions id={item.id} failure={item.failure} />}
       {item.review && (
-        <ReviewReport id={item.id} review={item.review} coverage={item.reviewCoverage} />
+        <ReviewReport
+          id={item.id}
+          review={item.review}
+          coverage={item.reviewCoverage}
+          changeSetId={item.changeSetId}
+        />
       )}
 
       {item.excerpt.length > 0 && (
@@ -103,52 +109,41 @@ function FailureActions({ id, failure }: { id: string; failure: FailurePayload }
   )
 }
 
-/** The agent's self-report. The review screen comes with roadmap step 13; until then it can only be read. */
+/**
+ * The agent's self-report, and the way to the review screen. A review from before change sets existed has no
+ * review screen and can only be dismissed.
+ */
 function ReviewReport({
   id,
   review,
   coverage,
+  changeSetId,
 }: {
   id: string
   review: ReviewPayload
   coverage: AttentionItem['reviewCoverage']
+  changeSetId: string | null
 }) {
   const dismiss = useDismiss(id)
   return (
     <div className="stack">
-      <p>{review.summary}</p>
-      {coverage.length > 0 && (
-        <div>
-          <strong>Criteria: {coverageSummary(coverage)}</strong>
-          <ul className="list">
-            {coverage.map((c) => (
-              <li key={c.criterionId}>
-                <span className={`badge ${c.status}`}>{c.status}</span>{' '}
-                {c.text ?? <span className="muted">(criterion deleted)</span>}
-                {c.note && <span className="muted"> – {c.note}</span>}
-              </li>
-            ))}
-          </ul>
+      <SelfReport summary={review.summary} coverage={coverage} openConcerns={review.openConcerns} />
+      {changeSetId ? (
+        <div className="row">
+          <Link to="/reviews/$id" params={{ id: changeSetId }} className="button primary">
+            Open review
+          </Link>
+        </div>
+      ) : (
+        <div className="row">
+          <button type="button" disabled={dismiss.isPending} onClick={() => dismiss.mutate()}>
+            Dismiss
+          </button>
+          <span className="muted">
+            Submitted before the review screen existed; the work is on the run&apos;s branch.
+          </span>
         </div>
       )}
-      {review.openConcerns.length > 0 && (
-        <div>
-          <strong>Open concerns</strong>
-          <ul className="list">
-            {review.openConcerns.map((c, i) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <div className="row">
-        <button type="button" disabled={dismiss.isPending} onClick={() => dismiss.mutate()}>
-          Dismiss
-        </button>
-        <span className="muted">
-          The review screen comes later; the work is on the run's branch.
-        </span>
-      </div>
       {dismiss.error && <p className="error">{dismiss.error.message}</p>}
     </div>
   )

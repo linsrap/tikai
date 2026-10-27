@@ -508,6 +508,211 @@ namespace Tikai.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Tikai.Core.Reviews.ChangeSet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BaseSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("base_sha");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("HeadSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("head_sha");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("repository_id");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("run_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_change_sets");
+
+                    b.HasIndex("RepositoryId")
+                        .HasDatabaseName("ix_change_sets_repository_id");
+
+                    b.HasIndex("RunId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_change_sets_run_id");
+
+                    b.HasIndex("TicketId")
+                        .HasDatabaseName("ix_change_sets_ticket_id");
+
+                    b.ToTable("change_sets", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_change_sets_status", "status IN ('open', 'merged', 'closed')");
+                        });
+                });
+
+            modelBuilder.Entity("Tikai.Core.Reviews.FileViewState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChangeSetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("change_set_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("file_path");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("ViewedSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("viewed_sha");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_file_view_states");
+
+                    b.HasIndex("ChangeSetId")
+                        .HasDatabaseName("ix_file_view_states_change_set_id");
+
+                    b.HasIndex("UserId", "ChangeSetId", "FilePath")
+                        .IsUnique()
+                        .HasDatabaseName("ix_file_view_states_user_id_change_set_id_file_path");
+
+                    b.ToTable("file_view_states", (string)null);
+                });
+
+            modelBuilder.Entity("Tikai.Core.Reviews.ReviewRound", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BaseSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("base_sha");
+
+                    b.Property<Guid>("ChangeSetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("change_set_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("HeadSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("head_sha");
+
+                    b.Property<int>("RoundNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("round_no");
+
+                    b.Property<string>("SelfReport")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("self_report");
+
+                    b.PrimitiveCollection<string[]>("Uncommitted")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("uncommitted");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Verdict")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("verdict");
+
+                    b.Property<DateTimeOffset?>("VerdictAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verdict_at");
+
+                    b.Property<Guid?>("VerdictById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("verdict_by_id");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_review_rounds");
+
+                    b.HasIndex("VerdictById")
+                        .HasDatabaseName("ix_review_rounds_verdict_by_id");
+
+                    b.HasIndex("ChangeSetId", "RoundNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_review_rounds_change_set_id_round_no");
+
+                    b.ToTable("review_rounds", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_review_rounds_round_no", "round_no > 0");
+
+                            t.HasCheckConstraint("ck_review_rounds_verdict", "verdict IN ('approve', 'request_changes', 'reject')");
+
+                            t.HasCheckConstraint("ck_review_rounds_verdict_given", "(verdict IS NULL) = (verdict_at IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Tikai.Core.Runs.AgentRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -530,6 +735,11 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("character varying(20)")
                         .HasDefaultValue("start")
                         .HasColumnName("attempt_kind");
+
+                    b.Property<string>("BaseSha")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("base_sha");
 
                     b.Property<string>("Branch")
                         .HasMaxLength(200)
@@ -1121,6 +1331,63 @@ namespace Tikai.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_repositories_projects_project_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Reviews.ChangeSet", b =>
+                {
+                    b.HasOne("Tikai.Core.Projects.Repository", null)
+                        .WithMany()
+                        .HasForeignKey("RepositoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_change_sets_repositories_repository_id");
+
+                    b.HasOne("Tikai.Core.Runs.AgentRun", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_change_sets_agent_runs_run_id");
+
+                    b.HasOne("Tikai.Core.Tickets.Ticket", null)
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_change_sets_tickets_ticket_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Reviews.FileViewState", b =>
+                {
+                    b.HasOne("Tikai.Core.Reviews.ChangeSet", null)
+                        .WithMany()
+                        .HasForeignKey("ChangeSetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_file_view_states_change_sets_change_set_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_file_view_states_users_user_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Reviews.ReviewRound", b =>
+                {
+                    b.HasOne("Tikai.Core.Reviews.ChangeSet", null)
+                        .WithMany()
+                        .HasForeignKey("ChangeSetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_review_rounds_change_sets_change_set_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("VerdictById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_review_rounds_users_verdict_by_id");
                 });
 
             modelBuilder.Entity("Tikai.Core.Runs.AgentRun", b =>

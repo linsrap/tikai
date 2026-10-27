@@ -5,6 +5,7 @@
     <!-- Pure parts of the adapter and the orchestrator (parsing, command line, tar, prep script); no Docker. -->
     <ProjectReference Include="..\..\src\Tikai.Adapters.ClaudeCode\Tikai.Adapters.ClaudeCode.csproj" />
     <ProjectReference Include="..\..\src\Tikai.Orchestrator\Tikai.Orchestrator.csproj" />
+    <ProjectReference Include="..\..\src\Tikai.Review\Tikai.Review.csproj" />
   </ItemGroup>
 
 </Project>

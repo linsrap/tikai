@@ -181,6 +181,11 @@ function RunCard({ slug, run }: { slug: string; run: RunInfo }) {
       {run.failureReason && <p className="error">{run.failureReason}</p>}
       <p className="muted">Cost: {costText(run)}</p>
       <div className="row">
+        {run.changeSetId && (
+          <Link to="/reviews/$id" params={{ id: run.changeSetId }} className="button primary">
+            Review
+          </Link>
+        )}
         <button type="button" onClick={() => setShowEvents(!showEvents)} aria-pressed={showEvents}>
           Transcript
         </button>

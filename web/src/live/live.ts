@@ -12,6 +12,7 @@ export type LiveStatus = 'off' | 'connecting' | 'live' | 'reconnecting'
 
 type RunChange = { runId: string; projectSlug: string; ticketNumber: number }
 type AttentionChange = { itemId: string; projectSlug: string; ticketNumber: number }
+type ChangeSetChange = { changeSetId: string; projectSlug: string; ticketNumber: number }
 type RunEventsChange = { runId: string }
 
 /** Wait before the next attempt: at once, 2 s, 5 s, 10 s, then every 30 s, for as long as it takes. */
@@ -20,24 +21,36 @@ export const retryDelay = (previousRetryCount: number): number =>
 
 /** The queries a change makes stale. The client re-reads them; the hub sends ids only. */
 export function staleKeys(
-  message: 'RunChanged' | 'AttentionChanged',
-  change: { projectSlug: string; ticketNumber: number },
+  message: 'RunChanged' | 'AttentionChanged' | 'ChangeSetChanged',
+  change: { projectSlug: string; ticketNumber: number; changeSetId?: string },
 ): unknown[][] {
   const ticket = ['projects', change.projectSlug, 'tickets', change.ticketNumber]
-  return message === 'RunChanged'
-    ? // The ticket's status follows its run; inbox cards show the run's state and step.
-      [
+  switch (message) {
+    case 'RunChanged':
+      // The ticket's status follows its run; inbox cards show the run's state and step; the review shows the run's state.
+      return [
         ['runs'],
         [...ticket, 'runs'],
         ['projects', change.projectSlug, 'tickets'],
         ['attention-items'],
+        ['change-sets'],
       ]
-    : // The board and the ticket page show what a run waits for.
-      [['attention-items'], [...ticket, 'runs'], ['runs']]
+    case 'AttentionChanged':
+      // The board and the ticket page show what a run waits for.
+      return [['attention-items'], [...ticket, 'runs'], ['runs']]
+    case 'ChangeSetChanged':
+      // A new round or a verdict: the review itself (not its files: a round never changes), and the links to it.
+      return [
+        ['change-sets', change.changeSetId],
+        [...ticket, 'runs'],
+        ['runs'],
+        ['attention-items'],
+      ]
+  }
 }
 
 /** Everything a page can show from live data, re-read after a reconnect or a resync. */
-export const liveKeys: unknown[][] = [['attention-items'], ['runs'], ['projects']]
+export const liveKeys: unknown[][] = [['attention-items'], ['runs'], ['projects'], ['change-sets']]
 
 type Watch = { method: 'WatchAll' | 'WatchProject' | 'WatchRun'; arg?: string; count: number }
 
@@ -80,6 +93,9 @@ class Live {
     )
     connection.on('AttentionChanged', (change: AttentionChange) =>
       this.invalidate(staleKeys('AttentionChanged', change)),
+    )
+    connection.on('ChangeSetChanged', (change: ChangeSetChange) =>
+      this.invalidate(staleKeys('ChangeSetChanged', change)),
     )
     connection.on('RunEvents', (change: RunEventsChange) =>
       this.runListeners.get(change.runId)?.forEach((listener) => listener()),

@@ -5,9 +5,12 @@ using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using DotNet.Testcontainers.Builders;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Tikai.Api.Runs;
 using Tikai.Api.Tickets;
 using Tikai.Core.Runs;
+using Tikai.Data;
 using Tikai.IntegrationTests.Auth;
 using Tikai.Orchestrator;
 
@@ -230,6 +233,16 @@ public sealed class AgentHub : IAsyncDisposable
 
     public Dictionary<Guid, string> Slugs { get; } = [];
 
+    /// <summary>The hub's bare repository of the ticket's project, e.g. to put files on its default branch.</summary>
+    public async Task<string> MirrorAsync(TicketInfo ticket)
+    {
+        await using var scope = Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
+        var projectId = await db.Tickets.Where(t => t.Id == ticket.Id).Select(t => t.ProjectId).SingleAsync();
+        var repositoryId = await db.Repositories.Where(r => r.ProjectId == projectId).Select(r => r.Id).SingleAsync();
+        return scope.ServiceProvider.GetRequiredService<Tikai.Api.Projects.MirrorPaths>().For(projectId, repositoryId);
+    }
+
     public async Task<RunInfo> AssignAsync(TicketInfo ticket, object? body = null)
     {
         using var response = await Browser.PostAsync($"/api/projects/{Slugs[ticket.Id]}/tickets/{ticket.Number}/runs", body ?? new { });
@@ -264,8 +277,32 @@ public sealed class AgentHub : IAsyncDisposable
         while (true);
     }
 
-    public Task<RunInfo> WaitForEndAsync(Guid runId, int seconds = 120) =>
-        WaitForAsync(runId, r => r.State is not (AgentRunState.Queued or AgentRunState.Preparing or AgentRunState.Running), seconds);
+    /// <summary>
+    /// Until the run is past running and its container is gone: a run moves to in_review during its submit call, and
+    /// its container's end (exit code, cost) comes a moment later.
+    /// </summary>
+    public async Task<RunInfo> WaitForEndAsync(Guid runId, int seconds = 120)
+    {
+        var run = await WaitForAsync(runId, r => r.State is not (AgentRunState.Queued or AgentRunState.Preparing or AgentRunState.Running), seconds);
+        if (run.State != AgentRunState.InReview)
+        {
+            return run;
+        }
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(seconds));
+        while (await ContainerIdAsync(runId) is not null)
+        {
+            await Task.Delay(250, timeout.Token);
+        }
+        return await GetRunAsync(runId);
+    }
+
+    private async Task<string?> ContainerIdAsync(Guid runId)
+    {
+        await using var scope = Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
+        return await db.AgentRuns.Where(r => r.Id == runId).Select(r => r.ContainerId).SingleAsync();
+    }
 
     public Task<List<RunEventInfo>> EventsAsync(Guid runId, long afterSeq = 0) =>
         Browser.GetJsonAsync<List<RunEventInfo>>($"/api/runs/{runId}/events?afterSeq={afterSeq}&limit=1000");

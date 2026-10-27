@@ -54,6 +54,9 @@ public interface ILiveClient
 
     Task AttentionChanged(AttentionChange change);
 
+    /// <summary>A change set got a new round or a verdict, or closed.</summary>
+    Task ChangeSetChanged(ChangeSetChange change);
+
     /// <summary>The run has new transcript events: fetch those after the last seq seen.</summary>
     Task RunEvents(RunEventsChange change);
 
@@ -64,6 +67,8 @@ public interface ILiveClient
 public sealed record RunChange(Guid RunId, string ProjectSlug, int TicketNumber);
 
 public sealed record AttentionChange(Guid ItemId, string ProjectSlug, int TicketNumber);
+
+public sealed record ChangeSetChange(Guid ChangeSetId, string ProjectSlug, int TicketNumber);
 
 public sealed record RunEventsChange(Guid RunId);
 

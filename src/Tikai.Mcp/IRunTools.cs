@@ -9,9 +9,11 @@ public interface IRunTools
 
     Task ReportProgressAsync(RunScope run, string currentStep, string? note, CancellationToken cancellationToken);
 
-    /// <summary>Records the agent's self-report as a review item.</summary>
-    /// <returns>Null when recorded, otherwise a message for the agent (e.g. a criterion id that is not the ticket's).</returns>
-    Task<string?> SubmitForReviewAsync(
+    /// <summary>
+    /// Takes the run branch into the hub's mirror and records a review round with the agent's self-report; the run
+    /// moves to in_review. Not accepted when there is nothing to submit or the self-report is wrong.
+    /// </summary>
+    Task<SubmitResult> SubmitForReviewAsync(
         RunScope run, string? summary, IReadOnlyList<CriterionMapping>? criteriaMapping, IReadOnlyList<string?>? openConcerns, CancellationToken cancellationToken);
 
     /// <summary>
@@ -23,6 +25,9 @@ public interface IRunTools
     /// <summary>The item's answer is being returned to the agent; once it has every answer, its run runs again.</summary>
     Task DeliveredAsync(RunScope run, Guid itemId, CancellationToken cancellationToken);
 }
+
+/// <param name="Message">For the agent: what was submitted, or what to fix.</param>
+public sealed record SubmitResult(bool Accepted, string Message);
 
 /// <param name="Merged">True when an earlier identical request's item was reused.</param>
 /// <param name="Answer">Set when that item is already answered.</param>

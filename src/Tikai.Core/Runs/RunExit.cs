@@ -66,5 +66,12 @@ public static class RunExit
         return new(RunTrigger.Fail, failure, RetryWithSummary: facts.Attempt == RunAttemptKind.Resume);
     }
 
+    /// <summary>
+    /// A container that ends after its run was submitted (the run moved to in_review during the submit call) leaves the
+    /// run in review, whatever its exit: the work is in the change set. Only a cancel (e.g. a rejection) ends it.
+    /// </summary>
+    public static bool KeepsReview(AgentRunState state, RunTrigger trigger) =>
+        state == AgentRunState.InReview && trigger != RunTrigger.Cancel;
+
     private static string Code(long exitCode) => exitCode.ToString(CultureInfo.InvariantCulture);
 }

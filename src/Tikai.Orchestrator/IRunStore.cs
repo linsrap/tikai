@@ -20,6 +20,9 @@ public interface IRunStore
     /// <summary>A fresh token for a new container; null when the run has ended meanwhile.</summary>
     Task<string?> RenewTokenAsync(Guid runId, CancellationToken cancellationToken);
 
+    /// <summary>The default branch's commit the run clone is made from.</summary>
+    Task SetBaseShaAsync(Guid runId, string baseSha, CancellationToken cancellationToken);
+
     /// <summary>Forgets the run's container (null) after it was removed.</summary>
     Task SetContainerAsync(Guid runId, string? containerId, CancellationToken cancellationToken);
 

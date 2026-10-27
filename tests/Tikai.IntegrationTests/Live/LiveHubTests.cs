@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Tikai.Core.Agents;
 using Tikai.Core.Events;
+using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Data;
 using Tikai.Data.Runs;
@@ -108,12 +109,21 @@ public sealed class LiveHubTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Equal(runId.ToString(), (await all.NextAsync("RunChanged"))["runId"]!.GetValue<string>());
         Assert.Equal(runId.ToString(), (await project.NextAsync("RunChanged"))["runId"]!.GetValue<string>());
 
+        // A submission's change set (a new round, a verdict).
+        var changeSetId = await AddChangeSetAsync(runId, ticket.Id);
+        foreach (var listener in new[] { all, project })
+        {
+            var message = await listener.NextAsync("ChangeSetChanged");
+            Assert.Equal(changeSetId.ToString(), message["changeSetId"]!.GetValue<string>());
+            Assert.Equal(("hub", 1), (message["projectSlug"]!.GetValue<string>(), message["ticketNumber"]!.GetValue<int>()));
+        }
+
         // Nothing for the other project, and no log events for those who do not watch the run.
         await Task.Delay(500, ct);
         Assert.Empty(otherProject.Received);
         Assert.DoesNotContain(all.Received, m => m.Method == "RunEvents");
         Assert.DoesNotContain(project.Received, m => m.Method == "RunEvents");
-        Assert.DoesNotContain(run.Received, m => m.Method is "RunChanged" or "AttentionChanged");
+        Assert.DoesNotContain(run.Received, m => m.Method is "RunChanged" or "AttentionChanged" or "ChangeSetChanged");
 
         await run.Connection.InvokeAsync("UnwatchRun", runId, ct);
         await AppendEventsAsync(runId);
@@ -162,7 +172,7 @@ public sealed class LiveHubTests(PostgresFixture postgres) : IAsyncLifetime
     {
         var connection = Connect();
         var listener = new Listener(connection);
-        foreach (var method in new[] { "RunChanged", "AttentionChanged", "RunEvents" })
+        foreach (var method in new[] { "RunChanged", "AttentionChanged", "ChangeSetChanged", "RunEvents" })
         {
             connection.On<JsonObject>(method, message => listener.Add(method, message));
         }
@@ -180,6 +190,29 @@ public sealed class LiveHubTests(PostgresFixture postgres) : IAsyncLifetime
         await db.AppendAsync(runId, [new ParsedEvent(RunEventKind.Log, new JsonObject { ["source"] = "hub", ["text"] = "hello" })], null, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
         await scope.ServiceProvider.GetRequiredService<IEventPublisher>().PublishAsync(RunEvent.Topic, runId, TestContext.Current.CancellationToken);
         await transaction.CommitAsync(TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>A change set row as a submission writes it (the git part is in ReviewTests), and its event.</summary>
+    private async Task<Guid> AddChangeSetAsync(Guid runId, Guid ticketId)
+    {
+        (await _browser.PostAsync("/api/projects/hub/repositories", new { name = "app" })).EnsureSuccessStatusCode();
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
+        var repositoryId = await db.Repositories.Where(r => r.Name == "app").Select(r => r.Id).SingleAsync(TestContext.Current.CancellationToken);
+        var changeSet = new ChangeSet
+        {
+            Id = Guid.CreateVersion7(),
+            TicketId = ticketId,
+            RunId = runId,
+            RepositoryId = repositoryId,
+            BaseSha = new string('a', 40),
+            HeadSha = new string('b', 40),
+            Status = ChangeSetStatus.Open,
+        };
+        db.ChangeSets.Add(changeSet);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await scope.ServiceProvider.GetRequiredService<IEventPublisher>().PublishAsync(ChangeSet.Topic, changeSet.Id, TestContext.Current.CancellationToken);
+        return changeSet.Id;
     }
 
     private async Task PublishRunChangedAsync(Guid runId)
