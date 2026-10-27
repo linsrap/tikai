@@ -392,10 +392,11 @@ async function main() {
   return 0;
 }
 
-main().then(
-  (code) => process.exit(code),
-  (error) => {
-    process.stderr.write(`stub failed: ${error.stack ?? error}\n`);
-    process.exit(2);
-  },
-);
+// process.exit() drops output still being written when stdout is asynchronous (after the big scenario's 1.2 MB
+// line the result line got lost once in CI), so exit only after both streams have flushed.
+const exitAfterFlush = (code) => process.stdout.write("", () => process.stderr.write("", () => process.exit(code)));
+
+main().then(exitAfterFlush, (error) => {
+  process.stderr.write(`stub failed: ${error.stack ?? error}\n`);
+  exitAfterFlush(2);
+});
