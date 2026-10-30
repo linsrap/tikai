@@ -37,7 +37,14 @@ public sealed record ReviewRoundInfo(
     IReadOnlyList<string> Uncommitted,
     ReviewVerdict? Verdict,
     DateTimeOffset? VerdictAt,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    AnalysisInfo? Analysis);
+
+/// <summary>The LLM's analysis of a round; null for rounds from before analyses existed.</summary>
+/// <param name="Error">Why it failed, for people.</param>
+/// <param name="At">When it was done or failed.</param>
+/// <param name="Result">Set when it is done.</param>
+public sealed record AnalysisInfo(AnalysisStatus Status, string? Error, DateTimeOffset? At, ReviewAnalysis? Result);
 
 /// <param name="Truncated">The change has more files than are listed.</param>
 public sealed record ReviewFilesInfo(int RoundNo, string BaseSha, string HeadSha, IReadOnlyList<ReviewFileInfo> Files, bool Truncated);

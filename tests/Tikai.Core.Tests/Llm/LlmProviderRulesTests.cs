@@ -33,6 +33,15 @@ public class LlmProviderRulesTests
         Assert.Null(LlmProviderRules.BaseUrlError(url));
     }
 
+    [Fact]
+    public void Plain_http_needs_the_hub_setting()
+    {
+        Assert.NotNull(LlmProviderRules.BaseUrlError("http://gateway:4000"));
+        Assert.Null(LlmProviderRules.BaseUrlError("http://gateway:4000", allowHttp: true));
+        Assert.NotNull(LlmProviderRules.BaseUrlError("http://user:pw@gateway:4000", allowHttp: true));
+        Assert.NotNull(LlmProviderRules.BaseUrlError("ftp://gateway", allowHttp: true));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("http://api.anthropic.com")]

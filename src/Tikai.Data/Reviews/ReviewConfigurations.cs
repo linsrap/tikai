@@ -36,11 +36,15 @@ internal sealed class ReviewRoundConfiguration : IEntityTypeConfiguration<Review
             table.HasCheckConstraint("ck_review_rounds_verdict", SnakeCaseEnum.CheckIn<ReviewVerdict>("verdict"));
             table.HasCheckConstraint("ck_review_rounds_round_no", "round_no > 0");
             table.HasCheckConstraint("ck_review_rounds_verdict_given", "(verdict IS NULL) = (verdict_at IS NULL)");
+            table.HasCheckConstraint("ck_review_rounds_analysis_status", SnakeCaseEnum.CheckIn<AnalysisStatus>("analysis_status"));
+            table.HasCheckConstraint("ck_review_rounds_analysis_done", "(analysis_status = 'done') = (analysis IS NOT NULL)");
         });
         builder.Property(r => r.Verdict).HasConversion(SnakeCaseEnum.Converter<ReviewVerdict>()).HasMaxLength(20);
         builder.Property(r => r.BaseSha).HasMaxLength(64);
         builder.Property(r => r.HeadSha).HasMaxLength(64);
         builder.Property(r => r.SelfReport).HasColumnType("jsonb");
+        builder.Property(r => r.AnalysisStatus).HasConversion(SnakeCaseEnum.Converter<AnalysisStatus>()).HasMaxLength(20);
+        builder.Property(r => r.Analysis).HasColumnType("jsonb");
 
         builder.HasOne<ChangeSet>().WithMany().HasForeignKey(r => r.ChangeSetId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<TikaiUser>().WithMany().HasForeignKey(r => r.VerdictById).OnDelete(DeleteBehavior.Restrict);

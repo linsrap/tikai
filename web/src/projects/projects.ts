@@ -9,6 +9,8 @@ export type BranchInfo = components['schemas']['BranchInfo']
 export type CredentialKind = components['schemas']['CredentialKind']
 export type CredentialInput = components['schemas']['CredentialInput']
 export type CreateRepositoryRequest = components['schemas']['CreateRepositoryRequest']
+export type ProjectSettings = components['schemas']['ProjectSettingsInfo']
+export type ReviewModels = components['schemas']['ReviewModels']
 
 /** A URL name from a project name: "Tikai Web!" → "tikai-web". The server checks the result. */
 export function suggestSlug(name: string): string {
@@ -197,4 +199,27 @@ export const useDeleteRepository = (slug: string) =>
         'delete the repository',
       ),
     ['projects', slug],
+  )
+
+export const projectSettingsQuery = (slug: string) =>
+  queryOptions({
+    queryKey: ['projects', slug, 'settings'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/projects/{slug}/settings', { params: { path: { slug } } }),
+        'load the settings',
+      ),
+  })
+
+export const useSaveProjectSettings = (slug: string) =>
+  useProjectMutation(
+    (analysisModels: ReviewModels) =>
+      unwrap(
+        api.PUT('/api/projects/{slug}/settings', {
+          params: { path: { slug } },
+          body: { analysisModels },
+        }),
+        'save the settings',
+      ),
+    ['projects', slug, 'settings'],
   )

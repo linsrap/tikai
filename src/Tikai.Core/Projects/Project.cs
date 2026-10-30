@@ -12,4 +12,7 @@ public class Project : Entity
 
     /// <summary>Ticket key prefix (HUB in HUB-42), see <see cref="ProjectKey"/>.</summary>
     public required string Key { get; set; }
+
+    /// <summary>JSON of the <see cref="ProjectSettings"/>; "{}" means all defaults.</summary>
+    public string Settings { get; set; } = "{}";
 }

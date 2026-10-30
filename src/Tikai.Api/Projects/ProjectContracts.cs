@@ -1,5 +1,6 @@
 using Tikai.Core.Git;
 using Tikai.Core.Projects;
+using Tikai.Core.Reviews;
 
 namespace Tikai.Api.Projects;
 
@@ -11,6 +12,21 @@ public sealed record ProjectInfo(Guid Id, string Name, string Slug, string Key, 
 public sealed record CreateProjectRequest(string Name, string Slug, string Key);
 
 public sealed record UpdateProjectRequest(string Name);
+
+/// <summary>A project's settings as the project page edits them.</summary>
+/// <param name="AnalysisModels">The model per review analysis tier; a null model means the default.</param>
+/// <param name="DefaultAnalysisModels">What each tier uses when no model is set.</param>
+public sealed record ProjectSettingsInfo(ReviewModels AnalysisModels, ReviewModels DefaultAnalysisModels)
+{
+    internal static ProjectSettingsInfo From(Project project) => new(
+        ProjectSettings.Parse(project.Settings).Review?.Models ?? new ReviewModels(),
+        new ReviewModels(
+            ReviewModels.Default(AnalysisTier.Light),
+            ReviewModels.Default(AnalysisTier.Normal),
+            ReviewModels.Default(AnalysisTier.Strict)));
+}
+
+public sealed record UpdateProjectSettingsRequest(ReviewModels AnalysisModels);
 
 /// <summary>A repository as the API shows it. The credential itself is write-only: only its kind is returned.</summary>
 public sealed record RepositoryInfo(

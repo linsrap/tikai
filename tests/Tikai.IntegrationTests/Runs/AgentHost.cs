@@ -12,6 +12,7 @@ using Tikai.Api.Tickets;
 using Tikai.Core.Runs;
 using Tikai.Data;
 using Tikai.IntegrationTests.Auth;
+using Tikai.IntegrationTests.Llm;
 using Tikai.Orchestrator;
 
 namespace Tikai.IntegrationTests.Runs;
@@ -30,12 +31,21 @@ public sealed class AgentHost : IAsyncLifetime
 
     public IDockerClient Docker { get; } = new DockerClientBuilder().WithEndpoint(new DockerOptions().Endpoint).Build();
 
+    /// <summary>
+    /// The Messages API every test project's provider points at (review analyses run after each submission). It answers
+    /// with <see cref="StubAnalysis"/> unless a test changes it.
+    /// </summary>
+    internal FakeAnthropicServer Llm { get; private set; } = null!;
+
+    public static readonly string StubAnalysis = FakeAnthropicServer.TextReply("""{"summary":"Stub analysis.","coverage":[],"groups":[],"files":[]}""");
+
     private static string? NetworkOverride => Environment.GetEnvironmentVariable("TIKAI_TEST_AGENT_NETWORK");
 
     private static string HubHost => Environment.GetEnvironmentVariable("TIKAI_TEST_HUB_HOST") ?? "host.docker.internal";
 
     public async ValueTask InitializeAsync()
     {
+        Llm = await FakeAnthropicServer.StartAsync(body: StubAnalysis);
         var root = RepoRoot();
         await BuildAsync(Path.Combine(root, "images", "agent-base"), BaseImage, null);
         await BuildAsync(Path.Combine(root, "tests", "agent-stub"), StubImage, BaseImage);
@@ -61,6 +71,7 @@ public sealed class AgentHost : IAsyncLifetime
         {
         }
         Docker.Dispose();
+        await Llm.DisposeAsync();
     }
 
     /// <summary>A hub listening on a free port, with the stub as agent image.</summary>
@@ -73,7 +84,9 @@ public sealed class AgentHost : IAsyncLifetime
             all[key] = value;
         }
         var factory = await TikaiApiFactory.CreateAsync(postgres, all);
-        return await AgentHub.StartAsync(factory, port);
+        var hub = await AgentHub.StartAsync(factory, port);
+        hub.LlmBaseUrl = Llm.BaseUrl;
+        return hub;
     }
 
     public Dictionary<string, string> Settings(int port)
@@ -90,6 +103,8 @@ public sealed class AgentHost : IAsyncLifetime
             ["Tikai:Agents:ReconcileInterval"] = "00:00:01",
             ["Tikai:Mcp:HeartbeatInterval"] = "00:00:00.500",
             [TikaiApiFactory.ReconcilerSetting] = "on",
+            // The providers point at the fake Messages API on the loopback.
+            ["Tikai:Llm:AllowHttpBaseUrls"] = "true",
         };
         if (NetworkOverride is null)
         {
@@ -156,6 +171,9 @@ public sealed class AgentHub : IAsyncDisposable
 
     public const string ApiKey = "test-provider-key-0123456789";
 
+    /// <summary>Where the providers of <see cref="CreateTicketAsync"/> send LLM calls (the host's fake Messages API).</summary>
+    public string? LlmBaseUrl { get; set; }
+
     internal static async Task<AgentHub> StartAsync(TikaiApiFactory factory, int port, bool signUp = true)
     {
         factory.UseKestrel(options =>
@@ -185,7 +203,12 @@ public sealed class AgentHub : IAsyncDisposable
     }
 
     /// <summary>The same database and port with a new hub process, like a restart; logs in again.</summary>
-    public async Task<AgentHub> RestartAsync() => await StartAgainAsync(await StopAsync(), Port);
+    public async Task<AgentHub> RestartAsync()
+    {
+        var hub = await StartAgainAsync(await StopAsync(), Port);
+        hub.LlmBaseUrl = LlmBaseUrl;
+        return hub;
+    }
 
     /// <summary>Stops this hub (the agents keep running) and returns the factory for the next one.</summary>
     public async Task<TikaiApiFactory> StopAsync()
@@ -217,7 +240,7 @@ public sealed class AgentHub : IAsyncDisposable
         var slug = key.ToLowerInvariant() + "-" + Guid.NewGuid().ToString("N")[..6];
         (await Browser.PostAsync("/api/projects", new { name = slug, slug, key })).EnsureSuccessStatusCode();
         (await Browser.PostAsync($"/api/projects/{slug}/repositories", new { name = "app" })).EnsureSuccessStatusCode();
-        (await Browser.PostAsync($"/api/projects/{slug}/llm-providers", new { name = "Team key", defaultModel = "claude-haiku-5-5", apiKey = ApiKey }))
+        (await Browser.PostAsync($"/api/projects/{slug}/llm-providers", new { name = "Team key", defaultModel = "claude-haiku-5-5", apiKey = ApiKey, baseUrl = LlmBaseUrl }))
             .EnsureSuccessStatusCode();
         using var created = await Browser.PostAsync($"/api/projects/{slug}/tickets", new
         {

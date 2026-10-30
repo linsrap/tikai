@@ -56,6 +56,18 @@ public class ReviewRound : Entity
     public Guid? VerdictById { get; set; }
 
     public DateTimeOffset? VerdictAt { get; set; }
+
+    /// <summary>Null for rounds from before analyses existed.</summary>
+    public AnalysisStatus? AnalysisStatus { get; set; }
+
+    /// <summary>JSON of the <see cref="ReviewAnalysis"/> once it is done.</summary>
+    public string? Analysis { get; set; }
+
+    /// <summary>Why the analysis failed, for people.</summary>
+    public string? AnalysisError { get; set; }
+
+    /// <summary>When the analysis ended (done or failed).</summary>
+    public DateTimeOffset? AnalysisAt { get; set; }
 }
 
 public enum ReviewVerdict

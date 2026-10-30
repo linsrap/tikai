@@ -10,22 +10,30 @@ import {
   kindLetter,
   lineCounts,
   loadDiffMode,
+  loadOrderMode,
   nextUnviewed,
   reviewFileQuery,
   reviewFilesQuery,
   saveDiffMode,
+  saveOrderMode,
+  riskOf,
   shortSha,
   sizeText,
   startsCollapsed,
   stepFile,
+  storyFiles,
   useVerdict,
   useViewed,
   type ChangeSet,
+  type CodeRef,
   type DiffMode,
+  type FileOrderMode,
   type FileSide,
+  type ReviewAnalysis,
   type ReviewFile,
   type ReviewRound,
 } from '../review/review'
+import { AnalysisPanel } from '../review/AnalysisPanel'
 import { SelfReport } from '../review/SelfReport'
 import { runStateLabel } from '../runs/runs'
 import { AppShell } from './AppShell'
@@ -33,12 +41,17 @@ import { AppShell } from './AppShell'
 // Monaco is large: it loads with the first diff, not with the app.
 const DiffView = lazy(() => import('../review/DiffView'))
 
+/** A ref from the analysis to show in the diff; `n` makes the same ref show again when clicked again. */
+type Reveal = CodeRef & { n: number }
+
 export function ReviewPage({ id }: { id: string }) {
   useWatch('WatchAll')
   const changeSet = useQuery(changeSetQuery(id))
   const [roundNo, setRoundNo] = useState<number | null>(null)
+  const [reveal, setReveal] = useState<Reveal | null>(null)
   const data = changeSet.data
   const round = data?.rounds.find((r) => r.roundNo === roundNo) ?? data?.rounds.at(-1)
+  const analysis = round?.analysis?.result ?? null
 
   return (
     <AppShell wide>
@@ -51,19 +64,25 @@ export function ReviewPage({ id }: { id: string }) {
       {data && round && (
         <article className="stack review">
           <Header changeSet={data} round={round} onRound={setRoundNo} />
+          <AnalysisPanel
+            changeSet={data}
+            round={round}
+            onReveal={(ref) => setReveal((r) => ({ ...ref, n: (r?.n ?? 0) + 1 }))}
+          />
           <details open className="card">
             <summary>
               <strong>The agent&apos;s report</strong>
             </summary>
             <SelfReport
               summary={round.selfReport.summary}
-              coverage={round.coverage}
+              // With an analysis, the agent's claims are in its coverage table.
+              coverage={analysis ? [] : round.coverage}
               openConcerns={round.selfReport.openConcerns}
               uncommitted={round.uncommitted}
             />
           </details>
           <VerdictBar changeSet={data} round={round} />
-          <Files key={round.roundNo} id={id} round={round} />
+          <Files key={round.roundNo} id={id} round={round} analysis={analysis} reveal={reveal} />
         </article>
       )}
     </AppShell>
@@ -180,21 +199,40 @@ const isTyping = (target: EventTarget | null) =>
     ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
     !!target.closest('.monaco-editor'))
 
-function Files({ id, round }: { id: string; round: ReviewRound }) {
+function Files({
+  id,
+  round,
+  analysis,
+  reveal,
+}: {
+  id: string
+  round: ReviewRound
+  analysis: ReviewAnalysis | null
+  reveal: Reveal | null
+}) {
   const files = useQuery(reviewFilesQuery(id, round.roundNo))
   const viewed = useViewed(id, round.roundNo)
   const [selected, setSelected] = useState<string | null>(null)
   const [mode, setMode] = useState<DiffMode>(() => loadDiffMode())
+  const [orderMode, setOrderMode] = useState<FileOrderMode>(() => loadOrderMode())
+  const story = orderMode === 'story' ? analysis : null
   const list = files.data?.files
-  const current =
-    list?.find((f) => f.path === selected) ?? list?.find((f) => f.path === fileOrder(list)[0])
+  const order = list ? fileOrder(list, story) : []
+  const current = list?.find((f) => f.path === selected) ?? list?.find((f) => f.path === order[0])
+
+  // A ref clicked in the analysis selects its file.
+  const [shownReveal, setShownReveal] = useState(reveal)
+  if (reveal !== shownReveal) {
+    setShownReveal(reveal)
+    if (reveal) setSelected(reveal.path)
+  }
 
   const toggleViewed = (file: ReviewFile) => {
     const marking = !file.viewed
     viewed.mutate({ path: file.path, viewed: marking })
     if (marking && list) {
       // On to the next file that still needs a look.
-      setSelected(nextUnviewed(list, file.path, new Set([file.path])) ?? file.path)
+      setSelected(nextUnviewed(list, file.path, new Set([file.path]), order) ?? file.path)
     }
   }
 
@@ -203,7 +241,7 @@ function Files({ id, round }: { id: string; round: ReviewRound }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return
       if (e.key === 'j' || e.key === 'k') {
-        setSelected(stepFile(fileOrder(list), current.path, e.key === 'j' ? 1 : -1))
+        setSelected(stepFile(order, current.path, e.key === 'j' ? 1 : -1))
       } else if (e.key === 'v') {
         toggleViewed(current)
       } else {
@@ -230,11 +268,30 @@ function Files({ id, round }: { id: string; round: ReviewRound }) {
             j k v
           </span>
         </p>
+        {analysis && (
+          <p className="row" role="group" aria-label="File order">
+            {(['story', 'path'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={orderMode === m}
+                onClick={() => {
+                  setOrderMode(m)
+                  saveOrderMode(m)
+                }}
+              >
+                {m === 'story' ? 'Story order' : 'Path order'}
+              </button>
+            ))}
+          </p>
+        )}
         {files.data.truncated && (
           <p className="muted">Only the first {list.length} files are listed.</p>
         )}
         <FileTree
           files={list}
+          story={story}
+          risks={analysis}
           current={current?.path ?? null}
           onSelect={setSelected}
           onToggle={toggleViewed}
@@ -248,6 +305,7 @@ function Files({ id, round }: { id: string; round: ReviewRound }) {
             id={id}
             round={round.roundNo}
             file={current}
+            reveal={reveal?.path === current.path ? reveal : null}
             mode={mode}
             onMode={(m) => {
               setMode(m)
@@ -265,42 +323,76 @@ function Files({ id, round }: { id: string; round: ReviewRound }) {
 
 function FileTree({
   files,
+  story,
+  risks,
   current,
   onSelect,
   onToggle,
 }: {
   files: readonly ReviewFile[]
+  story: ReviewAnalysis | null
+  risks: ReviewAnalysis | null
   current: string | null
   onSelect: (path: string) => void
   onToggle: (file: ReviewFile) => void
 }) {
   const { groups, skimmed } = groupFiles(files)
-  const row = (file: ReviewFile, name: string) => (
-    <li
-      key={file.path}
-      className={`file-row${file.viewed ? ' viewed' : ''}`}
-      data-path={file.path}
-      data-viewed={file.viewed}
-    >
-      <input
-        type="checkbox"
-        checked={file.viewed}
-        aria-label={`Viewed ${file.path}`}
-        onChange={() => onToggle(file)}
-      />
-      <button
-        type="button"
-        className="file-name"
-        aria-current={file.path === current ? 'true' : undefined}
-        title={`${kindLabel[file.kind]}: ${file.oldPath ? `${file.oldPath} → ` : ''}${file.path}`}
-        onClick={() => onSelect(file.path)}
+  const row = (file: ReviewFile, name: string) => {
+    const risk = riskOf(risks, file.path)
+    return (
+      <li
+        key={file.path}
+        className={`file-row${file.viewed ? ' viewed' : ''}`}
+        data-path={file.path}
+        data-viewed={file.viewed}
       >
-        <span className={`kind ${file.kind}`}>{kindLetter[file.kind]}</span>{' '}
-        <span className="mono">{name}</span>
-      </button>
-      <span className="muted counts">{lineCounts(file)}</span>
-    </li>
+        <input
+          type="checkbox"
+          checked={file.viewed}
+          aria-label={`Viewed ${file.path}`}
+          onChange={() => onToggle(file)}
+        />
+        <button
+          type="button"
+          className="file-name"
+          aria-current={file.path === current ? 'true' : undefined}
+          title={`${kindLabel[file.kind]}: ${file.oldPath ? `${file.oldPath} → ` : ''}${file.path}`}
+          onClick={() => onSelect(file.path)}
+        >
+          <span className={`kind ${file.kind}`}>{kindLetter[file.kind]}</span>{' '}
+          <span className="mono">{name}</span>
+        </button>
+        {risk && (
+          <span className={`badge risk ${risk.risk}`} title={risk.reason}>
+            {risk.risk}
+          </span>
+        )}
+        <span className="muted counts">{lineCounts(file)}</span>
+      </li>
+    )
+  }
+  const skimmedGroup = skimmed.length > 0 && (
+    <details>
+      <summary className="muted">Generated and lock files ({skimmed.length})</summary>
+      <ul className="files">{skimmed.map((f) => row(f, f.path))}</ul>
+    </details>
   )
+  if (story) {
+    return (
+      <div className="stack tree">
+        {storyFiles(files, story).groups.map((group) => (
+          <div key={group.title} className="story-group">
+            <p className="group-title">
+              <strong>{group.title}</strong> <span className="muted">{group.layer}</span>
+            </p>
+            {group.note && <p className="muted small">{group.note}</p>}
+            <ul className="files">{group.files.map((f) => row(f, f.path))}</ul>
+          </div>
+        ))}
+        {skimmedGroup}
+      </div>
+    )
+  }
   return (
     <div className="stack tree">
       {groups.map((group) => (
@@ -313,12 +405,7 @@ function FileTree({
           </ul>
         </div>
       ))}
-      {skimmed.length > 0 && (
-        <details>
-          <summary className="muted">Generated and lock files ({skimmed.length})</summary>
-          <ul className="files">{skimmed.map((f) => row(f, f.path))}</ul>
-        </details>
-      )}
+      {skimmedGroup}
     </div>
   )
 }
@@ -327,6 +414,7 @@ function FilePane({
   id,
   round,
   file,
+  reveal,
   mode,
   onMode,
   onToggleViewed,
@@ -334,11 +422,14 @@ function FilePane({
   id: string
   round: number
   file: ReviewFile
+  reveal: Reveal | null
   mode: DiffMode
   onMode: (mode: DiffMode) => void
   onToggleViewed: () => void
 }) {
-  const [expanded, setExpanded] = useState(!startsCollapsed(file))
+  const [opened, setExpanded] = useState(!startsCollapsed(file))
+  // A ref from the analysis opens a collapsed file too.
+  const expanded = opened || reveal !== null
   const contents = useQuery({ ...reviewFileQuery(id, round, file.path), enabled: expanded })
   const flags = [
     file.lock && 'lock file',
@@ -404,6 +495,7 @@ function FilePane({
           next={contents.data.new}
           language={contents.data.language}
           mode={mode}
+          reveal={reveal}
         />
       )}
     </div>
@@ -415,11 +507,13 @@ function Contents({
   next,
   language,
   mode,
+  reveal,
 }: {
   old: FileSide | null
   next: FileSide | null
   language: string
   mode: DiffMode
+  reveal: Reveal | null
 }) {
   const sides = [old, next].filter((s): s is FileSide => s !== null)
   const sizes = `${old ? sizeText(old.size) : 'none'} → ${next ? sizeText(next.size) : 'deleted'}`
@@ -440,6 +534,7 @@ function Contents({
         modified={next?.text ?? ''}
         language={language}
         mode={mode}
+        reveal={reveal}
       />
     </Suspense>
   )

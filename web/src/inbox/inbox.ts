@@ -7,6 +7,7 @@ export type AttentionItem = components['schemas']['AttentionItemInfo']
 export type AttentionKind = components['schemas']['AttentionKind']
 export type AnswerRequest = components['schemas']['AnswerRequest']
 export type ReviewCoverage = components['schemas']['ReviewCoverage']
+export type AnalysisBrief = components['schemas']['AnalysisBrief']
 
 export const kindLabel: Record<AttentionKind, string> = {
   question: 'Question',
@@ -35,6 +36,19 @@ export function coverageSummary(coverage: readonly Pick<ReviewCoverage, 'status'
     .filter((s) => counts[s] > 0)
     .map((s) => `${counts[s]} ${s}`)
     .join(', ')
+}
+
+/** The review analysis in one line for the inbox card. */
+export function analysisLine(brief: AnalysisBrief): string {
+  if (brief.status === 'pending') return 'Analysis: running…'
+  if (brief.status === 'failed')
+    return `Analysis unavailable${brief.error ? `: ${brief.error}` : ''}`
+  const coverage = (['covered', 'partial', 'missing'] as const)
+    .filter((status) => brief[status] > 0)
+    .map((status) => `${brief[status]} ${status}`)
+    .join(', ')
+  const risk = brief.highRisk === 1 ? '1 high-risk file' : `${brief.highRisk} high-risk files`
+  return `Analysis: ${coverage || 'no criteria assessed'} · ${risk}`
 }
 
 /** "3 min ago", "2 h ago", or the date for older items. */

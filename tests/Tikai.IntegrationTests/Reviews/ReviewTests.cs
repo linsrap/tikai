@@ -1,14 +1,18 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Tikai.Api.Attention;
+using Tikai.Api.Projects;
 using Tikai.Api.Reviews;
 using Tikai.Api.Tickets;
 using Tikai.Core.Attention;
 using Tikai.Core.Git;
+using Tikai.Core.Projects;
 using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
 using Tikai.IntegrationTests.Git;
+using Tikai.IntegrationTests.Llm;
 using Tikai.IntegrationTests.Runs;
 
 namespace Tikai.IntegrationTests.Reviews;
@@ -158,6 +162,121 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
         var file = Assert.Single((await FilesAsync(hub, changeSet.Id)).Files);
         Assert.Equal(("hello.txt", GitChangeKind.Added), (file.Path, file.Kind));
         Assert.Empty(changeSet.Rounds[0].Uncommitted);
+    }
+
+    [Fact]
+    public async Task Each_round_is_analysed_after_the_submission_with_the_model_of_its_tier_and_can_be_retried()
+    {
+        await using var hub = await agents.StartHubAsync(postgres);
+        var ticket = await hub.CreateTicketAsync("review");
+        var mirror = await hub.MirrorAsync(ticket);
+        await TestGit.CommitAsync(mirror, "main", "Seed", ("change.txt", "first line\n"), ("gone.txt", "bye\n"), ("old-name.txt", OldName));
+        var (first, second) = (ticket.Criteria[0].Id, ticket.Criteria[1].Id);
+        var answer = JsonSerializer.Serialize(new
+        {
+            summary = "Changes text files and adds a script.",
+            coverage = new object[]
+            {
+                new { criterion_id = second, status = "partial", note = "No test.", refs = Array.Empty<object>() },
+                new { criterion_id = first, status = "covered", note = "added.ts", refs = new[] { new { path = "src/added.ts", line_start = 1, line_end = 1 } } },
+            },
+            groups = new object[]
+            {
+                new { title = "Script", layer = "ui", note = "The new script.", files = new[] { "src/added.ts" } },
+                new { title = "Text files", layer = "docs", note = "Edits and a rename.", files = new[] { "change.txt", "old-name.txt", "nowhere.txt" } },
+            },
+            files = new object[] { new { path = "src/added.ts", risk = "high", reason = "Runs at startup." } },
+        });
+        agents.Llm.Body = FakeAnthropicServer.TextReply(answer, inputTokens: 4000, outputTokens: 600);
+        var requestsBefore = agents.Llm.Requests.Count;
+        try
+        {
+            var run = await hub.WaitForEndAsync((await hub.AssignAsync(ticket)).Id);
+            var analysis = await AnalysisAsync(hub, run.ChangeSetId!.Value);
+
+            Assert.Equal(AnalysisStatus.Done, analysis.Status);
+            var result = analysis.Result!;
+            // .txt files are light, but src/added.ts is not: normal tier, the default model for it.
+            Assert.Equal((AnalysisTier.Normal, "claude-sonnet-5-5", "review-analysis.v1"), (result.Tier, result.Model, result.PromptVersion));
+            Assert.Equal("Changes text files and adds a script.", result.Summary);
+            Assert.Equal([(first, CriterionCoverage.Covered), (second, CriterionCoverage.Partial)], result.Coverage.Select(c => (c.CriterionId, c.Status)));
+            Assert.Equal([new CodeRef("src/added.ts", 1, 1)], result.Coverage[0].Refs);
+            Assert.Equal(["Script", "Text files", "Other changes"], result.Groups.Select(g => g.Title));
+            Assert.Equal(["change.txt", "new-name.txt"], result.Groups[1].Files);
+            Assert.Equal(["big.txt", "gone.txt", "image.png"], result.Groups[2].Files);
+            Assert.Equal([("src/added.ts", FileRisk.High)], result.Risks.Select(r => (r.Path, r.Risk)));
+            Assert.Equal(["big.txt", "image.png"], result.PatchesOmitted);
+            Assert.Equal((4000L, 600L), (result.InputTokens, result.OutputTokens));
+
+            // What the model got: the run's provider key, patches of text files, the lock and large files only listed.
+            var request = agents.Llm.Requests.Skip(requestsBefore).Single();
+            Assert.Equal(("claude-sonnet-5-5", "Bearer " + AgentHub.ApiKey), (request.Model, request.Authorization));
+            var message = request.Body.GetProperty("messages")[0].GetProperty("content")[0].GetProperty("text").GetString()!;
+            Assert.Contains("- id: " + first, message, StringComparison.Ordinal);
+            Assert.Contains("diff --git a/src/added.ts b/src/added.ts", message, StringComparison.Ordinal);
+            Assert.Contains("A package-lock.json (+", message, StringComparison.Ordinal);
+            Assert.Contains("[lock file, not shown]", message, StringComparison.Ordinal);
+            Assert.Contains("big.txt (+", message, StringComparison.Ordinal);
+            Assert.DoesNotContain("diff --git a/big.txt", message, StringComparison.Ordinal);
+
+            // The inbox card's line.
+            var item = (await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items")).Single(i => i.RunId == run.Id);
+            Assert.Equal(new AnalysisBrief(AnalysisStatus.Done, 1, 1, 0, 1, null), item.Analysis);
+
+            // Another model for the tier, and a provider that refuses the key: the retry fails with the reason.
+            using (var settings = await hub.Browser.PutAsync($"/api/projects/{hub.Slugs[ticket.Id]}/settings", new { analysisModels = new { normal = " claude-review-test " } }))
+            {
+                Assert.True(settings.StatusCode == HttpStatusCode.OK, await settings.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            }
+            var stored = await hub.Browser.GetJsonAsync<ProjectSettingsInfo>($"/api/projects/{hub.Slugs[ticket.Id]}/settings");
+            Assert.Equal(new ReviewModels(Normal: "claude-review-test"), stored.AnalysisModels);
+            Assert.Equal("claude-opus-5-5", stored.DefaultAnalysisModels.Strict);
+            using (var invalid = await hub.Browser.PutAsync($"/api/projects/{hub.Slugs[ticket.Id]}/settings", new { analysisModels = new { light = "no spaces please" } }))
+            {
+                Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+            }
+            agents.Llm.Status = StatusCodes.Status401Unauthorized;
+            agents.Llm.Body = FakeAnthropicServer.Error("authentication_error", "invalid x-api-key");
+            using (var retry = await hub.Browser.PostAsync($"/api/change-sets/{run.ChangeSetId}/rounds/1/analysis", new { }))
+            {
+                Assert.True(retry.StatusCode == HttpStatusCode.OK, await retry.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            }
+            var failed = await AnalysisAsync(hub, run.ChangeSetId.Value);
+            Assert.Equal(AnalysisStatus.Failed, failed.Status);
+            Assert.Null(failed.Result);
+            Assert.Equal("The provider rejected the API key. Anthropic says: invalid x-api-key (model claude-review-test)", failed.Error);
+            Assert.Equal("claude-review-test", agents.Llm.Requests.Last().Model);
+            var unavailable = (await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items")).Single(i => i.RunId == run.Id).Analysis!;
+            Assert.Equal((AnalysisStatus.Failed, failed.Error), (unavailable.Status, unavailable.Error));
+
+            // The review itself still works.
+            Assert.Equal(7, (await FilesAsync(hub, run.ChangeSetId.Value)).Files.Count);
+            using (var missing = await hub.Browser.PostAsync($"/api/change-sets/{run.ChangeSetId}/rounds/9/analysis", new { }))
+            {
+                Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+            }
+        }
+        finally
+        {
+            agents.Llm.Status = StatusCodes.Status200OK;
+            agents.Llm.Body = AgentHost.StubAnalysis;
+        }
+    }
+
+    /// <summary>The latest round's analysis once it is no longer pending.</summary>
+    private static async Task<AnalysisInfo> AnalysisAsync(AgentHub hub, Guid changeSetId)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        while (true)
+        {
+            var analysis = (await hub.Browser.GetJsonAsync<ChangeSetInfo>($"/api/change-sets/{changeSetId}")).Rounds[^1].Analysis!;
+            if (analysis.Status != AnalysisStatus.Pending)
+            {
+                return analysis;
+            }
+            await Task.Delay(250, timeout.Token);
+        }
     }
 
     private static Task<ReviewFilesInfo> FilesAsync(AgentHub hub, Guid changeSetId) =>
