@@ -6,7 +6,10 @@ using Microsoft.AspNetCore.Http;
 
 namespace Tikai.IntegrationTests.Llm;
 
-/// <summary>Stands in for api.anthropic.com: answers POST /v1/messages with a fixed status and body, and records each request.</summary>
+/// <summary>
+/// Stands in for api.anthropic.com: answers POST /v1/messages with <see cref="Status"/> and <see cref="Body"/> (which a
+/// test may change between calls), and records each request.
+/// </summary>
 internal sealed class FakeAnthropicServer : IAsyncDisposable
 {
     public const string OkReply = """
@@ -23,12 +26,16 @@ internal sealed class FakeAnthropicServer : IAsyncDisposable
 
     public ConcurrentQueue<RecordedRequest> Requests { get; } = new();
 
+    public int Status { get; set; }
+
+    public string Body { get; set; } = OkReply;
+
     public static async Task<FakeAnthropicServer> StartAsync(int status = StatusCodes.Status200OK, string body = OkReply)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         var app = builder.Build();
-        var server = new FakeAnthropicServer(app);
+        var server = new FakeAnthropicServer(app) { Status = status, Body = body };
         app.MapPost("/v1/messages", async context =>
         {
             using var request = await JsonDocument.ParseAsync(context.Request.Body);
@@ -38,16 +45,16 @@ internal sealed class FakeAnthropicServer : IAsyncDisposable
                 context.Request.Headers["anthropic-version"].ToString(),
                 request.RootElement.GetProperty("model").GetString()!,
                 request.RootElement.Clone()));
-            context.Response.StatusCode = status;
+            context.Response.StatusCode = server.Status;
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(body);
+            await context.Response.WriteAsync(server.Body);
         });
         await app.StartAsync();
         return server;
     }
 
     /// <summary>A successful reply whose only content is the given text.</summary>
-    public static string TextReply(string text, string stopReason = "end_turn") =>
+    public static string TextReply(string text, string stopReason = "end_turn", int inputTokens = 100, int outputTokens = 50) =>
         JsonSerializer.Serialize(new
         {
             id = "msg_test",
@@ -57,7 +64,7 @@ internal sealed class FakeAnthropicServer : IAsyncDisposable
             content = new[] { new { type = "text", text } },
             stop_reason = stopReason,
             stop_sequence = (string?)null,
-            usage = new { input_tokens = 100, output_tokens = 50 },
+            usage = new { input_tokens = inputTokens, output_tokens = outputTokens },
         });
 
     public static string Error(string type, string message) =>

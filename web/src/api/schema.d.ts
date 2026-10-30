@@ -384,6 +384,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{slug}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectSettingsInfo"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateProjectSettingsRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectSettingsInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{slug}/repositories": {
         parameters: {
             query?: never;
@@ -1751,12 +1822,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/change-sets/{id}/rounds/{roundNo}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    roundNo: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChangeSetInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {unknown} */
         AgentRunState: "queued" | "preparing" | "running" | "blocked" | "in_review" | "changes_requested" | "merged" | "failed" | "cancelled";
+        AnalysisBrief: {
+            status: components["schemas"]["AnalysisStatus"];
+            /** Format: int32 */
+            covered: number;
+            /** Format: int32 */
+            partial: number;
+            /** Format: int32 */
+            missing: number;
+            /** Format: int32 */
+            highRisk: number;
+            error: null | string;
+        };
+        AnalysisCoverage: {
+            /** Format: uuid */
+            criterionId: string;
+            status: components["schemas"]["CriterionCoverage"];
+            note: string;
+            refs: components["schemas"]["CodeRef"][];
+        };
+        AnalysisFileRisk: {
+            path: string;
+            risk: components["schemas"]["FileRisk"];
+            reason: string;
+        };
+        AnalysisInfo: {
+            status: components["schemas"]["AnalysisStatus"];
+            error: null | string;
+            /** Format: date-time */
+            at: null | string;
+            result: null | components["schemas"]["ReviewAnalysis"];
+        };
+        /** @enum {unknown} */
+        AnalysisStatus: "pending" | "done" | "failed";
+        /** @enum {unknown} */
+        AnalysisTier: "light" | "normal" | "strict";
         AnswerRequest: {
             text?: null | string;
             decision?: null | components["schemas"]["PlanDecision"];
@@ -1792,6 +1936,7 @@ export interface components {
             answeredAt: null | string;
             /** Format: uuid */
             changeSetId: null | string;
+            analysis: null | components["schemas"]["AnalysisBrief"];
         };
         /** @enum {unknown} */
         AttentionKind: "question" | "permission" | "plan_approval" | "review" | "conflict" | "failure";
@@ -1829,6 +1974,13 @@ export interface components {
         };
         /** @enum {unknown} */
         ChangeSetStatus: "open" | "merged" | "closed";
+        CodeRef: {
+            path: string;
+            /** Format: int32 */
+            lineStart: number;
+            /** Format: int32 */
+            lineEnd: number;
+        };
         CreateLlmProviderRequest: {
             name: string;
             defaultModel: string;
@@ -1899,6 +2051,8 @@ export interface components {
             new: null | components["schemas"]["FileSide"];
             language: string;
         };
+        /** @enum {unknown} */
+        FileRisk: "low" | "medium" | "high";
         FileSide: {
             /** Format: int64 */
             size: number;
@@ -1971,6 +2125,10 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        ProjectSettingsInfo: {
+            analysisModels: components["schemas"]["ReviewModels"];
+            defaultAnalysisModels: components["schemas"]["ReviewModels"];
+        };
         QuestionPayload: {
             question: string;
             context: null | string;
@@ -2000,6 +2158,23 @@ export interface components {
         };
         /** @enum {unknown} */
         RepositoryStatus: "cloning" | "ready" | "failed";
+        ReviewAnalysis: {
+            tier: components["schemas"]["AnalysisTier"];
+            tierReason: string;
+            model: string;
+            promptVersion: string;
+            summary: string;
+            coverage: components["schemas"]["AnalysisCoverage"][];
+            groups: components["schemas"]["StoryGroup"][];
+            risks: components["schemas"]["AnalysisFileRisk"][];
+            patchesOmitted: string[];
+            /** Format: int64 */
+            inputTokens: null | number;
+            /** Format: int64 */
+            outputTokens: null | number;
+            /** Format: int32 */
+            durationMs: number;
+        };
         ReviewCoverage: {
             /** Format: uuid */
             criterionId: string;
@@ -2030,6 +2205,11 @@ export interface components {
             files: components["schemas"]["ReviewFileInfo"][];
             truncated: boolean;
         };
+        ReviewModels: {
+            light?: null | string;
+            normal?: null | string;
+            strict?: null | string;
+        };
         ReviewPayload: {
             summary: string;
             criteriaMapping: components["schemas"]["CriterionMapping"][];
@@ -2048,6 +2228,7 @@ export interface components {
             verdictAt: null | string;
             /** Format: date-time */
             createdAt: string;
+            analysis: null | components["schemas"]["AnalysisInfo"];
         };
         /** @enum {unknown} */
         ReviewVerdict: "approve" | "request_changes" | "reject" | null;
@@ -2134,6 +2315,14 @@ export interface components {
             /** Format: uuid */
             providerId?: null | string;
         };
+        StoryGroup: {
+            title: string;
+            layer: components["schemas"]["StoryLayer"];
+            note: string;
+            files: string[];
+        };
+        /** @enum {unknown} */
+        StoryLayer: "data" | "domain" | "api" | "ui" | "tests" | "config" | "docs" | "other";
         TicketInfo: {
             /** Format: uuid */
             id: string;
@@ -2178,6 +2367,9 @@ export interface components {
         };
         UpdateProjectRequest: {
             name: string;
+        };
+        UpdateProjectSettingsRequest: {
+            analysisModels: components["schemas"]["ReviewModels"];
         };
         UpdateTicketRequest: {
             title: string;

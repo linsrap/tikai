@@ -8,6 +8,7 @@ using Tikai.Api.Runs;
 using Tikai.Core.Attention;
 using Tikai.Core.Events;
 using Tikai.Core.Git;
+using Tikai.Core.Jobs;
 using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
@@ -34,6 +35,7 @@ internal sealed partial class ReviewSubmissions(
     SubmitLocks submitLocks,
     AttentionService attention,
     LlmProviderService providers,
+    IJobQueue jobs,
     IEventPublisher events,
     TimeProvider timeProvider,
     ILogger<ReviewSubmissions> logger)
@@ -178,17 +180,21 @@ internal sealed partial class ReviewSubmissions(
                     .SetProperty(c => c.Status, ChangeSetStatus.Open)
                     .SetProperty(c => c.UpdatedAt, now), cancellationToken);
         }
+        var roundId = Guid.CreateVersion7(now);
         db.ReviewRounds.Add(new ReviewRound
         {
-            Id = Guid.CreateVersion7(now),
+            Id = roundId,
             ChangeSetId = changeSetId,
             RoundNo = roundNo,
             BaseSha = baseSha,
             HeadSha = head,
             SelfReport = AttentionJson.Serialize(report),
             Uncommitted = [.. uncommitted],
+            AnalysisStatus = AnalysisStatus.Pending,
         });
         await db.SaveChangesAsync(cancellationToken);
+        // Analysed in the background; the review item does not wait for it.
+        await ReviewAnalysisJob.EnqueueAsync(jobs, roundId, cancellationToken);
 
         // The container stays: it ends on its own a moment later, and that end keeps the run in review.
         await db.AgentRuns.Where(r => r.Id == run.Id && r.State == AgentRunState.Running)

@@ -57,6 +57,13 @@ public interface IGitService
     /// <summary>The files changed between two commits (renames detected), at most <paramref name="maxFiles"/>.</summary>
     Task<GitDiff> DiffAsync(string path, string baseSha, string headSha, int maxFiles, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The unified diff (3 lines of context) of one changed file between two commits, with the rename when
+    /// <paramref name="oldPath"/> is given; null when it is longer than <paramref name="maxBytes"/>.
+    /// </summary>
+    Task<string?> PatchAsync(
+        string path, string baseSha, string headSha, string filePath, string? oldPath, long maxBytes, CancellationToken cancellationToken = default);
+
     /// <summary>A blob's size, and its content when it is at most <paramref name="maxBytes"/>; null when it does not exist.</summary>
     Task<GitBlob?> ReadBlobAsync(string path, string blobSha, long maxBytes, CancellationToken cancellationToken = default);
 

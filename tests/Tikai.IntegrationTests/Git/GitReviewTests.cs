@@ -121,6 +121,30 @@ public sealed class GitReviewTests : IDisposable
         Assert.Null(await _git.MergeBaseAsync(path, "refs/heads/main", other, ct));
     }
 
+    [Fact]
+    public async Task A_patch_is_read_per_file_with_renames_literal_paths_and_a_size_limit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mirror, _, start) = await SetUpAsync(("a.txt", "a\n"), ("[ab].txt", "x\n"), ("old.txt", Moving));
+        // Each commit holds the whole tree.
+        var head = await TestGit.CommitAsync(mirror, Branch, "Work", ("a.txt", "a\nb\n"), ("[ab].txt", "y\n"), ("new.txt", Moving));
+
+        var patch = await _git.PatchAsync(mirror, start, head, "a.txt", null, 10_000, ct);
+        Assert.Equal("diff --git a/a.txt b/a.txt", patch!.Split('\n')[0]);
+        Assert.Contains("@@ -1 +1,2 @@\n a\n+b\n", patch, StringComparison.Ordinal);
+
+        // "[ab].txt" is a file name here, not a pattern matching a.txt.
+        var literal = await _git.PatchAsync(mirror, start, head, "[ab].txt", null, 10_000, ct);
+        Assert.StartsWith("diff --git a/[ab].txt b/[ab].txt", literal, StringComparison.Ordinal);
+        Assert.DoesNotContain("a/a.txt", literal, StringComparison.Ordinal);
+
+        var renamed = await _git.PatchAsync(mirror, start, head, "new.txt", "old.txt", 10_000, ct);
+        Assert.Contains("rename from old.txt\nrename to new.txt", renamed, StringComparison.Ordinal);
+
+        Assert.Null(await _git.PatchAsync(mirror, start, head, "a.txt", null, 20, ct));
+        Assert.Equal("", await _git.PatchAsync(mirror, start, head, "missing.txt", null, 10_000, ct));
+    }
+
     /// <summary>A mirror with the files on main, and a bare clone of it standing in for a run clone.</summary>
     private async Task<(string Mirror, string Clone, string Start)> SetUpAsync(params (string Name, string Content)[] files)
     {

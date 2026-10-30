@@ -16,6 +16,7 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.Property(p => p.Key).HasMaxLength(ProjectKey.MaxLength);
         builder.HasIndex(p => p.Slug).IsUnique();
         builder.HasIndex(p => p.Key).IsUnique();
+        builder.Property(p => p.Settings).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
         // Only TicketNumbers changes it, with SQL; code never sets it.
         builder.Property<int>(TicketNumbers.CounterProperty).HasDefaultValue(0).ValueGeneratedNever();
     }

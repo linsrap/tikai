@@ -254,6 +254,30 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         return new GitDiff([.. files.Take(maxFiles)], files.Count > maxFiles);
     }
 
+    public async Task<string?> PatchAsync(
+        string path, string baseSha, string headSha, string filePath, string? oldPath, long maxBytes, CancellationToken cancellationToken = default)
+    {
+        CheckObjectId(baseSha);
+        CheckObjectId(headSha);
+        // No external diff and no textconv (both run programs named by .gitattributes); paths are literal, not pathspec magic.
+        // A rename is only found when both of its paths are given.
+        string[] paths = oldPath is null || oldPath == filePath ? [filePath] : [oldPath, filePath];
+        try
+        {
+            var result = await RunAsync(
+                path,
+                ["diff-tree", "-p", "-M", "--no-commit-id", "--no-ext-diff", "--no-textconv", "--no-color", "-U3", baseSha, headSha, "--", .. paths],
+                cancellationToken,
+                environment: new Dictionary<string, string?> { ["GIT_LITERAL_PATHSPECS"] = "1" },
+                maxOutputBytes: maxBytes);
+            return result.OutputText;
+        }
+        catch (ProcessOutputLimitException)
+        {
+            return null;
+        }
+    }
+
     public async Task<GitBlob?> ReadBlobAsync(string path, string blobSha, long maxBytes, CancellationToken cancellationToken = default)
     {
         CheckObjectId(blobSha);
@@ -313,7 +337,8 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         RemoteAccess? remote = null,
         byte[]? input = null,
         IReadOnlyDictionary<string, string?>? environment = null,
-        bool check = true)
+        bool check = true,
+        long? maxOutputBytes = null)
     {
         var env = BaseEnvironment();
         foreach (var (name, value) in environment ?? new Dictionary<string, string?>())
@@ -341,7 +366,8 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
             ProcessResult result;
             try
             {
-                result = await runner.RunAsync(new ProcessRequest(_options.GitPath, fullArguments, timeout, env, StandardInput: input), cancellationToken);
+                var request = new ProcessRequest(_options.GitPath, fullArguments, timeout, env, StandardInput: input);
+                result = await runner.RunAsync(maxOutputBytes is { } max ? request with { MaxOutputBytes = max } : request, cancellationToken);
             }
             catch (ProcessTimeoutException ex)
             {

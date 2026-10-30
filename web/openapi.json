@@ -290,6 +290,82 @@
         }
       }
     },
+    "/api/projects/{slug}/settings": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSettingsInfo"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSettingsInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{slug}/repositories": {
       "get": {
         "tags": [
@@ -1689,6 +1765,45 @@
           }
         }
       }
+    },
+    "/api/change-sets/{id}/rounds/{roundNo}/analysis": {
+      "post": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "roundNo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetInfo"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1704,6 +1819,141 @@
           "merged",
           "failed",
           "cancelled"
+        ]
+      },
+      "AnalysisBrief": {
+        "required": [
+          "status",
+          "covered",
+          "partial",
+          "missing",
+          "highRisk",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/AnalysisStatus"
+          },
+          "covered": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "partial": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "missing": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "highRisk": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AnalysisCoverage": {
+        "required": [
+          "criterionId",
+          "status",
+          "note",
+          "refs"
+        ],
+        "type": "object",
+        "properties": {
+          "criterionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CriterionCoverage"
+          },
+          "note": {
+            "type": "string"
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeRef"
+            }
+          }
+        }
+      },
+      "AnalysisFileRisk": {
+        "required": [
+          "path",
+          "risk",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/FileRisk"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "AnalysisInfo": {
+        "required": [
+          "status",
+          "error",
+          "at",
+          "result"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/AnalysisStatus"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "result": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewAnalysis"
+              }
+            ]
+          }
+        }
+      },
+      "AnalysisStatus": {
+        "enum": [
+          "pending",
+          "done",
+          "failed"
+        ]
+      },
+      "AnalysisTier": {
+        "enum": [
+          "light",
+          "normal",
+          "strict"
         ]
       },
       "AnswerRequest": {
@@ -1773,7 +2023,8 @@
           "excerpt",
           "createdAt",
           "answeredAt",
-          "changeSetId"
+          "changeSetId",
+          "analysis"
         ],
         "type": "object",
         "properties": {
@@ -1899,6 +2150,16 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "analysis": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalysisBrief"
+              }
+            ]
           }
         }
       },
@@ -2046,6 +2307,27 @@
           "merged",
           "closed"
         ]
+      },
+      "CodeRef": {
+        "required": [
+          "path",
+          "lineStart",
+          "lineEnd"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "lineStart": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lineEnd": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "CreateLlmProviderRequest": {
         "required": [
@@ -2341,6 +2623,13 @@
           }
         }
       },
+      "FileRisk": {
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
       "FileSide": {
         "required": [
           "size",
@@ -2626,6 +2915,21 @@
           }
         }
       },
+      "ProjectSettingsInfo": {
+        "required": [
+          "analysisModels",
+          "defaultAnalysisModels"
+        ],
+        "type": "object",
+        "properties": {
+          "analysisModels": {
+            "$ref": "#/components/schemas/ReviewModels"
+          },
+          "defaultAnalysisModels": {
+            "$ref": "#/components/schemas/ReviewModels"
+          }
+        }
+      },
       "QuestionPayload": {
         "required": [
           "question",
@@ -2743,6 +3047,82 @@
           "ready",
           "failed"
         ]
+      },
+      "ReviewAnalysis": {
+        "required": [
+          "tier",
+          "tierReason",
+          "model",
+          "promptVersion",
+          "summary",
+          "coverage",
+          "groups",
+          "risks",
+          "patchesOmitted",
+          "inputTokens",
+          "outputTokens",
+          "durationMs"
+        ],
+        "type": "object",
+        "properties": {
+          "tier": {
+            "$ref": "#/components/schemas/AnalysisTier"
+          },
+          "tierReason": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "promptVersion": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalysisCoverage"
+            }
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoryGroup"
+            }
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalysisFileRisk"
+            }
+          },
+          "patchesOmitted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inputTokens": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "outputTokens": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "durationMs": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "ReviewCoverage": {
         "required": [
@@ -2867,6 +3247,29 @@
           }
         }
       },
+      "ReviewModels": {
+        "type": "object",
+        "properties": {
+          "light": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "normal": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "strict": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ReviewPayload": {
         "required": [
           "summary",
@@ -2902,7 +3305,8 @@
           "uncommitted",
           "verdict",
           "verdictAt",
-          "createdAt"
+          "createdAt",
+          "analysis"
         ],
         "type": "object",
         "properties": {
@@ -2951,6 +3355,16 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "analysis": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalysisInfo"
+              }
+            ]
           }
         }
       },
@@ -3299,6 +3713,44 @@
           }
         }
       },
+      "StoryGroup": {
+        "required": [
+          "title",
+          "layer",
+          "note",
+          "files"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "layer": {
+            "$ref": "#/components/schemas/StoryLayer"
+          },
+          "note": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "StoryLayer": {
+        "enum": [
+          "data",
+          "domain",
+          "api",
+          "ui",
+          "tests",
+          "config",
+          "docs",
+          "other"
+        ]
+      },
       "TicketInfo": {
         "required": [
           "id",
@@ -3453,6 +3905,17 @@
         "properties": {
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateProjectSettingsRequest": {
+        "required": [
+          "analysisModels"
+        ],
+        "type": "object",
+        "properties": {
+          "analysisModels": {
+            "$ref": "#/components/schemas/ReviewModels"
           }
         }
       },

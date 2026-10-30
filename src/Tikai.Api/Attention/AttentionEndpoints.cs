@@ -151,6 +151,10 @@ internal static class AttentionEndpoints
         var changeSets = await db.ChangeSets.AsNoTracking()
             .Where(c => runIds.Contains(c.RunId))
             .ToDictionaryAsync(c => c.RunId, c => c.Id, cancellationToken);
+        var changeSetIds = changeSets.Values.ToList();
+        var latestRounds = await db.ReviewRounds.AsNoTracking()
+            .Where(r => changeSetIds.Contains(r.ChangeSetId) && r.RoundNo == db.ReviewRounds.Where(o => o.ChangeSetId == r.ChangeSetId).Max(o => o.RoundNo))
+            .ToDictionaryAsync(r => r.ChangeSetId, Brief, cancellationToken);
 
         var criterionIds = rows.Where(x => x.Item.Kind == AttentionKind.Review)
             .SelectMany(x => AttentionJson.Deserialize<ReviewPayload>(x.Item.Payload).CriteriaMapping.Select(m => m.CriterionId))
@@ -184,9 +188,28 @@ internal static class AttentionEndpoints
                 await ExcerptAsync(db, item, cancellationToken),
                 item.CreatedAt,
                 item.AnsweredAt,
-                item.Kind == AttentionKind.Review && item.RunId is { } reviewed && changeSets.TryGetValue(reviewed, out var changeSetId) ? changeSetId : null));
+                item.Kind == AttentionKind.Review && item.RunId is { } reviewed && changeSets.TryGetValue(reviewed, out var changeSetId) ? changeSetId : null,
+                item.Kind == AttentionKind.Review && item.RunId is { } analysed && changeSets.TryGetValue(analysed, out var analysedSet)
+                    ? latestRounds.GetValueOrDefault(analysedSet) : null));
         }
         return [.. result.OrderByDescending(i => i.Blocking).ThenByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id)];
+    }
+
+    private static AnalysisBrief? Brief(ReviewRound round)
+    {
+        if (round.AnalysisStatus is not { } status)
+        {
+            return null;
+        }
+        var analysis = round.Analysis is { } json ? AttentionJson.Deserialize<ReviewAnalysis>(json) : null;
+        int Count(CriterionCoverage coverage) => analysis?.Coverage.Count(c => c.Status == coverage) ?? 0;
+        return new AnalysisBrief(
+            status,
+            Count(CriterionCoverage.Covered),
+            Count(CriterionCoverage.Partial),
+            Count(CriterionCoverage.Missing),
+            analysis?.Risks.Count(r => r.Risk == FileRisk.High) ?? 0,
+            round.AnalysisError);
     }
 
     /// <summary>What the agent did right before it raised the item; for a failure, how the run ended.</summary>
