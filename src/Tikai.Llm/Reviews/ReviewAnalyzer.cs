@@ -25,6 +25,9 @@ public sealed record AnalyzerResult(
 public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<ReviewAnalyzer> logger)
 {
     public const string PromptName = "review-analysis.v1";
+
+    /// <summary>For a later round: the same schema, read from the previous analysis and the interdiff.</summary>
+    public const string InterdiffPromptName = "review-analysis-interdiff.v1";
     public static readonly TimeSpan Limit = TimeSpan.FromMinutes(5);
 
     private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
@@ -102,7 +105,9 @@ public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<R
 
     public static int MaxOutputTokens(AnalysisTier tier) => tier == AnalysisTier.Strict ? 16_000 : 8_000;
 
-    public async Task<AnalyzerResult> AnalyzeAsync(LlmConnection connection, string message, AnalysisTier tier, CancellationToken cancellationToken)
+    /// <param name="prompt">The prompt file; <see cref="PromptName"/> or <see cref="InterdiffPromptName"/>.</param>
+    public async Task<AnalyzerResult> AnalyzeAsync(
+        LlmConnection connection, string message, AnalysisTier tier, CancellationToken cancellationToken, string prompt = PromptName)
     {
         var stopwatch = Stopwatch.StartNew();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -111,7 +116,7 @@ public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<R
         {
             using var chat = factory.Create(connection);
             var response = await chat.GetResponseAsync(
-                [new ChatMessage(ChatRole.System, Prompts.Load(PromptName)), new ChatMessage(ChatRole.User, message)],
+                [new ChatMessage(ChatRole.System, Prompts.Load(prompt)), new ChatMessage(ChatRole.User, message)],
                 new ChatOptions
                 {
                     MaxOutputTokens = MaxOutputTokens(tier),
@@ -120,7 +125,7 @@ public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<R
                 timeout.Token);
             var input = response.Usage?.InputTokenCount;
             var output = response.Usage?.OutputTokenCount;
-            LogAnalyzed(PromptName, connection.Model, stopwatch.ElapsedMilliseconds, input, output);
+            LogAnalyzed(prompt, connection.Model, stopwatch.ElapsedMilliseconds, input, output);
             if (Parse(response.Text) is not { } answer)
             {
                 return new AnalyzerResult(null, response.FinishReason == ChatFinishReason.Length
@@ -131,7 +136,7 @@ public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<R
         }
         catch (Exception ex) when (LlmErrors.Describe(ex, connection, Limit, cancellationToken) is { } error)
         {
-            LogFailed(PromptName, connection.Model, ex.GetType().Name, error);
+            LogFailed(prompt, connection.Model, ex.GetType().Name, error);
             return new AnalyzerResult(null, error, IsTransient(ex), null, null, stopwatch.Elapsed);
         }
     }

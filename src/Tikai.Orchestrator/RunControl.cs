@@ -12,12 +12,13 @@ public sealed class RunControl(IRunStore store, IContainerRuntime containers, IO
     /// cancelled at once. A resume that starts meanwhile sees the cancel request and does not take over the run.
     /// </summary>
     /// <returns>False when the run does not exist or has ended.</returns>
+    /// <remarks>See also <see cref="StopAsync"/>, which stops a container without ending its run.</remarks>
     public async Task<bool> CancelAsync(Guid runId, CancellationToken cancellationToken)
     {
         var target = await store.RequestCancelAsync(runId, cancellationToken);
         for (var attempt = 0; attempt < 3 && target is not null && !target.State.IsEnded(); attempt++)
         {
-            if (target is { State: AgentRunState.Running or AgentRunState.Blocked or AgentRunState.InReview, ContainerId: { } containerId })
+            if (target is { State: AgentRunState.Running or AgentRunState.Blocked or AgentRunState.InReview or AgentRunState.ChangesRequested, ContainerId: { } containerId })
             {
                 await containers.StopAsync(containerId, options.Value.StopTimeout, cancellationToken);
                 return true;
@@ -36,4 +37,11 @@ public sealed class RunControl(IRunStore store, IContainerRuntime containers, IO
         }
         return target is not null && !target.State.IsEnded();
     }
+
+    /// <summary>
+    /// Stops an agent container without cancelling its run (e.g. the submission container after a request for changes):
+    /// its end is recorded by the monitor as usual.
+    /// </summary>
+    public Task StopAsync(string containerId, CancellationToken cancellationToken) =>
+        containers.StopAsync(containerId, options.Value.StopTimeout, cancellationToken);
 }

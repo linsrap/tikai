@@ -39,9 +39,11 @@ export function staleKeys(
       // The board and the ticket page show what a run waits for.
       return [['attention-items'], [...ticket, 'runs'], ['runs']]
     case 'ChangeSetChanged':
-      // A new round or a verdict: the review itself (not its files: a round never changes), and the links to it.
+      // A new round, a verdict or a comment: the review itself and its threads (not its files: a round never
+      // changes), and the links to it.
       return [
         ['change-sets', change.changeSetId],
+        ['change-set-threads', change.changeSetId],
         [...ticket, 'runs'],
         ['runs'],
         ['attention-items'],
@@ -49,8 +51,32 @@ export function staleKeys(
   }
 }
 
+/**
+ * Marks the queries stale and re-reads the shown ones. A first load still on its way may have been answered before
+ * the change, and TanStack Query lets an invalidation join a fetch without data instead of starting a new one (the
+ * change would be lost): such fetches are cancelled first, so the re-read starts after the change.
+ */
+export async function invalidateKeys(queryClient: QueryClient, keys: unknown[][]) {
+  await Promise.all(
+    keys.map((queryKey) =>
+      queryClient.cancelQueries({
+        queryKey,
+        predicate: (query) =>
+          query.state.data === undefined && query.state.fetchStatus === 'fetching',
+      }),
+    ),
+  )
+  await Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })))
+}
+
 /** Everything a page can show from live data, re-read after a reconnect or a resync. */
-export const liveKeys: unknown[][] = [['attention-items'], ['runs'], ['projects'], ['change-sets']]
+export const liveKeys: unknown[][] = [
+  ['attention-items'],
+  ['runs'],
+  ['projects'],
+  ['change-sets'],
+  ['change-set-threads'],
+]
 
 type Watch = { method: 'WatchAll' | 'WatchProject' | 'WatchRun'; arg?: string; count: number }
 
@@ -203,9 +229,7 @@ class Live {
   }
 
   private invalidate(keys: unknown[][]) {
-    for (const queryKey of keys) {
-      void this.queryClient?.invalidateQueries({ queryKey })
-    }
+    if (this.queryClient) void invalidateKeys(this.queryClient, keys)
   }
 
   private setStatus(status: LiveStatus) {

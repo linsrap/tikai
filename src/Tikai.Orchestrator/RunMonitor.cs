@@ -142,9 +142,12 @@ public sealed partial class RunMonitor(
             context.Attempt));
         // The end first: if recording it fails (database down), the container stays and the reconciler follows it
         // again, so the note below is written once, by the attempt that recorded the end.
-        if (decision.RetryWithSummary)
+        // A retry applies only to a running run; one that moved on meanwhile (submitted, changes requested) just ends
+        // this container's part.
+        var retried = decision.RetryWithSummary
+            && await WithStoreAsync(store => store.RetryWithSummaryAsync(run.RunId, run.ContainerId, decision.Reason ?? "", cancellationToken));
+        if (retried)
         {
-            await WithStoreAsync(store => store.RetryWithSummaryAsync(run.RunId, run.ContainerId, decision.Reason ?? "", cancellationToken));
             LogRetrying(run.RunId, decision.Reason);
         }
         else
@@ -161,7 +164,7 @@ public sealed partial class RunMonitor(
                 ["text"] = "Agent exited",
                 ["exit_code"] = exitCode,
                 ["oom_killed"] = status?.OomKilled ?? false,
-                ["outcome"] = decision.RetryWithSummary ? "RetryWithSummary" : decision.Trigger.ToString(),
+                ["outcome"] = retried ? "RetryWithSummary" : decision.Trigger.ToString(),
                 ["reason"] = decision.Reason,
             }),
         ], null, cancellationToken));

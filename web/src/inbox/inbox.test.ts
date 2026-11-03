@@ -1,6 +1,18 @@
-import { ago, analysisLine, coverageSummary, waitingCount } from './inbox'
+import { ago, analysisLine, coverageSummary, roundLine, waitingCount } from './inbox'
 
 describe('inbox', () => {
+  it('names a later round and how the agent answered the comments', () => {
+    expect(roundLine(null)).toBeNull()
+    expect(roundLine({ roundNo: 1, answered: 0, unanswered: 0 })).toBeNull()
+    expect(roundLine({ roundNo: 2, answered: 0, unanswered: 0 })).toBe('Round 2')
+    expect(roundLine({ roundNo: 2, answered: 2, unanswered: 1 })).toBe(
+      'Round 2 · the agent answered 2 of 3 threads',
+    )
+    expect(roundLine({ roundNo: 3, answered: 1, unanswered: 0 })).toBe(
+      'Round 3 · the agent answered 1 of 1 thread',
+    )
+  })
+
   it('counts the items an agent waits for', () => {
     expect(waitingCount(undefined)).toBe(0)
     expect(waitingCount([{ blocking: true }, { blocking: false }, { blocking: true }])).toBe(2)

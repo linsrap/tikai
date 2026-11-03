@@ -157,16 +157,17 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         return result.ExitCode == 0 ? result.OutputText.Trim() : null;
     }
 
+    public async Task<string?> BlobIdAsync(string path, string commitSha, string filePath, CancellationToken cancellationToken = default)
+    {
+        CheckFileName(commitSha, filePath);
+        // "<id> blob <size>", or "<name> missing"; the name comes through stdin, never as an argument.
+        var result = await RunAsync(path, ["cat-file", "--batch-check"], cancellationToken, input: Encoding.UTF8.GetBytes($"{commitSha}:{filePath}\n"));
+        return result.OutputText.Trim().Split(' ') is [var id, "blob", _] ? id : null;
+    }
+
     public async Task<byte[]?> ReadFileAsync(string path, string commitSha, string filePath, CancellationToken cancellationToken = default)
     {
-        if (!ObjectId().IsMatch(commitSha))
-        {
-            throw new ArgumentException($"'{commitSha}' is not a full commit id.", nameof(commitSha));
-        }
-        if (string.IsNullOrEmpty(filePath) || filePath.Contains('\n', StringComparison.Ordinal))
-        {
-            throw new ArgumentException($"Invalid file path '{filePath}'.", nameof(filePath));
-        }
+        CheckFileName(commitSha, filePath);
 
         // --batch reads the object name from stdin: no argument parsing, one answer per line.
         var result = await RunAsync(path, ["cat-file", "--batch"], cancellationToken, input: Encoding.UTF8.GetBytes($"{commitSha}:{filePath}\n"));
@@ -275,6 +276,19 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         catch (ProcessOutputLimitException)
         {
             return null;
+        }
+    }
+
+    /// <summary>A "commit:path" object name read from stdin: a full commit id, and a path on one line.</summary>
+    private static void CheckFileName(string commitSha, string filePath)
+    {
+        if (!ObjectId().IsMatch(commitSha))
+        {
+            throw new ArgumentException($"'{commitSha}' is not a full commit id.", nameof(commitSha));
+        }
+        if (string.IsNullOrEmpty(filePath) || filePath.Contains('\n', StringComparison.Ordinal))
+        {
+            throw new ArgumentException($"Invalid file path '{filePath}'.", nameof(filePath));
         }
     }
 

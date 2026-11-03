@@ -8,6 +8,7 @@ export type AttentionKind = components['schemas']['AttentionKind']
 export type AnswerRequest = components['schemas']['AnswerRequest']
 export type ReviewCoverage = components['schemas']['ReviewCoverage']
 export type AnalysisBrief = components['schemas']['AnalysisBrief']
+export type RoundBrief = components['schemas']['RoundBrief']
 
 export const kindLabel: Record<AttentionKind, string> = {
   question: 'Question',
@@ -49,6 +50,15 @@ export function analysisLine(brief: AnalysisBrief): string {
     .join(', ')
   const risk = brief.highRisk === 1 ? '1 high-risk file' : `${brief.highRisk} high-risk files`
   return `Analysis: ${coverage || 'no criteria assessed'} · ${risk}`
+}
+
+/** "Round 2 · the agent answered 3 of 4 threads", for a later round; null for the first. */
+export function roundLine(round: RoundBrief | null): string | null {
+  if (!round || round.roundNo < 2) return null
+  const threads = round.answered + round.unanswered
+  return threads === 0
+    ? `Round ${round.roundNo}`
+    : `Round ${round.roundNo} · the agent answered ${round.answered} of ${threads} thread${threads === 1 ? '' : 's'}`
 }
 
 /** "3 min ago", "2 h ago", or the date for older items. */

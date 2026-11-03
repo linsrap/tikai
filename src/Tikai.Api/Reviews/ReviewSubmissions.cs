@@ -130,6 +130,14 @@ internal sealed partial class ReviewSubmissions(
                     + string.Join(", ", work.Uncommitted.Take(UncommittedInMessage))
                     + (work.Uncommitted.Count > UncommittedInMessage ? ", …" : "") + ". The reviewer sees this list.";
             }
+            // Not a refusal: the reviewer sees which threads got no answer.
+            var unanswered = await db.ReviewThreads.CountAsync(t => t.ChangeSetId == changeSetId && t.Status == ThreadStatus.Open
+                && db.ReviewComments.Any(c => c.ThreadId == t.Id && c.SentAt != null
+                    && !db.ReviewComments.Any(r => r.ThreadId == t.Id && r.AuthorRunId == run.Id && r.CreatedAt > c.CreatedAt)), cancellationToken);
+            if (unanswered > 0)
+            {
+                message += $" {unanswered} review thread{(unanswered == 1 ? " has" : "s have")} no reply from you; the reviewer sees that too.";
+            }
             return new SubmitResult(true, message);
         }
         finally

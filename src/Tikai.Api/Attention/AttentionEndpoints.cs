@@ -152,9 +152,24 @@ internal static class AttentionEndpoints
             .Where(c => runIds.Contains(c.RunId))
             .ToDictionaryAsync(c => c.RunId, c => c.Id, cancellationToken);
         var changeSetIds = changeSets.Values.ToList();
-        var latestRounds = await db.ReviewRounds.AsNoTracking()
+        var latest = await db.ReviewRounds.AsNoTracking()
             .Where(r => changeSetIds.Contains(r.ChangeSetId) && r.RoundNo == db.ReviewRounds.Where(o => o.ChangeSetId == r.ChangeSetId).Max(o => o.RoundNo))
-            .ToDictionaryAsync(r => r.ChangeSetId, Brief, cancellationToken);
+            .ToListAsync(cancellationToken);
+        var latestRounds = latest.ToDictionary(r => r.ChangeSetId, Brief);
+        // Threads the agent was asked to act on, and whether it replied after the last comment sent to it.
+        var sentThreads = await db.ReviewThreads.AsNoTracking()
+            .Where(t => changeSetIds.Contains(t.ChangeSetId) && db.ReviewComments.Any(c => c.ThreadId == t.Id && c.SentAt != null))
+            .Select(t => new
+            {
+                t.ChangeSetId,
+                Answered = !db.ReviewComments.Any(c => c.ThreadId == t.Id && c.SentAt != null
+                    && !db.ReviewComments.Any(r => r.ThreadId == t.Id && r.AuthorRunId != null && r.CreatedAt > c.CreatedAt)),
+            })
+            .ToListAsync(cancellationToken);
+        var roundBriefs = latest.ToDictionary(r => r.ChangeSetId, r => new RoundBrief(
+            r.RoundNo,
+            sentThreads.Count(t => t.ChangeSetId == r.ChangeSetId && t.Answered),
+            sentThreads.Count(t => t.ChangeSetId == r.ChangeSetId && !t.Answered)));
 
         var criterionIds = rows.Where(x => x.Item.Kind == AttentionKind.Review)
             .SelectMany(x => AttentionJson.Deserialize<ReviewPayload>(x.Item.Payload).CriteriaMapping.Select(m => m.CriterionId))
@@ -190,7 +205,9 @@ internal static class AttentionEndpoints
                 item.AnsweredAt,
                 item.Kind == AttentionKind.Review && item.RunId is { } reviewed && changeSets.TryGetValue(reviewed, out var changeSetId) ? changeSetId : null,
                 item.Kind == AttentionKind.Review && item.RunId is { } analysed && changeSets.TryGetValue(analysed, out var analysedSet)
-                    ? latestRounds.GetValueOrDefault(analysedSet) : null));
+                    ? latestRounds.GetValueOrDefault(analysedSet) : null,
+                item.Kind == AttentionKind.Review && item.RunId is { } rounded && changeSets.TryGetValue(rounded, out var roundedSet)
+                    ? roundBriefs.GetValueOrDefault(roundedSet) : null));
         }
         return [.. result.OrderByDescending(i => i.Blocking).ThenByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id)];
     }

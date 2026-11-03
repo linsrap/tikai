@@ -24,7 +24,7 @@ public sealed record FailAction(Guid RunId, AgentRunState State, string? Contain
 /// <summary>The run's container was not listed: check it once more, then end that container's part of the run.</summary>
 public sealed record ContainerGoneAction(Guid RunId, AgentRunState State, string ContainerId) : ReconcileAction(RunId);
 
-/// <summary>Blocked, without a container, nothing open and no job: continue the run.</summary>
+/// <summary>Blocked (or waiting for its fix round), without a container, nothing open and no job: continue the run.</summary>
 public sealed record ResumeAction(Guid RunId) : ReconcileAction(RunId);
 
 /// <summary>The agent waited longer than the block timeout: stop its container (the run stays blocked).</summary>
@@ -55,8 +55,9 @@ public static class RunReconciliation
                     actions.Add(new FailAction(run.RunId, run.State, run.ContainerId,
                         "The start job gave up" + (run.LastJobError is { } error ? $" ({error})" : "") + ". Start a new run."));
                     break;
-                // In review: the agent submitted during its call and its container is still finishing.
-                case { State: AgentRunState.Running or AgentRunState.Blocked or AgentRunState.InReview, ContainerId: { } containerId }:
+                // In review: the agent submitted during its call and its container is still finishing (also after a
+                // request for changes, until it is stopped).
+                case { State: AgentRunState.Running or AgentRunState.Blocked or AgentRunState.InReview or AgentRunState.ChangesRequested, ContainerId: { } containerId }:
                     if (!listed.Contains(containerId))
                     {
                         actions.Add(new ContainerGoneAction(run.RunId, run.State, containerId));
@@ -76,6 +77,7 @@ public static class RunReconciliation
                     actions.Add(new FailAction(run.RunId, run.State, null, "The hub stopped while resuming this run. Start a new run."));
                     break;
                 case { State: AgentRunState.Blocked, ContainerId: null, HasOpenBlockingItem: false, HasLiveJob: false, CancelRequested: false }:
+                case { State: AgentRunState.ChangesRequested, ContainerId: null, HasLiveJob: false, CancelRequested: false }:
                     actions.Add(new ResumeAction(run.RunId));
                     break;
                 default:
@@ -184,6 +186,7 @@ public sealed partial class RunReconciler(
                     AgentRunState.Blocked => new RunEnd(RunTrigger.Block, null, ContainerId: gone.ContainerId),
                     // The work is submitted; only the container is forgotten.
                     AgentRunState.InReview => new RunEnd(RunTrigger.Submit, null, ContainerId: gone.ContainerId),
+                    AgentRunState.ChangesRequested => new RunEnd(RunTrigger.RequestChanges, null, ContainerId: gone.ContainerId),
                     _ => new RunEnd(RunTrigger.Fail, "The agent container disappeared.", ContainerId: gone.ContainerId),
                 };
                 await WithStoreAsync(store => store.EndAsync(gone.RunId, end, cancellationToken));

@@ -73,5 +73,12 @@ public static class RunExit
     public static bool KeepsReview(AgentRunState state, RunTrigger trigger) =>
         state == AgentRunState.InReview && trigger != RunTrigger.Cancel;
 
+    /// <summary>
+    /// A container that ends after a reviewer requested changes (it was stopped for the fix round, or finished on its
+    /// own) leaves the run waiting for its fix-round container. Only a cancel ends it.
+    /// </summary>
+    public static bool KeepsChangesRequested(AgentRunState state, RunTrigger trigger) =>
+        state == AgentRunState.ChangesRequested && trigger != RunTrigger.Cancel;
+
     private static string Code(long exitCode) => exitCode.ToString(CultureInfo.InvariantCulture);
 }

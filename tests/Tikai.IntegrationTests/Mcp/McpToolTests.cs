@@ -125,14 +125,18 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_review_tools_are_stubs_until_review_threads_exist()
+    public async Task Without_comments_sent_to_the_agent_the_review_tools_have_nothing_for_it()
     {
+        // Fix rounds with real threads are in FixRoundTests.
         var ticket = await McpTestKit.CreateTicketAsync(_browser, "hub", "HUB", "Ticket");
         var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
         await using var agent = await McpTestKit.ConnectAsync(_factory, token);
 
-        Assert.Equal("There are no review comments for you.", (await agent.CallAsync("get_review_comments")).Text());
+        var comments = System.Text.Json.JsonDocument.Parse((await agent.CallAsync("get_review_comments")).Text()).RootElement;
+        Assert.Equal("There are no review comments for you.", comments.GetProperty("note").GetString());
+        Assert.Equal(0, comments.GetProperty("threads").GetArrayLength());
         Assert.Contains("get_review_comments", (await agent.CallAsync("reply_to_thread", new { thread_id = "t1", body = "Fixed." })).Error(), StringComparison.Ordinal);
+        Assert.Contains("get_review_comments", (await agent.CallAsync("reply_to_thread", new { thread_id = Guid.NewGuid(), body = "Fixed." })).Error(), StringComparison.Ordinal);
     }
 
     [Fact]

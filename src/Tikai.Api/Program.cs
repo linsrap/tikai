@@ -85,6 +85,7 @@ api.MapRefineSpecEndpoint();
 api.MapAttentionEndpoints();
 api.MapRunEndpoints();
 api.MapChangeSetEndpoints();
+api.MapThreadEndpoints();
 // Unknown API routes are 404s, not the web app's index.html.
 api.Map("/{**path}", () => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found"));
 

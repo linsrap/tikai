@@ -130,29 +130,39 @@ internal sealed class RunStore(
         var anyOpen = blocking.Any(i => i.Status == AttentionStatus.Open);
         var answered = blocking.Where(i => i.Status == AttentionStatus.Answered).Select(i => (i.Id, i.DeliveredAt, Answer: Answered(i))).ToList();
         var toDeliver = answered.Where(a => a.DeliveredAt is null).Select(a => (a.Id, a.Answer)).ToList();
-        if (toDeliver.Count == 0 && answered.Count > 0)
+        // A fix round brings the reviewer's request instead of answers.
+        if (toDeliver.Count == 0 && answered.Count > 0 && run.State != AgentRunState.ChangesRequested)
         {
             // Nothing new (e.g. the reconciler resumed a run whose answer was already handed out): repeat the latest one.
             toDeliver.Add((answered[^1].Id, answered[^1].Answer));
         }
         var approved = answered.LastOrDefault(a => a.Answer is { Kind: AttentionKind.PlanApproval, Answer.Decision: PlanDecision.Approve }).Answer?.Plan;
         var canResume = run.CancelRequestedAt is null && run.ContainerId is null
-            && (run.State == AgentRunState.Blocked && !anyOpen || run.State == AgentRunState.Running);
-        return new ResumeInfo(run.State, canResume, run.CancelRequestedAt is not null, run.SessionId, toDeliver, [.. answered.Select(a => a.Answer)], approved);
+            && (run.State == AgentRunState.Blocked && !anyOpen || run.State is AgentRunState.Running or AgentRunState.ChangesRequested);
+        var latestRound = await db.ReviewRounds.AsNoTracking()
+            .Where(r => db.ChangeSets.Any(c => c.Id == r.ChangeSetId && c.RunId == runId))
+            .OrderByDescending(r => r.RoundNo)
+            .Select(r => new { r.RoundNo, r.Verdict })
+            .FirstOrDefaultAsync(cancellationToken);
+        var changes = latestRound is { Verdict: ReviewVerdict.RequestChanges } ? new ReviewRequest(latestRound.RoundNo) : null;
+        return new ResumeInfo(
+            run.State, canResume, run.CancelRequestedAt is not null, run.SessionId, toDeliver, [.. answered.Select(a => a.Answer)], approved, changes);
     }
 
     public async Task<bool> MarkResumedAsync(Guid runId, string containerId, IReadOnlyList<Guid> deliveredItems, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var run = await RunResumes.LockAsync(db, runId, cancellationToken);
-        if (run is null || run.ContainerId != containerId || run.CancelRequestedAt is not null || run.State is not (AgentRunState.Blocked or AgentRunState.Running))
+        if (run is null || run.ContainerId != containerId || run.CancelRequestedAt is not null
+            || run.State is not (AgentRunState.Blocked or AgentRunState.Running or AgentRunState.ChangesRequested))
         {
             return false;
         }
         var now = timeProvider.GetUtcNow();
-        if (run.State == AgentRunState.Blocked)
+        if (run.State is AgentRunState.Blocked or AgentRunState.ChangesRequested)
         {
-            await db.AgentRuns.Where(r => r.Id == runId && r.State == AgentRunState.Blocked)
+            // Unblock, or Resume for a fix round.
+            await db.AgentRuns.Where(r => r.Id == runId && r.State == run.State)
                 .ExecuteUpdateAsync(s => s.SetProperty(r => r.State, AgentRunState.Running).SetProperty(r => r.UpdatedAt, now), cancellationToken);
         }
         await db.AttentionItems.Where(i => deliveredItems.Contains(i.Id) && i.RunId == runId && i.DeliveredAt == null)
@@ -184,13 +194,14 @@ internal sealed class RunStore(
     public async Task<RunEndContext> GetEndContextAsync(Guid runId, CancellationToken cancellationToken)
     {
         var run = await db.AgentRuns.AsNoTracking().Where(r => r.Id == runId)
-            .Select(r => new { CancelRequested = r.CancelRequestedAt != null, r.AttemptKind })
+            .Select(r => new { CancelRequested = r.CancelRequestedAt != null, r.AttemptKind, r.State })
             .SingleAsync(cancellationToken);
         var items = db.AttentionItems.Where(i => i.RunId == runId);
         var blocking = items.Where(i => AttentionKinds.Blocking.Contains(i.Kind));
         var openBlocking = await blocking.AnyAsync(i => i.Status == AttentionStatus.Open, cancellationToken);
         var undelivered = await blocking.AnyAsync(i => i.Status == AttentionStatus.Answered && i.DeliveredAt == null, cancellationToken);
-        var submitted = await items.AnyAsync(i => i.Kind == AttentionKind.Review, cancellationToken);
+        // The submission moves the run to in_review during the call; a review item of an earlier round does not count.
+        var submitted = run.State == AgentRunState.InReview;
         return new RunEndContext(run.CancelRequested, openBlocking, submitted, undelivered, run.AttemptKind);
     }
 
@@ -335,9 +346,10 @@ internal sealed class RunStore(
             await events.PublishAsync(AgentRun.Topic, runId, cancellationToken);
             return true;
         }
-        // The agent submitted during its call (the run moved to in_review then); its container's end changes nothing but
-        // the container, exit code and cost.
-        if (RunExit.KeepsReview(run.State, outcome.Trigger))
+        // The agent submitted during its call (the run moved to in_review then), or a reviewer requested changes since:
+        // its container's end changes nothing but the container, exit code and cost. A fix round starts once it is gone.
+        var awaitsFix = RunExit.KeepsChangesRequested(run.State, outcome.Trigger);
+        if (RunExit.KeepsReview(run.State, outcome.Trigger) || awaitsFix)
         {
             int? reviewExit = outcome.ExitCode ?? run.ExitCode;
             var (reviewUsd, reviewTokens) = RunCost.After(run, outcome.Cost);
@@ -348,6 +360,10 @@ internal sealed class RunStore(
                     .SetProperty(r => r.CostUsd, reviewUsd)
                     .SetProperty(r => r.CostTokens, reviewTokens)
                     .SetProperty(r => r.UpdatedAt, now), cancellationToken);
+            if (awaitsFix)
+            {
+                await RunResumes.RequestIfReadyAsync(db, jobs, runId, cancellationToken);
+            }
             await events.PublishAsync(AgentRun.Topic, runId, cancellationToken);
             return true;
         }

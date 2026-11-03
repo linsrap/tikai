@@ -135,6 +135,16 @@ public class RunReconciliationTests
     public void Runs_in_review_are_left_alone()
     {
         Assert.Empty(Plan([], [Run(AgentRunState.InReview)]));
-        Assert.Empty(Plan([], [Run(AgentRunState.ChangesRequested)]));
+    }
+
+    [Fact]
+    public void A_run_with_requested_changes_gets_its_fix_round_once_its_container_is_gone()
+    {
+        Assert.Equal([new ResumeAction(_runId)], Plan([], [Run(AgentRunState.ChangesRequested)]));
+        Assert.Empty(Plan([], [Run(AgentRunState.ChangesRequested, liveJob: true)]));
+        Assert.Empty(Plan([], [Run(AgentRunState.ChangesRequested, cancel: true)]));
+        // The container of the submission is still finishing (or being stopped): follow it, and end it once it is gone.
+        Assert.IsType<WatchAction>(Assert.Single(Plan([Container("c1")], [Run(AgentRunState.ChangesRequested, "c1")])));
+        Assert.Equal([new ContainerGoneAction(_runId, AgentRunState.ChangesRequested, "c1")], Plan([], [Run(AgentRunState.ChangesRequested, "c1")]));
     }
 }

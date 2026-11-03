@@ -31,6 +31,8 @@ internal static class ReviewAnalysisJob
 /// <summary>
 /// Analyses a review round with the run's own provider: picks the tier from the diff, the model from the project's
 /// settings, reads the patches within the tier's budget, asks the model and stores the cleaned answer on the round.
+/// A later round with the same base and a done analysis of the round before is analysed by its interdiff (patches
+/// since that round's head, its analysis and the review threads); otherwise by its full diff.
 /// Transient provider errors are retried by the queue; everything else ends the round's analysis as failed, with a
 /// message for people. A failed analysis never blocks the review.
 /// </summary>
@@ -93,31 +95,38 @@ internal sealed partial class ReviewAnalysisJobHandler(
 
         var mirror = mirrors.For(row.ProjectId, row.RepositoryId);
         var round = row.Round;
-        GitDiff diff;
+        var previous = await PreviousAnalysisAsync(round, cancellationToken);
         IReadOnlyList<AnalysisFile> files;
+        IReadOnlyList<AnalysisFile>? interdiffFiles = null;
         try
         {
-            diff = await git.DiffAsync(mirror, round.BaseSha, round.HeadSha, ChangeSetEndpoints.MaxFiles, cancellationToken);
+            var diff = await git.DiffAsync(mirror, round.BaseSha, round.HeadSha, ChangeSetEndpoints.MaxFiles, cancellationToken);
             files = await ChangeSetEndpoints.ClassifyAsync(git, mirror, round.HeadSha, diff, cancellationToken);
+            if (previous is not null)
+            {
+                var since = await git.DiffAsync(mirror, previous.Value.Round.HeadSha, round.HeadSha, ChangeSetEndpoints.MaxFiles, cancellationToken);
+                interdiffFiles = await ChangeSetEndpoints.ClassifyAsync(git, mirror, round.HeadSha, since, cancellationToken);
+            }
         }
         catch (GitException ex)
         {
             await FailAsync(roundId, "The diff could not be read: " + ex.Message.Replace(mirror, "<mirror>", StringComparison.Ordinal), cancellationToken);
             return;
         }
-        var tier = AnalysisTiers.Choose(files);
+        var tier = interdiffFiles is null ? AnalysisTiers.Choose(files) : AnalysisTiers.ChooseForInterdiff(files, interdiffFiles);
         var model = ProjectSettings.Parse(row.Project.Settings).AnalysisModel(tier.Tier);
 
         // Patches in path order until the tier's budget is used; a file that does not fit is only listed.
+        var from = previous?.Round.HeadSha ?? round.BaseSha;
         var patches = new Dictionary<string, string>(StringComparer.Ordinal);
         long budget = AnalysisInput.PatchBudget(tier.Tier);
-        foreach (var file in AnalysisInput.PatchCandidates(files))
+        foreach (var file in AnalysisInput.PatchCandidates(interdiffFiles ?? files))
         {
             if (budget < 200)
             {
                 break;
             }
-            if (await git.PatchAsync(mirror, round.BaseSha, round.HeadSha, file.Path, file.OldPath, budget, cancellationToken) is { Length: > 0 } patch)
+            if (await git.PatchAsync(mirror, from, round.HeadSha, file.Path, file.OldPath, budget, cancellationToken) is { Length: > 0 } patch)
             {
                 patches[file.Path] = patch;
                 budget -= patch.Length;
@@ -132,8 +141,12 @@ internal sealed partial class ReviewAnalysisJobHandler(
             row.Ticket.Description,
             criteria,
             AttentionJson.Deserialize<ReviewPayload>(round.SelfReport),
-            files);
+            files,
+            previous is { } before
+                ? new InterdiffContext(before.Round.RoundNo, before.Analysis, interdiffFiles!, await ThreadsAsync(round.ChangeSetId, cancellationToken))
+                : null);
         var (message, omitted) = AnalysisInput.Build(context, patches);
+        var prompt = previous is null ? ReviewAnalyzer.PromptName : ReviewAnalyzer.InterdiffPromptName;
 
         Core.Llm.LlmConnection connection;
         try
@@ -145,7 +158,7 @@ internal sealed partial class ReviewAnalysisJobHandler(
             await FailAsync(roundId, $"The key of \"{provider.Name}\" cannot be decrypted (the hub's keys changed). Enter the key again.", cancellationToken);
             return;
         }
-        var result = await analyzer.AnalyzeAsync(connection, message, tier.Tier, cancellationToken);
+        var result = await analyzer.AnalyzeAsync(connection, message, tier.Tier, cancellationToken, prompt);
         if (result.Answer is not { } answer)
         {
             if (result.Transient && job.Attempts < job.MaxAttempts)
@@ -165,7 +178,7 @@ internal sealed partial class ReviewAnalysisJobHandler(
             tier.Tier,
             tier.Reason,
             model,
-            ReviewAnalyzer.PromptName,
+            prompt,
             clean.Summary,
             clean.Coverage,
             clean.Groups,
@@ -173,7 +186,8 @@ internal sealed partial class ReviewAnalysisJobHandler(
             omitted,
             result.InputTokens,
             result.OutputTokens,
-            (int)result.Duration.TotalMilliseconds);
+            (int)result.Duration.TotalMilliseconds,
+            previous?.Round.RoundNo);
         var now = timeProvider.GetUtcNow();
         var stored = await db.ReviewRounds.Where(r => r.Id == roundId && r.AnalysisStatus == AnalysisStatus.Pending)
             .ExecuteUpdateAsync(s => s
@@ -187,6 +201,39 @@ internal sealed partial class ReviewAnalysisJobHandler(
             LogAnalysed(roundId, tier.Tier, model, result.InputTokens, result.OutputTokens);
             await events.PublishAsync(ChangeSet.Topic, row.ChangeSet.Id, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// The round before, when this round can be analysed by its interdiff: same base (no rebase) and a done analysis.
+    /// </summary>
+    private async Task<(ReviewRound Round, ReviewAnalysis Analysis)?> PreviousAnalysisAsync(ReviewRound round, CancellationToken cancellationToken)
+    {
+        var previous = await db.ReviewRounds.AsNoTracking()
+            .SingleOrDefaultAsync(r => r.ChangeSetId == round.ChangeSetId && r.RoundNo == round.RoundNo - 1, cancellationToken);
+        return previous is { AnalysisStatus: AnalysisStatus.Done, Analysis: { } json } && previous.BaseSha == round.BaseSha
+            ? (previous, AttentionJson.Deserialize<ReviewAnalysis>(json))
+            : null;
+    }
+
+    /// <summary>The threads the agent was asked to act on: comments sent to it and its replies, oldest first.</summary>
+    private async Task<IReadOnlyList<ThreadText>> ThreadsAsync(Guid changeSetId, CancellationToken cancellationToken)
+    {
+        var threads = await (
+            from t in db.ReviewThreads.AsNoTracking()
+            join r in db.ReviewRounds on t.ReviewRoundId equals r.Id
+            where t.ChangeSetId == changeSetId && db.ReviewComments.Any(c => c.ThreadId == t.Id && c.SentAt != null)
+            orderby t.CreatedAt, t.Id
+            select new { Thread = t, r.RoundNo }).ToListAsync(cancellationToken);
+        var ids = threads.Select(t => t.Thread.Id).ToList();
+        var comments = (await db.ReviewComments.AsNoTracking()
+            .Where(c => ids.Contains(c.ThreadId) && (c.SentAt != null || c.AuthorRunId != null))
+            .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id).ToListAsync(cancellationToken)).ToLookup(c => c.ThreadId);
+        return [.. threads.Select(t => new ThreadText(
+            t.Thread.FilePath is { } path
+                ? $"{path}, lines {t.Thread.LineStart}-{t.Thread.LineEnd} ({(t.Thread.Side == DiffSide.Old ? "old" : "new")} side of round {t.RoundNo})"
+                    + (t.Thread.Status == ThreadStatus.Resolved ? ", resolved" : "")
+                : $"general comment on round {t.RoundNo}",
+            [.. comments[t.Thread.Id].Select(c => (c.AuthorRunId is not null, c.Body))]))];
     }
 
     private async Task FailAsync(Guid roundId, string error, CancellationToken cancellationToken)

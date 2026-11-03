@@ -17,6 +17,7 @@ namespace Tikai.Api.Attention;
 /// <param name="Excerpt">The run's last transcript events before the item was raised (for a failure: the run's last events).</param>
 /// <param name="ChangeSetId">For a review: the submitted work, opened on the review screen (null for reviews from before change sets).</param>
 /// <param name="Analysis">For a review: where the analysis of the change set's latest round stands.</param>
+/// <param name="Round">For a review: the change set's latest round and how the agent answered the comments sent to it.</param>
 public sealed record AttentionItemInfo(
     Guid Id,
     AttentionKind Kind,
@@ -38,7 +39,12 @@ public sealed record AttentionItemInfo(
     DateTimeOffset CreatedAt,
     DateTimeOffset? AnsweredAt,
     Guid? ChangeSetId,
-    AnalysisBrief? Analysis);
+    AnalysisBrief? Analysis,
+    RoundBrief? Round = null);
+
+/// <param name="Answered">Threads with comments sent to the agent that it replied to after the last one.</param>
+/// <param name="Unanswered">Such threads without a reply since.</param>
+public sealed record RoundBrief(int RoundNo, int Answered, int Unanswered);
 
 /// <summary>A review analysis in one line: counts per coverage status and high-risk files (zero until it is done).</summary>
 public sealed record AnalysisBrief(AnalysisStatus Status, int Covered, int Partial, int Missing, int HighRisk, string? Error);

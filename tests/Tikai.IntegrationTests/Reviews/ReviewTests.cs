@@ -122,7 +122,7 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
         }
         Assert.Equal(("Changed, removed, renamed and added files.", 2), (item.Review!.Summary, item.ReviewCoverage.Count));
 
-        // Verdicts: approve and request changes come later; reject ends the run and closes the change.
+        // Verdicts: approve comes later, request changes needs a comment to send; reject ends the run and closes the change.
         foreach (var later in new[] { "approve", "request_changes" })
         {
             using var response = await hub.Browser.PostAsync($"/api/change-sets/{changeSet.Id}/verdict", new { verdict = later });

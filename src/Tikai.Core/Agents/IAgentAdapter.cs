@@ -127,14 +127,22 @@ public interface IAgentOutputParser
 /// <summary>How a new container continues a run.</summary>
 public abstract record RunContinuation;
 
-/// <summary>Continue the agent's own session; the answers it waited for come as a message.</summary>
-public sealed record ResumeSession(string SessionId, IReadOnlyList<AnsweredRequest> Answers) : RunContinuation;
+/// <summary>
+/// Continue the agent's own session; the answers it waited for come as a message, or, when <paramref name="Changes"/>
+/// is set and there are no answers, the reviewer's request for changes.
+/// </summary>
+public sealed record ResumeSession(string SessionId, IReadOnlyList<AnsweredRequest> Answers, ReviewRequest? Changes = null) : RunContinuation;
 
 /// <summary>
 /// A fresh session that knows only what the hub knows: the approved plan, the questions and answers so far, and the
-/// state of the run clone (from a helper container: the hub never runs git there).
+/// state of the run clone (from a helper container: the hub never runs git there). With <paramref name="Changes"/> it
+/// continues a fix round.
 /// </summary>
-public sealed record FreshSession(PlanPayload? ApprovedPlan, IReadOnlyList<AnsweredRequest> Answers, string GitLog, string GitStatus) : RunContinuation;
+public sealed record FreshSession(
+    PlanPayload? ApprovedPlan, IReadOnlyList<AnsweredRequest> Answers, string GitLog, string GitStatus, ReviewRequest? Changes = null) : RunContinuation;
+
+/// <summary>A reviewer requested changes on this round; the agent reads the comments with get_review_comments.</summary>
+public sealed record ReviewRequest(int RoundNo);
 
 /// <summary>A question or plan of the agent and the human's answer.</summary>
 /// <param name="Question">Set for a question.</param>

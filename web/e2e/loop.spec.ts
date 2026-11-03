@@ -256,11 +256,81 @@ test('the review screen flags files, warns about uncommitted work, and rejects',
   await pane.getByRole('button', { name: 'Show diff' }).click()
   await expect(pane.getByText(/Too large to show here/)).toBeVisible()
 
-  // Approve and request changes come later; reject closes the run.
+  // Approve comes later; reject closes the run.
   const verdicts = page.getByLabel('Verdict')
   await expect(verdicts.getByRole('button', { name: 'Approve' })).toBeDisabled()
   page.once('dialog', (dialog) => void dialog.accept())
   await verdicts.getByRole('button', { name: 'Reject' }).click()
   await expect(page.getByText('rejected', { exact: true })).toBeVisible()
   await expect(page.getByText('Cancelled', { exact: true })).toBeVisible()
+})
+
+test('a comment sent to the agent comes back answered, and the next round shows only the interdiff', async ({
+  page,
+  context,
+}) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('ada@example.org')
+  await page.getByLabel('Password').fill('correct horse battery')
+  await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible()
+  const request = page.request
+  await post(request, context, '/api/projects', { name: 'Fixes', slug: 'fixes', key: 'FX' })
+  await post(request, context, '/api/projects/fixes/repositories', { name: 'app' })
+  await post(request, context, '/api/projects/fixes/llm-providers', {
+    name: 'Stub key',
+    defaultModel: 'claude-haiku-5-5',
+    apiKey: 'stub-key-not-used-0123456789',
+    baseUrl: fakeLlm,
+  })
+  await post(request, context, '/api/projects/fixes/tickets', {
+    title: 'Write fix.txt',
+    description: 'A file to fix in review. stub:fix',
+    criteria: ['fix.txt exists'],
+  })
+  await post(request, context, '/api/projects/fixes/tickets/1/runs', {})
+  await page.goto('/projects/fixes/tickets/1')
+  await page.getByRole('link', { name: 'Review', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /Write fix\.txt/ })).toBeVisible()
+
+  // A comment for the agent on the first line of the new fix.txt.
+  const tree = page.getByRole('navigation', { name: 'Changed files' })
+  const pane = page.getByRole('region', { name: 'Diff' })
+  await tree.getByRole('button', { name: /fix\.txt/ }).click()
+  await pane.locator('.editor.modified .view-line').first().click()
+  await pane.getByRole('button', { name: 'Comment on line 1' }).click()
+  await pane.getByLabel('Comment on line 1 of the new version').fill('Say fixed.')
+  await pane.getByRole('button', { name: 'Send to agent' }).click()
+  const thread = pane.getByTestId('thread')
+  await expect(thread.getByText('for the agent, not sent yet')).toBeVisible()
+  await expect(tree.getByText('1 💬')).toBeVisible()
+
+  // Request changes: the comment goes to the agent, which resumes, replies and submits round 2.
+  const verdicts = page.getByLabel('Verdict')
+  await expect(verdicts.getByText('1 comment will be sent to the agent.')).toBeVisible()
+  await verdicts.getByRole('button', { name: 'Request changes…' }).click()
+  await verdicts.getByRole('button', { name: 'Send to the agent' }).click()
+  await expect(page.getByTestId('verdict')).toContainText('changes requested')
+
+  // Round 2 arrives live and opens on its interdiff: only fix.txt, with the thread on the left and the reply.
+  const since = page.getByRole('button', { name: 'Changes since round 1' })
+  await expect(since).toHaveAttribute('aria-pressed', 'true', { timeout: 60_000 })
+  await expect(tree.getByText('0 of 1 files viewed')).toBeVisible()
+  await expect(tree.getByText('Changes since round 1')).toBeVisible()
+  await tree.getByRole('button', { name: /fix\.txt/ }).click()
+  await expect(thread.getByText('sent to agent', { exact: true })).toBeVisible()
+  await expect(thread.getByText('Fixed: Say fixed.')).toBeVisible()
+  await expect(thread.getByText('Agent', { exact: true })).toBeVisible()
+  const analysis = page.getByRole('region', { name: 'Analysis' })
+  await expect(analysis.getByText(/fake interdiff analysis/)).toBeVisible({ timeout: 30_000 })
+
+  // Resolved threads collapse; the full change still has both files.
+  await thread.getByRole('button', { name: 'Resolve' }).click()
+  await expect(thread).toHaveAttribute('data-status', 'resolved')
+  await page.getByRole('button', { name: 'Full change' }).click()
+  await expect(tree.getByText('0 of 2 files viewed')).toBeVisible()
+
+  // The inbox card says how the agent answered.
+  await page.goto('/')
+  await expect(page.getByText('Round 2 · the agent answered 1 of 1 thread')).toBeVisible()
 })

@@ -10,7 +10,8 @@ namespace Tikai.Api.Runs;
 /// <summary>
 /// When a blocked run gets a new container: once it has none (its agent stopped waiting, or was stopped at the block
 /// timeout) and nothing of it is left unanswered. Called when an item is answered, when a container ends and leaves
-/// the run blocked, and by the reconciler; each of them may be first.
+/// the run blocked, and by the reconciler; each of them may be first. A run whose reviewer requested changes gets its
+/// fix-round container the same way, once the container of its submission is gone.
 /// </summary>
 internal static class RunResumes
 {
@@ -24,7 +25,7 @@ internal static class RunResumes
         }
         // Answer, container end and reconciler queue on the run row, so only one of them enqueues.
         var run = await LockAsync(db, runId, cancellationToken);
-        if (run is not { State: AgentRunState.Blocked, ContainerId: null, CancelRequestedAt: null })
+        if (run is not { State: AgentRunState.Blocked or AgentRunState.ChangesRequested, ContainerId: null, CancelRequestedAt: null })
         {
             return false;
         }

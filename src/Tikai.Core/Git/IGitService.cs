@@ -34,6 +34,9 @@ public interface IGitService
     /// <summary>The commit id a revision points to, or null when it does not exist.</summary>
     Task<string?> ResolveCommitAsync(string path, string revision, CancellationToken cancellationToken = default);
 
+    /// <summary>The blob id of a file at a commit, or null when there is no such file (or it is a directory).</summary>
+    Task<string?> BlobIdAsync(string path, string commitSha, string filePath, CancellationToken cancellationToken = default);
+
     /// <summary>A file's content at a commit, or null when the file does not exist there.</summary>
     Task<byte[]?> ReadFileAsync(string path, string commitSha, string filePath, CancellationToken cancellationToken = default);
 

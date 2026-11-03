@@ -17,6 +17,10 @@ export type AnalysisCoverage = components['schemas']['AnalysisCoverage']
 export type CodeRef = components['schemas']['CodeRef']
 export type StoryLayer = components['schemas']['StoryLayer']
 export type Coverage = components['schemas']['CriterionCoverage']
+export type ReviewThread = components['schemas']['ReviewThreadInfo']
+export type ReviewComment = components['schemas']['ReviewCommentInfo']
+export type CommentAction = components['schemas']['CommentAction']
+export type Side = NonNullable<components['schemas']['DiffSide']>
 
 export const kindLetter: Record<ChangeKind, string> = {
   added: 'A',
@@ -248,40 +252,45 @@ export const changeSetQuery = (id: string) =>
   })
 
 // Files and contents have keys of their own: live updates re-read ['change-sets', …] often (run changes), and a
-// round's files never change; only the viewer's own clicks change their viewed state.
-export const reviewFilesQuery = (id: string, round: number) =>
+// round's files never change; only the viewer's own clicks change their viewed state. `full` is the whole change
+// instead of the interdiff since the round before (the same for the first round).
+export const reviewFilesQuery = (id: string, round: number, full = false) =>
   queryOptions({
-    queryKey: ['change-set-files', id, round],
+    queryKey: ['change-set-files', id, round, full],
     queryFn: () =>
       unwrap(
-        api.GET('/api/change-sets/{id}/files', { params: { path: { id }, query: { round } } }),
+        api.GET('/api/change-sets/{id}/files', {
+          params: { path: { id }, query: { round, full } },
+        }),
         'load the changed files',
       ),
   })
 
 /** A round's file never changes: its content is read once. */
-export const reviewFileQuery = (id: string, round: number, path: string) =>
+export const reviewFileQuery = (id: string, round: number, path: string, full = false) =>
   queryOptions({
-    queryKey: ['change-set-file', id, round, path],
+    queryKey: ['change-set-file', id, round, path, full],
     queryFn: () =>
       unwrap(
-        api.GET('/api/change-sets/{id}/file', { params: { path: { id }, query: { round, path } } }),
+        api.GET('/api/change-sets/{id}/file', {
+          params: { path: { id }, query: { round, path, full } },
+        }),
         'load the file',
       ),
     staleTime: Infinity,
   })
 
 /** Marks a file viewed (or not) for the current user; the list shows it at once. */
-export function useViewed(id: string, round: number) {
+export function useViewed(id: string, round: number, full = false) {
   const queryClient = useQueryClient()
-  const key = reviewFilesQuery(id, round).queryKey
+  const key = reviewFilesQuery(id, round, full).queryKey
   return useMutation({
     mutationFn: async ({ path, viewed }: { path: string; viewed: boolean }) => {
       await ensureAntiforgery()
       return unwrap(
         api.PUT('/api/change-sets/{id}/viewed', {
           params: { path: { id } },
-          body: { path, viewed, round },
+          body: { path, viewed, round, full },
         }),
         'save the viewed state',
       )
@@ -293,28 +302,227 @@ export function useViewed(id: string, round: number) {
           : old,
       )
     },
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: key }),
+    // The same file in the other view, and the other view's list, follow on their next read.
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['change-set-files', id] }),
   })
 }
 
+/** A verdict; request changes may carry a message for the agent. */
 export function useVerdict(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (verdict: Verdict) => {
+    mutationFn: async ({ verdict, message }: { verdict: Verdict; message?: string }) => {
       await ensureAntiforgery()
       return unwrap(
-        api.POST('/api/change-sets/{id}/verdict', { params: { path: { id } }, body: { verdict } }),
+        api.POST('/api/change-sets/{id}/verdict', {
+          params: { path: { id } },
+          body: { verdict, message: message?.trim() ? message : null },
+        }),
         'give the verdict',
       )
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['change-sets', id] })
+      void queryClient.invalidateQueries({ queryKey: threadsQuery(id).queryKey })
       void queryClient.invalidateQueries({ queryKey: ['runs'] })
       void queryClient.invalidateQueries({ queryKey: ['attention-items'] })
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
   })
 }
+
+export const threadsQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['change-set-threads', id],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/change-sets/{id}/threads', { params: { path: { id } } }),
+        'load the comments',
+      ),
+  })
+
+/** Where a new thread goes: a round, and a side of that round, or nothing for a general comment. */
+export type NewThread = {
+  roundNo: number
+  path?: string
+  side?: Side
+  lineStart?: number
+  lineEnd?: number
+  body: string
+  action: CommentAction
+}
+
+/** Starting, answering, editing, deleting, resolving and reopening threads; each re-reads the threads. */
+export function useThreads(id: string) {
+  const queryClient = useQueryClient()
+  const onSettled = () => queryClient.invalidateQueries({ queryKey: threadsQuery(id).queryKey })
+  const run = <T>(call: () => Promise<T>) => ensureAntiforgery().then(call)
+  return {
+    create: useMutation({
+      mutationFn: (thread: NewThread) =>
+        run(() =>
+          unwrap(
+            api.POST('/api/change-sets/{id}/threads', { params: { path: { id } }, body: thread }),
+            'save the comment',
+          ),
+        ),
+      onSettled,
+    }),
+    reply: useMutation({
+      mutationFn: ({
+        threadId,
+        body,
+        action,
+      }: {
+        threadId: string
+        body: string
+        action: CommentAction
+      }) =>
+        run(() =>
+          unwrap(
+            api.POST('/api/review-threads/{id}/comments', {
+              params: { path: { id: threadId } },
+              body: { body, action },
+            }),
+            'save the reply',
+          ),
+        ),
+      onSettled,
+    }),
+    edit: useMutation({
+      mutationFn: ({
+        commentId,
+        body,
+        action,
+      }: {
+        commentId: string
+        body: string
+        action: CommentAction
+      }) =>
+        run(() =>
+          unwrap(
+            api.PATCH('/api/review-comments/{id}', {
+              params: { path: { id: commentId } },
+              body: { body, action },
+            }),
+            'change the comment',
+          ),
+        ),
+      onSettled,
+    }),
+    remove: useMutation({
+      mutationFn: (commentId: string) =>
+        run(() =>
+          unwrap(
+            api.DELETE('/api/review-comments/{id}', { params: { path: { id: commentId } } }),
+            'delete the comment',
+          ),
+        ),
+      onSettled,
+    }),
+    status: useMutation({
+      mutationFn: ({ threadId, resolve }: { threadId: string; resolve: boolean }) =>
+        run(() =>
+          unwrap(
+            resolve
+              ? api.POST('/api/review-threads/{id}/resolve', { params: { path: { id: threadId } } })
+              : api.POST('/api/review-threads/{id}/reopen', { params: { path: { id: threadId } } }),
+            resolve ? 'resolve the thread' : 'reopen the thread',
+          ),
+        ),
+      onSettled,
+    }),
+  }
+}
+
+/** "src/a.cs, lines 3–5 (round 1, new)", or "General comment (round 1)". */
+export function threadPlace(thread: ReviewThread): string {
+  if (thread.path === null) return `General comment (round ${thread.roundNo})`
+  const lines =
+    thread.lineEnd !== null && thread.lineEnd !== thread.lineStart
+      ? `lines ${thread.lineStart}–${thread.lineEnd}`
+      : `line ${thread.lineStart}`
+  return `${thread.path}, ${lines} (round ${thread.roundNo}, ${thread.side === 'old' ? 'old version' : 'new version'})`
+}
+
+/** The two panes of a diff: the old version on the left (original), the new one on the right (modified). */
+export type Pane = 'original' | 'modified'
+
+type ShownDiff = Pick<ReviewFiles, 'roundNo' | 'interdiff'>
+
+/**
+ * Which round and side a line of a pane belongs to. In an interdiff of heads the left pane is the round before's head
+ * (its new side); otherwise the panes are the round's base (old) and head (new).
+ */
+export function anchorFor(shown: ShownDiff, pane: Pane): { roundNo: number; side: Side } {
+  if (shown.interdiff === 'heads') {
+    return pane === 'original'
+      ? { roundNo: shown.roundNo - 1, side: 'new' }
+      : { roundNo: shown.roundNo, side: 'new' }
+  }
+  return { roundNo: shown.roundNo, side: pane === 'original' ? 'old' : 'new' }
+}
+
+/** The pane a thread's lines are in, or null when the diff shown has no such version of the file. */
+export function paneOf(
+  thread: Pick<ReviewThread, 'roundNo' | 'side'>,
+  shown: ShownDiff,
+): Pane | null {
+  for (const pane of ['original', 'modified'] as const) {
+    const anchor = anchorFor(shown, pane)
+    if (anchor.roundNo === thread.roundNo && anchor.side === thread.side) return pane
+  }
+  return null
+}
+
+/**
+ * A file's threads: those whose lines are in a pane shown inline at their lines, the rest (other rounds, or the left
+ * pane in the inline diff) listed above the file. The left pane's path is the old path of a rename.
+ */
+export function fileThreads(
+  threads: readonly ReviewThread[],
+  file: Pick<ReviewFile, 'path' | 'oldPath'>,
+  shown: ShownDiff,
+  sideBySide = true,
+): { inline: { thread: ReviewThread; pane: Pane }[]; listed: ReviewThread[] } {
+  const inline: { thread: ReviewThread; pane: Pane }[] = []
+  const listed: ReviewThread[] = []
+  for (const thread of threads) {
+    if (thread.path === null) continue
+    const pane = paneOf(thread, shown)
+    const path = pane === 'original' ? (file.oldPath ?? file.path) : file.path
+    if (pane && thread.path === path && (pane === 'modified' || sideBySide)) {
+      inline.push({ thread, pane })
+    } else if (thread.path === file.path || thread.path === file.oldPath) {
+      listed.push(thread)
+    }
+  }
+  return { inline, listed }
+}
+
+/** Open threads per file path, for the counts in the file list. */
+export function openThreadCounts(threads: readonly ReviewThread[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const thread of threads) {
+    if (thread.path !== null && thread.status === 'open') {
+      counts.set(thread.path, (counts.get(thread.path) ?? 0) + 1)
+    }
+  }
+  return counts
+}
+
+/** "Send to agent" comments of open threads that the next request for changes hands to the agent. */
+export const unsentForAgent = (threads: readonly ReviewThread[]) =>
+  threads
+    .filter((t) => t.status === 'open')
+    .flatMap((t) => t.comments)
+    .filter((c) => c.action === 'send_to_agent' && c.sentAt === null).length
+
+/** "Changes since round 1" or "Full change"; the first round has only its full change. */
+export const viewLabel = (shown: Pick<ReviewFiles, 'view' | 'previousRound'>) =>
+  shown.view === 'interdiff' && shown.previousRound !== null
+    ? `Changes since round ${shown.previousRound}`
+    : 'Full change'
 
 /** Analyses the round again; the review shows "Analysing…" until the job is done. */
 export function useRetryAnalysis(id: string, roundNo: number) {

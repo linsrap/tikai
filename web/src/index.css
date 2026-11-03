@@ -526,3 +526,98 @@ button.link {
     color: #f85149;
   }
 }
+
+/* Review threads: in the diff (a Monaco zone), above a file, and for the whole change. */
+.diff-zone {
+  z-index: 5;
+  font-family: system-ui, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.thread {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: Canvas;
+}
+
+.thread.resolved > summary {
+  opacity: 0.7;
+}
+
+ul.comments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.comment {
+  border-left: 3px solid color-mix(in srgb, currentColor 25%, transparent);
+  padding-left: 0.6rem;
+}
+
+.comment.agent {
+  border-left-color: #8250df;
+}
+
+.comment > p.row {
+  gap: 0.4rem;
+  margin: 0 0 0.15rem;
+}
+
+.comment .markdown > :first-child {
+  margin-top: 0;
+}
+
+.comment .markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.comment-form textarea,
+.request-changes textarea {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.badge.sent {
+  color: #1a7f37;
+}
+
+.badge.unsent {
+  color: #9a6700;
+}
+
+.badge.comments {
+  font-size: 0.75rem;
+  padding: 0 0.4rem;
+}
+
+.request-changes {
+  flex-basis: 100%;
+}
+
+.notice {
+  border-color: #9a6700;
+}
+
+@media (prefers-color-scheme: dark) {
+  .comment.agent {
+    border-left-color: #ab7df8;
+  }
+
+  .badge.sent {
+    color: #3fb950;
+  }
+
+  .badge.unsent {
+    color: #d29922;
+  }
+
+  .notice {
+    border-color: #d29922;
+  }
+}

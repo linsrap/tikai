@@ -178,6 +178,47 @@ public class ClaudeCodeAdapterTests
     }
 
     [Fact]
+    public void A_fix_round_resumes_the_session_with_the_review_request()
+    {
+        var command = _adapter.BuildResumeContainer(Context(), new ResumeSession("c4dfd85f-61e4-4063-bc6a-9b114a060039", [], new ReviewRequest(2))).Command;
+
+        Assert.Equal("c4dfd85f-61e4-4063-bc6a-9b114a060039", After(command, "--resume"));
+        var message = command[1];
+        Assert.StartsWith("A human reviewed round 2 of your work and requested changes.", message, StringComparison.Ordinal);
+        Assert.Contains("get_review_comments", message, StringComparison.Ordinal);
+        Assert.Contains("reply_to_thread", message, StringComparison.Ordinal);
+        Assert.Contains("tikai/HUB-42-4e5f6071", message, StringComparison.Ordinal);
+        Assert.Contains("submit_for_review again", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("{{", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Answers_in_a_fix_round_come_before_the_review_request()
+    {
+        var command = _adapter.BuildResumeContainer(Context(), new ResumeSession("s", [Question("Which file?", "a.txt")], new ReviewRequest(1))).Command;
+
+        Assert.StartsWith("The human answered your ask_human question \"Which file?\"", command[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_fresh_session_in_a_fix_round_gets_the_changes_prompt()
+    {
+        var summary = new FreshSession(
+            new PlanPayload(["Write notes.txt"], [], []), [Question("Which word?", "falcon")], "fda09dd Add notes.txt", "", new ReviewRequest(3));
+
+        var prompt = _adapter.BuildResumeContainer(Context(), summary).Command[1];
+
+        Assert.StartsWith("You are continuing work on the Tikai ticket HUB-42: Add a login page", prompt, StringComparison.Ordinal);
+        Assert.Contains("A human reviewed round 3 and requested changes", prompt, StringComparison.Ordinal);
+        Assert.Contains("The approved plan:\n1. Write notes.txt\n", prompt, StringComparison.Ordinal);
+        Assert.Contains("- You asked: Which word?\n  Answer: falcon", prompt, StringComparison.Ordinal);
+        Assert.Contains("git log of the run branch, newest first:\nfda09dd Add notes.txt\n", prompt, StringComparison.Ordinal);
+        Assert.Contains("--short:\n(clean)", prompt, StringComparison.Ordinal);
+        Assert.Contains("call get_review_comments", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("{{", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_session_file_is_where_claude_code_keeps_sessions_for_the_work_directory()
     {
         Assert.Equal("claude/projects/-run-work/abc.jsonl", _adapter.SessionFile("abc"));
