@@ -21,6 +21,7 @@ export type ReviewThread = components['schemas']['ReviewThreadInfo']
 export type ReviewComment = components['schemas']['ReviewCommentInfo']
 export type CommentAction = components['schemas']['CommentAction']
 export type Side = NonNullable<components['schemas']['DiffSide']>
+export type Delivery = components['schemas']['DeliveryInfo']
 
 export const kindLetter: Record<ChangeKind, string> = {
   added: 'A',
@@ -327,6 +328,55 @@ export function useVerdict(id: string) {
       void queryClient.invalidateQueries({ queryKey: ['runs'] })
       void queryClient.invalidateQueries({ queryKey: ['attention-items'] })
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+/** What Approve does, for its button: merge (squash or merge commit, pushed when there is a remote) or push the branch. */
+export function approveAction(
+  changeSet: Pick<ChangeSet, 'defaultBranch' | 'branch' | 'delivery'>,
+): string {
+  const { mode, mergeStyle, hasRemote } = changeSet.delivery
+  if (mode === 'push_branch' && hasRemote) return `Approve and push ${changeSet.branch}`
+  const how = mergeStyle === 'merge_commit' ? 'merge' : 'squash'
+  return `Approve and ${how} into ${changeSet.defaultBranch}${hasRemote ? ', then push' : ''}`
+}
+
+/** One line on where an approved change is: being delivered, merged or pushed; null while it waits for a verdict. */
+export function deliveryLine(
+  changeSet: Pick<ChangeSet, 'status' | 'defaultBranch' | 'branch' | 'delivery'>,
+): string | null {
+  const { mode, hasRemote, sha } = changeSet.delivery
+  switch (changeSet.status) {
+    case 'delivering':
+      return mode === 'push_branch' && hasRemote
+        ? `Approved. Pushing ${changeSet.branch}…`
+        : `Approved. Merging into ${changeSet.defaultBranch}${hasRemote ? ' and pushing' : ''}…`
+    case 'merged':
+      return `Merged into ${changeSet.defaultBranch} as ${shortSha(sha ?? '')}${hasRemote ? ' and pushed' : ''}.`
+    case 'pushed':
+      return `Pushed ${changeSet.branch} at ${shortSha(sha ?? '')}; merge it on the remote.`
+    default:
+      return null
+  }
+}
+
+/** After a conflict: the agent rebases onto the current default branch and submits a new round. */
+export function useRebase(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      await ensureAntiforgery()
+      return unwrap(
+        api.POST('/api/change-sets/{id}/rebase', { params: { path: { id } } }),
+        'ask the agent to rebase',
+      )
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['change-sets', id] })
+      void queryClient.invalidateQueries({ queryKey: threadsQuery(id).queryKey })
+      void queryClient.invalidateQueries({ queryKey: ['runs'] })
+      void queryClient.invalidateQueries({ queryKey: ['attention-items'] })
     },
   })
 }

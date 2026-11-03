@@ -16,17 +16,24 @@ public sealed record UpdateProjectRequest(string Name);
 /// <summary>A project's settings as the project page edits them.</summary>
 /// <param name="AnalysisModels">The model per review analysis tier; a null model means the default.</param>
 /// <param name="DefaultAnalysisModels">What each tier uses when no model is set.</param>
-public sealed record ProjectSettingsInfo(ReviewModels AnalysisModels, ReviewModels DefaultAnalysisModels)
+/// <param name="Delivery">What Approve does, with the defaults filled in (merge, squash).</param>
+public sealed record ProjectSettingsInfo(ReviewModels AnalysisModels, ReviewModels DefaultAnalysisModels, DeliverySettings Delivery)
 {
-    internal static ProjectSettingsInfo From(Project project) => new(
-        ProjectSettings.Parse(project.Settings).Review?.Models ?? new ReviewModels(),
-        new ReviewModels(
-            ReviewModels.Default(AnalysisTier.Light),
-            ReviewModels.Default(AnalysisTier.Normal),
-            ReviewModels.Default(AnalysisTier.Strict)));
+    internal static ProjectSettingsInfo From(Project project)
+    {
+        var settings = ProjectSettings.Parse(project.Settings);
+        return new(
+            settings.Review?.Models ?? new ReviewModels(),
+            new ReviewModels(
+                ReviewModels.Default(AnalysisTier.Light),
+                ReviewModels.Default(AnalysisTier.Normal),
+                ReviewModels.Default(AnalysisTier.Strict)),
+            settings.DeliveryOrDefault);
+    }
 }
 
-public sealed record UpdateProjectSettingsRequest(ReviewModels AnalysisModels);
+/// <param name="Delivery">Null keeps the stored delivery settings.</param>
+public sealed record UpdateProjectSettingsRequest(ReviewModels AnalysisModels, DeliverySettings? Delivery = null);
 
 /// <summary>A repository as the API shows it. The credential itself is write-only: only its kind is returned.</summary>
 public sealed record RepositoryInfo(
@@ -43,6 +50,12 @@ public sealed record RepositoryInfo(
     internal static RepositoryInfo From(Repository r) =>
         new(r.Id, r.Name, r.RemoteUrl, r.DefaultBranch, r.CredentialKind, r.Status, r.LastError, r.LastFetchedAt, r.CreatedAt);
 }
+
+/// <param name="Credential">Null keeps the repository's credential (none for a local one).</param>
+public sealed record ConnectRemoteRequest(string RemoteUrl, CredentialInput? Credential = null);
+
+/// <param name="Pushed">The hub's default branch was pushed (the remote was empty or behind).</param>
+public sealed record ConnectRemoteInfo(RepositoryInfo Repository, bool Pushed);
 
 /// <param name="RemoteUrl">Null for a new local repository; otherwise the remote to mirror.</param>
 /// <param name="DefaultBranch">Null: "main" for a local repository, detected from the remote otherwise.</param>

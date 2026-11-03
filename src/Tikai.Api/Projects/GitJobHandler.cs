@@ -17,23 +17,29 @@ internal static class GitJob
     public const string Fetch = "fetch";
     public const string Delete = "delete";
 
+    /// <summary>Merge or push an approved change set (<see cref="Reviews.ChangeSetDelivery"/>).</summary>
+    public const string Deliver = "deliver";
+
     /// <summary>Joins the caller's transaction. A failed fetch is not retried: the next period fetches anyway.</summary>
     public static Task EnqueueAsync(IJobQueue jobs, string kind, Repository repository, CancellationToken cancellationToken) =>
         EnqueueAsync(jobs, kind, repository.Id, repository.ProjectId, cancellationToken);
 
-    public static Task EnqueueAsync(IJobQueue jobs, string kind, Guid repositoryId, Guid projectId, CancellationToken cancellationToken) =>
+    public static Task EnqueueAsync(
+        IJobQueue jobs, string kind, Guid repositoryId, Guid projectId, CancellationToken cancellationToken, Guid? changeSetId = null) =>
         jobs.EnqueueAsync(
             Queue,
-            JsonSerializer.Serialize(new Payload(kind, repositoryId, projectId), JsonSerializerOptions.Web),
+            JsonSerializer.Serialize(new Payload(kind, repositoryId, projectId, changeSetId), JsonSerializerOptions.Web),
             maxAttempts: kind == Fetch ? 1 : 3,
             cancellationToken: cancellationToken);
 
-    public sealed record Payload(string Kind, Guid RepositoryId, Guid ProjectId);
+    /// <param name="ChangeSetId">For <see cref="Deliver"/>.</param>
+    public sealed record Payload(string Kind, Guid RepositoryId, Guid ProjectId, Guid? ChangeSetId = null);
 }
 
 /// <summary>
-/// Runs clone, fetch and delete jobs. Git failures (unreachable remote, bad credential) are recorded on the
-/// repository for people to see, and the job completes; only unexpected errors (database down) make it retry.
+/// Runs clone, fetch, delete and deliver jobs. Git failures of a clone or fetch (unreachable remote, bad credential) are
+/// recorded on the repository for people to see, and the job completes; only unexpected errors (database down) make it
+/// retry. A delivery retries failed pushes itself (<see cref="Reviews.ChangeSetDelivery"/>).
 /// </summary>
 internal sealed partial class GitJobHandler(
     TikaiDbContext db,
@@ -41,6 +47,7 @@ internal sealed partial class GitJobHandler(
     MirrorPaths paths,
     MirrorLocks locks,
     RepositoryCredentials credentials,
+    Reviews.ChangeSetDelivery delivery,
     IOptions<RepositorySyncOptions> options,
     TimeProvider timeProvider,
     ILogger<GitJobHandler> logger) : IJobHandler
@@ -57,6 +64,7 @@ internal sealed partial class GitJobHandler(
             GitJob.Clone => CloneAsync(payload.RepositoryId, cancellationToken),
             GitJob.Fetch => FetchAsync(payload.RepositoryId, cancellationToken),
             GitJob.Delete => DeleteAsync(payload.ProjectId, payload.RepositoryId, cancellationToken),
+            GitJob.Deliver => delivery.RunAsync(job, payload.ChangeSetId!.Value, cancellationToken),
             _ => throw new InvalidOperationException($"Unknown git job kind '{payload.Kind}'."),
         });
     }

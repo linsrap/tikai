@@ -15,7 +15,7 @@ export const kindLabel: Record<AttentionKind, string> = {
   permission: 'Permission',
   plan_approval: 'Plan to approve',
   review: 'Ready for review',
-  conflict: 'Conflict',
+  conflict: 'Merge conflict',
   failure: 'Run failed',
 }
 

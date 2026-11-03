@@ -19,6 +19,7 @@ public static class OrchestratorServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<RunMonitor>());
         services.AddHostedService<RunReconciler>();
         services.AddScoped<RunControl>();
+        services.AddScoped<RunCleanup>();
         services.AddSingleton<RunWorkCollector>();
         return services;
     }

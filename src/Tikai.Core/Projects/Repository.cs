@@ -12,7 +12,7 @@ public class Repository : Entity
 
     public required string Name { get; set; }
 
-    /// <summary>Null for a local-only repository. Fixed after creation.</summary>
+    /// <summary>Null for a local-only repository. Set or changed later only through a connect, which checks the histories.</summary>
     public string? RemoteUrl { get; set; }
 
     /// <summary>Empty while the first clone has yet to detect it from the remote.</summary>

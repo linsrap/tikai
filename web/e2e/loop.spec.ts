@@ -256,9 +256,9 @@ test('the review screen flags files, warns about uncommitted work, and rejects',
   await pane.getByRole('button', { name: 'Show diff' }).click()
   await expect(pane.getByText(/Too large to show here/)).toBeVisible()
 
-  // Approve comes later; reject closes the run.
+  // The Approve button says what it does (the third test approves); reject closes the run.
   const verdicts = page.getByLabel('Verdict')
-  await expect(verdicts.getByRole('button', { name: 'Approve' })).toBeDisabled()
+  await expect(verdicts.getByRole('button', { name: 'Approve and squash into main' })).toBeEnabled()
   page.once('dialog', (dialog) => void dialog.accept())
   await verdicts.getByRole('button', { name: 'Reject' }).click()
   await expect(page.getByText('rejected', { exact: true })).toBeVisible()
@@ -333,4 +333,27 @@ test('a comment sent to the agent comes back answered, and the next round shows 
   // The inbox card says how the agent answered.
   await page.goto('/')
   await expect(page.getByText('Round 2 · the agent answered 1 of 1 thread')).toBeVisible()
+
+  // Approve: the hub squashes round 2 into main (a local repository: nothing to push), the run ends merged.
+  await page
+    .getByRole('article', { name: 'Ready for review: FX-1' })
+    .getByRole('link', { name: 'Open review' })
+    .click()
+  await page
+    .getByLabel('Verdict')
+    .getByRole('button', { name: 'Approve and squash into main' })
+    .click()
+  await expect(page.getByTestId('verdict')).toContainText(/Merged into main as [0-9a-f]{8}\./)
+  await expect(page.getByText('Merged', { exact: true })).toBeVisible()
+  await page.goto('/')
+  await expect(page.getByRole('article', { name: /FX-1/ })).toHaveCount(0)
+
+  // main as a bundle, for a clone on people's own computers.
+  const repositories = (await (await request.get('/api/projects/fixes/repositories')).json()) as {
+    id: string
+  }[]
+  const bundle = await request.get(`/api/projects/fixes/repositories/${repositories[0].id}/bundle`)
+  expect(bundle.ok()).toBe(true)
+  expect(bundle.headers()['content-disposition']).toContain('app.bundle')
+  expect((await bundle.body()).subarray(0, 16).toString()).toMatch(/^# v\d git bundle/)
 })

@@ -33,6 +33,9 @@ public sealed record StopForTimeoutAction(Guid RunId, string ContainerId, TimeSp
 /// <summary>A container no run claims.</summary>
 public sealed record RemoveAction(Guid RunId, string ContainerId) : ReconcileAction(RunId);
 
+/// <summary>An ended run whose directory is still there and whose cleanup is not queued: queue it.</summary>
+public sealed record CleanupAction(Guid RunId) : ReconcileAction(RunId);
+
 /// <summary>
 /// Compares the runs that have not ended with the containers on the daemon. Pure, so every case is unit-tested; the
 /// <see cref="RunReconciler"/> reads the inputs (containers first, then runs, so no container of a run created
@@ -41,7 +44,8 @@ public sealed record RemoveAction(Guid RunId, string ContainerId) : ReconcileAct
 public static class RunReconciliation
 {
     public static IReadOnlyList<ReconcileAction> Plan(
-        IReadOnlyList<RunContainer> containers, IReadOnlyList<ActiveRun> runs, IReadOnlySet<Guid> watched, TimeSpan blockTimeout)
+        IReadOnlyList<RunContainer> containers, IReadOnlyList<ActiveRun> runs, IReadOnlySet<Guid> watched, TimeSpan blockTimeout,
+        IReadOnlyList<Guid>? uncleaned = null)
     {
         var actions = new List<ReconcileAction>();
         var listed = containers.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
@@ -87,14 +91,16 @@ public static class RunReconciliation
 
         foreach (var container in containers)
         {
-            // A bundle container belongs to a submit_for_review call in progress; it removes its own.
-            var claimed = active.TryGetValue(container.RunId, out var run)
+            // A bundle container belongs to a submit_for_review call in progress, a cleanup container to a cleanup job
+            // (of an ended run); each removes its own.
+            var claimed = container.Role == SandboxRole.Cleanup || active.TryGetValue(container.RunId, out var run)
                 && (run.ContainerId == container.Id || run.HasLiveJob || container.Role == SandboxRole.Bundle);
             if (!claimed)
             {
                 actions.Add(new RemoveAction(container.RunId, container.Id));
             }
         }
+        actions.AddRange((uncleaned ?? []).Select(id => new CleanupAction(id)));
         return actions;
     }
 }
@@ -103,7 +109,7 @@ public static class RunReconciliation
 /// Brings runs and containers back in line, at startup and then every <see cref="OrchestratorOptions.ReconcileInterval"/>:
 /// follows agent containers nobody follows (after a restart, or after a database error ended a watch), fails runs
 /// nobody works on, resumes blocked runs that were answered meanwhile, stops agents that waited past the block
-/// timeout, and removes containers no run claims. A pass that fails is simply tried again at the next interval.
+/// timeout, removes containers no run claims, and queues the cleanup of ended runs whose directory is still there. A pass that fails is simply tried again at the next interval.
 /// </summary>
 public sealed partial class RunReconciler(
     IServiceScopeFactory scopes,
@@ -143,7 +149,8 @@ public sealed partial class RunReconciler(
         // Containers first: a container created after this listing belongs to a run the next read still sees as active.
         var listed = await containers.ListAsync(cancellationToken);
         var runs = await WithStoreAsync(store => store.ListActiveAsync(cancellationToken));
-        var actions = RunReconciliation.Plan(listed, runs, monitor.Watched.ToHashSet(), _options.BlockTimeout);
+        var uncleaned = await WithStoreAsync(store => store.ListUncleanedAsync(cancellationToken));
+        var actions = RunReconciliation.Plan(listed, runs, monitor.Watched.ToHashSet(), _options.BlockTimeout, uncleaned);
         foreach (var action in actions)
         {
             try
@@ -214,6 +221,9 @@ public sealed partial class RunReconciler(
             case RemoveAction remove:
                 LogRemoving(remove.RunId, remove.ContainerId);
                 await containers.RemoveAsync(remove.ContainerId, CancellationToken.None);
+                break;
+            case CleanupAction clean:
+                await WithStoreAsync(store => store.RequestCleanupAsync(clean.RunId, cancellationToken));
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown action.");

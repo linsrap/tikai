@@ -27,6 +27,18 @@ public class ProjectSettingsTests
     }
 
     [Fact]
+    public void Delivery_defaults_to_squash_merges_and_stores_its_choices_as_snake_case()
+    {
+        Assert.Equal(new DeliverySettings(DeliveryMode.Merge, MergeStyle.Squash), ProjectSettings.Parse("{}").DeliveryOrDefault);
+
+        var json = new ProjectSettings(Delivery: new DeliverySettings(DeliveryMode.PushBranch)).ToJson();
+
+        Assert.Equal("""{"review":null,"delivery":{"mode":"push_branch","merge_style":null}}""", json);
+        Assert.Equal(new DeliverySettings(DeliveryMode.PushBranch, MergeStyle.Squash), ProjectSettings.Parse(json).DeliveryOrDefault);
+        Assert.Equal(MergeStyle.MergeCommit, ProjectSettings.Parse("""{"delivery":{"merge_style":"merge_commit"}}""").DeliveryOrDefault.MergeStyle);
+    }
+
+    [Fact]
     public void Model_ids_are_checked_for_form()
     {
         Assert.Equal([("normal", "Enter a model id such as \"claude-opus-5-5\".")], new ReviewModels("claude-haiku-5-5", "has space").Errors());

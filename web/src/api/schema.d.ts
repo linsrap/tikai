@@ -671,6 +671,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{slug}/repositories/{id}/remote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConnectRemoteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConnectRemoteInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{slug}/repositories/{id}/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{slug}/repositories/{id}/fetch": {
         parameters: {
             query?: never;
@@ -1904,6 +1991,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/change-sets/{id}/rebase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChangeSetInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/change-sets/{id}/rounds/{roundNo}/analysis": {
         parameters: {
             query?: never;
@@ -2140,7 +2273,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {unknown} */
-        AgentRunState: "queued" | "preparing" | "running" | "blocked" | "in_review" | "changes_requested" | "merged" | "failed" | "cancelled";
+        AgentRunState: "queued" | "preparing" | "running" | "blocked" | "in_review" | "changes_requested" | "merged" | "pushed" | "failed" | "cancelled";
         AnalysisBrief: {
             status: components["schemas"]["AnalysisStatus"];
             /** Format: int32 */
@@ -2213,6 +2346,8 @@ export interface components {
             changeSetId: null | string;
             analysis: null | components["schemas"]["AnalysisBrief"];
             round?: null | components["schemas"]["RoundBrief"];
+            conflict?: null | components["schemas"]["ConflictPayload"];
+            deliveryError?: null | string;
         };
         /** @enum {unknown} */
         AttentionKind: "question" | "permission" | "plan_approval" | "review" | "conflict" | "failure";
@@ -2247,9 +2382,10 @@ export interface components {
             rounds: components["schemas"]["ReviewRoundInfo"][];
             /** Format: date-time */
             createdAt: string;
+            delivery: components["schemas"]["DeliveryInfo"];
         };
         /** @enum {unknown} */
-        ChangeSetStatus: "open" | "merged" | "closed";
+        ChangeSetStatus: "open" | "delivering" | "merged" | "pushed" | "closed";
         CodeRef: {
             path: string;
             /** Format: int32 */
@@ -2264,6 +2400,25 @@ export interface components {
         CommentRequest: {
             body: string;
             action: components["schemas"]["CommentAction"];
+        };
+        ConflictInfo: {
+            /** Format: uuid */
+            itemId: string;
+            files: string[];
+        };
+        ConflictPayload: {
+            /** Format: int32 */
+            roundNo: number;
+            defaultBranch: string;
+            files: string[];
+        };
+        ConnectRemoteInfo: {
+            repository: components["schemas"]["RepositoryInfo"];
+            pushed: boolean;
+        };
+        ConnectRemoteRequest: {
+            remoteUrl: string;
+            credential?: null | components["schemas"]["CredentialInput"];
         };
         CreateLlmProviderRequest: {
             name: string;
@@ -2334,6 +2489,20 @@ export interface components {
             email: string;
             displayName: string;
             isAdmin: boolean;
+        };
+        DeliveryInfo: {
+            mode: components["schemas"]["DeliveryMode"];
+            mergeStyle: components["schemas"]["MergeStyle"];
+            hasRemote: boolean;
+            sha: null | string;
+            error: null | string;
+            conflict: null | components["schemas"]["ConflictInfo"];
+        };
+        /** @enum {unknown} */
+        DeliveryMode: "merge" | "push_branch" | null;
+        DeliverySettings: {
+            mode?: null | components["schemas"]["DeliveryMode"];
+            mergeStyle?: null | components["schemas"]["MergeStyle"];
         };
         /** @enum {unknown} */
         DiffSide: "old" | "new" | null;
@@ -2410,6 +2579,8 @@ export interface components {
             password: string;
         };
         /** @enum {unknown} */
+        MergeStyle: "squash" | "merge_commit" | null;
+        /** @enum {unknown} */
         PlanDecision: "approve" | "revise" | null;
         PlanPayload: {
             steps: string[];
@@ -2428,6 +2599,7 @@ export interface components {
         ProjectSettingsInfo: {
             analysisModels: components["schemas"]["ReviewModels"];
             defaultAnalysisModels: components["schemas"]["ReviewModels"];
+            delivery: components["schemas"]["DeliverySettings"];
         };
         QuestionPayload: {
             question: string;
@@ -2726,6 +2898,7 @@ export interface components {
         };
         UpdateProjectSettingsRequest: {
             analysisModels: components["schemas"]["ReviewModels"];
+            delivery?: null | components["schemas"]["DeliverySettings"];
         };
         UpdateTicketRequest: {
             title: string;

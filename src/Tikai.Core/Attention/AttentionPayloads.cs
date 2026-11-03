@@ -57,3 +57,6 @@ public static class AttentionJson
 
 /// <summary>Why a run failed, for the inbox (no answer expected; retry and dismiss come with the inbox).</summary>
 public sealed record FailurePayload(string Reason, int? ExitCode);
+
+/// <summary>An approved round could not be merged: the default branch moved and these files conflict.</summary>
+public sealed record ConflictPayload(int RoundNo, string DefaultBranch, IReadOnlyList<string> Files);

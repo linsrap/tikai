@@ -72,6 +72,18 @@ public interface IRunStore
 
     /// <summary>Marks the run as to be cancelled and returns its state and container.</summary>
     Task<CancelTarget?> RequestCancelAsync(Guid runId, CancellationToken cancellationToken);
+
+    /// <summary>True when the run has ended and its directory has not been removed yet.</summary>
+    Task<bool> NeedsCleanupAsync(Guid runId, CancellationToken cancellationToken);
+
+    /// <summary>The run's directory is gone.</summary>
+    Task MarkCleanedAsync(Guid runId, CancellationToken cancellationToken);
+
+    /// <summary>Ended runs whose directory is still there and for which no runs job is queued (oldest first, a few at a time).</summary>
+    Task<IReadOnlyList<Guid>> ListUncleanedAsync(CancellationToken cancellationToken);
+
+    /// <summary>Queues a cleanup job unless the run has one, or is cleaned already.</summary>
+    Task<bool> RequestCleanupAsync(Guid runId, CancellationToken cancellationToken);
 }
 
 public enum PrepareClaim

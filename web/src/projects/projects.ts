@@ -11,6 +11,8 @@ export type CredentialInput = components['schemas']['CredentialInput']
 export type CreateRepositoryRequest = components['schemas']['CreateRepositoryRequest']
 export type ProjectSettings = components['schemas']['ProjectSettingsInfo']
 export type ReviewModels = components['schemas']['ReviewModels']
+export type DeliverySettings = components['schemas']['DeliverySettings']
+export type ConnectRemoteRequest = components['schemas']['ConnectRemoteRequest']
 
 /** A URL name from a project name: "Tikai Web!" → "tikai-web". The server checks the result. */
 export function suggestSlug(name: string): string {
@@ -211,15 +213,31 @@ export const projectSettingsQuery = (slug: string) =>
       ),
   })
 
+/** Saves the models, and the delivery settings when given (left out, they stay as they are). */
 export const useSaveProjectSettings = (slug: string) =>
   useProjectMutation(
-    (analysisModels: ReviewModels) =>
+    (body: { analysisModels: ReviewModels; delivery?: DeliverySettings }) =>
       unwrap(
-        api.PUT('/api/projects/{slug}/settings', {
-          params: { path: { slug } },
-          body: { analysisModels },
-        }),
+        api.PUT('/api/projects/{slug}/settings', { params: { path: { slug } }, body }),
         'save the settings',
       ),
     ['projects', slug, 'settings'],
   )
+
+/** Gives a local repository its first remote, or a remote one a new URL; the hub pushes when the remote is behind. */
+export const useConnectRemote = (slug: string) =>
+  useProjectMutation(
+    ({ id, ...body }: { id: string } & ConnectRemoteRequest) =>
+      unwrap(
+        api.PUT('/api/projects/{slug}/repositories/{id}/remote', {
+          params: { path: { slug, id } },
+          body,
+        }),
+        'connect the remote',
+      ),
+    ['projects', slug],
+  )
+
+/** The hub's default branch as a git bundle (a plain download with the login cookie). */
+export const bundleUrl = (slug: string, id: string) =>
+  `/api/projects/${encodeURIComponent(slug)}/repositories/${encodeURIComponent(id)}/bundle`

@@ -23,12 +23,24 @@ public class ChangeSet : Entity
     public required string HeadSha { get; set; }
 
     public ChangeSetStatus Status { get; set; }
+
+    /// <summary>The commit that delivered it: the merge (or squash) commit, or the pushed run branch head.</summary>
+    public string? DeliveredSha { get; set; }
+
+    /// <summary>Why the last delivery attempt did not get through (a conflict, a failed push), for people.</summary>
+    public string? DeliveryError { get; set; }
 }
 
 public enum ChangeSetStatus
 {
     Open,
+
+    /// <summary>Approved: the hub is merging and pushing it (or pushing the run branch).</summary>
+    Delivering,
     Merged,
+
+    /// <summary>The run branch is on the remote, to be merged there.</summary>
+    Pushed,
     Closed,
 }
 
@@ -56,6 +68,9 @@ public class ReviewRound : Entity
     public Guid? VerdictById { get; set; }
 
     public DateTimeOffset? VerdictAt { get; set; }
+
+    /// <summary>The request for changes asks the agent to rebase onto the current default branch (after a conflict).</summary>
+    public bool RebaseRequested { get; set; }
 
     /// <summary>Null for rounds from before analyses existed.</summary>
     public AnalysisStatus? AnalysisStatus { get; set; }
@@ -91,6 +106,14 @@ public class FileViewState : Entity
     public required string FilePath { get; set; }
 
     public required string ViewedSha { get; set; }
+}
+
+public static class ChangeSetRules
+{
+    public const int MaxDeliveryErrorLength = 2_000;
+
+    public static string DeliveryError(string error) =>
+        error.Length > MaxDeliveryErrorLength ? error[..(MaxDeliveryErrorLength - 1)] + "…" : error;
 }
 
 public static class ReviewRules

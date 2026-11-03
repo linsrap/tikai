@@ -11,6 +11,7 @@ using Tikai.Core.Attention;
 using Tikai.Core.Events;
 using Tikai.Core.Git;
 using Tikai.Core.Jobs;
+using Tikai.Core.Projects;
 using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
@@ -38,6 +39,7 @@ internal static class ChangeSetEndpoints
         changeSets.MapGet("/{id:guid}/file", FileAsync);
         changeSets.MapPut("/{id:guid}/viewed", ViewedAsync);
         changeSets.MapPost("/{id:guid}/verdict", VerdictAsync);
+        changeSets.MapPost("/{id:guid}/rebase", RebaseAsync);
         changeSets.MapPost("/{id:guid}/rounds/{roundNo:int}/analysis", RetryAnalysisAsync);
     }
 
@@ -176,7 +178,7 @@ internal static class ChangeSetEndpoints
     /// <summary>
     /// The reviewer's verdict on the latest round. Reject closes the run (cancelled), the change set and the review item;
     /// the ticket goes back to open. Request changes hands the "send to agent" comments to the agent and starts a fix
-    /// round (<see cref="RequestChangesAsync"/>). Approve (merge) comes with merging.
+    /// round (<see cref="RequestChangesAsync"/>). Approve delivers the change (<see cref="ApproveAsync"/>).
     /// </summary>
     private static async Task<Results<Ok<ChangeSetInfo>, ValidationProblem, ProblemHttpResult>> VerdictAsync(
         Guid id, VerdictRequest request, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, RunControl control,
@@ -189,11 +191,11 @@ internal static class ChangeSetEndpoints
         }
         if (request.Verdict == ReviewVerdict.Approve)
         {
-            return Conflict("Not available yet", "Approving merges the change; merging is not built yet. Fetch the run branch from the hub to merge it by hand.");
+            return await ApproveAsync(changeSet, user, db, attention, control, jobs, events, timeProvider, cancellationToken);
         }
         if (request.Verdict == ReviewVerdict.RequestChanges)
         {
-            return await RequestChangesAsync(changeSet, request.Message, user, db, attention, control, jobs, events, timeProvider, cancellationToken);
+            return await RequestChangesAsync(changeSet, request.Message, false, user, db, attention, control, jobs, events, timeProvider, cancellationToken);
         }
         var run = await db.AgentRuns.AsNoTracking().SingleAsync(r => r.Id == changeSet.RunId, cancellationToken);
         if (changeSet.Status != ChangeSetStatus.Open || run.State != AgentRunState.InReview)
@@ -236,14 +238,106 @@ internal static class ChangeSetEndpoints
     }
 
     /// <summary>
+    /// Approves the latest round: in one transaction with the run row locked, the round gets the verdict, the change set
+    /// goes open → delivering, the review and conflict items are settled, and a git job merges or pushes it
+    /// (<see cref="ChangeSetDelivery"/>). The run stays in review until that is done. A container still attached is
+    /// stopped.
+    /// </summary>
+    private static async Task<Results<Ok<ChangeSetInfo>, ValidationProblem, ProblemHttpResult>> ApproveAsync(
+        ChangeSet changeSet, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, RunControl control,
+        IJobQueue jobs, IEventPublisher events, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        var id = changeSet.Id;
+        var userId = LlmProviderService.UserId(user);
+        var now = timeProvider.GetUtcNow();
+        string? containerId;
+        await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
+        {
+            var run = await RunResumes.LockAsync(db, changeSet.RunId, cancellationToken);
+            if (run is not { State: AgentRunState.InReview, CancelRequestedAt: null })
+            {
+                return Conflict("Not in review", "This change is not waiting for a review (it was closed, or its run ended).");
+            }
+            var latest = await db.ReviewRounds.Where(r => r.ChangeSetId == id).OrderByDescending(r => r.RoundNo).FirstAsync(cancellationToken);
+            var decided = await db.ReviewRounds.Where(r => r.Id == latest.Id && r.Verdict == null)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.Verdict, ReviewVerdict.Approve)
+                    .SetProperty(r => r.VerdictById, userId)
+                    .SetProperty(r => r.VerdictAt, now)
+                    .SetProperty(r => r.UpdatedAt, now), cancellationToken);
+            var delivering = decided == 0 ? 0 : await db.ChangeSets.Where(c => c.Id == id && c.Status == ChangeSetStatus.Open)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(c => c.Status, ChangeSetStatus.Delivering)
+                    .SetProperty(c => c.DeliveryError, (string?)null)
+                    .SetProperty(c => c.UpdatedAt, now), cancellationToken);
+            if (delivering == 0)
+            {
+                return Conflict("Already decided", "Someone gave a verdict on this round first, or the change was closed. Reload to see it.");
+            }
+            var settled = await db.AttentionItems
+                .Where(i => i.RunId == run.Id && (i.Kind == AttentionKind.Review || i.Kind == AttentionKind.Conflict) && i.Status == AttentionStatus.Open)
+                .Select(i => i.Id).ToListAsync(cancellationToken);
+            foreach (var item in settled)
+            {
+                await attention.DismissAsync(item, userId, cancellationToken);
+            }
+            await db.AppendAsync(run.Id,
+                [new ParsedEvent(RunEventKind.Log, new System.Text.Json.Nodes.JsonObject { ["source"] = "hub", ["text"] = $"Approved in review (round {latest.RoundNo})" })],
+                null, now, cancellationToken);
+            var projectId = await db.Repositories.Where(r => r.Id == changeSet.RepositoryId).Select(r => r.ProjectId).SingleAsync(cancellationToken);
+            await GitJob.EnqueueAsync(jobs, GitJob.Deliver, changeSet.RepositoryId, projectId, cancellationToken, id);
+            await events.PublishAsync(RunEvent.Topic, run.Id, cancellationToken);
+            await events.PublishAsync(AgentRun.Topic, run.Id, cancellationToken);
+            await events.PublishAsync(ChangeSet.Topic, id, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            containerId = run.ContainerId;
+        }
+        if (containerId is not null)
+        {
+            // The agent was told to stop after submitting; its clone is removed once the run ends.
+            await control.StopAsync(containerId, cancellationToken);
+        }
+        return TypedResults.Ok((await InfoAsync(db, id, cancellationToken))!);
+    }
+
+    /// <summary>
+    /// After a conflict: asks the agent to rebase onto the current default branch. A request for changes with a
+    /// generated message (the conflicting files), whose resume brings the default branch into the run directory.
+    /// </summary>
+    private static async Task<Results<Ok<ChangeSetInfo>, ValidationProblem, ProblemHttpResult>> RebaseAsync(
+        Guid id, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, RunControl control,
+        IJobQueue jobs, IEventPublisher events, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        var changeSet = await db.ChangeSets.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
+        if (changeSet is null)
+        {
+            return NotFound();
+        }
+        var conflict = await db.AttentionItems.AsNoTracking()
+            .Where(i => i.RunId == changeSet.RunId && i.Kind == AttentionKind.Conflict && i.Status == AttentionStatus.Open)
+            .OrderByDescending(i => i.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+        if (conflict is null)
+        {
+            return Conflict("No conflict", "This change has no open merge conflict to rebase for.");
+        }
+        var payload = AttentionJson.Deserialize<ConflictPayload>(conflict.Payload);
+        var files = string.Join("\n", payload.Files.Take(50).Select(f => "- " + f));
+        var message = $"Round {payload.RoundNo} was approved, but it does not merge: {payload.DefaultBranch} moved since you started, "
+            + $"and these files conflict:\n{files}\n\nRebase your branch onto the current {payload.DefaultBranch}, resolve the conflicts, "
+            + "check that everything still works, and submit again.";
+        return await RequestChangesAsync(changeSet, message, true, user, db, attention, control, jobs, events, timeProvider, cancellationToken);
+    }
+
+    /// <summary>
     /// Sends the change back to the agent: in one transaction with the run row locked, the latest round gets the
     /// verdict, the message becomes a general thread, every unsent "send to agent" comment of an open thread is marked
     /// sent, the run goes in_review → changes_requested and the ticket back to in progress, and the review item is
     /// dismissed. A container still attached (the agent's submission container) is stopped; once it is gone the fix
     /// round starts (<see cref="RunResumes"/>). Refused when nothing would reach the agent.
     /// </summary>
+    /// <param name="rebase">The request asks for a rebase after a conflict (<see cref="RebaseAsync"/>).</param>
     private static async Task<Results<Ok<ChangeSetInfo>, ValidationProblem, ProblemHttpResult>> RequestChangesAsync(
-        ChangeSet changeSet, string? message, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, RunControl control,
+        ChangeSet changeSet, string? message, bool rebase, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, RunControl control,
         IJobQueue jobs, IEventPublisher events, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         string? text = null;
@@ -279,6 +373,7 @@ internal static class ChangeSetEndpoints
                     .SetProperty(r => r.Verdict, ReviewVerdict.RequestChanges)
                     .SetProperty(r => r.VerdictById, userId)
                     .SetProperty(r => r.VerdictAt, now)
+                    .SetProperty(r => r.RebaseRequested, rebase)
                     .SetProperty(r => r.UpdatedAt, now), cancellationToken);
             if (decided == 0)
             {
@@ -305,14 +400,15 @@ internal static class ChangeSetEndpoints
             await db.Tickets.Where(t => t.Id == run.TicketId && t.Status == TicketStatus.InReview)
                 .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TicketStatus.InProgress).SetProperty(t => t.UpdatedAt, now), cancellationToken);
             var reviewItems = await db.AttentionItems
-                .Where(i => i.RunId == run.Id && i.Kind == AttentionKind.Review && i.Status == AttentionStatus.Open)
+                .Where(i => i.RunId == run.Id && (i.Kind == AttentionKind.Review || i.Kind == AttentionKind.Conflict) && i.Status == AttentionStatus.Open)
                 .Select(i => i.Id).ToListAsync(cancellationToken);
             foreach (var item in reviewItems)
             {
                 await attention.DismissAsync(item, userId, cancellationToken);
             }
+            var note = rebase ? $"Rebase requested after a conflict (round {latest.RoundNo})" : $"Changes requested in review (round {latest.RoundNo})";
             await db.AppendAsync(run.Id,
-                [new ParsedEvent(RunEventKind.Log, new System.Text.Json.Nodes.JsonObject { ["source"] = "hub", ["text"] = $"Changes requested in review (round {latest.RoundNo})" })],
+                [new ParsedEvent(RunEventKind.Log, new System.Text.Json.Nodes.JsonObject { ["source"] = "hub", ["text"] = note })],
                 null, now, cancellationToken);
             // Without a container the fix round starts now; otherwise when the container's end is recorded.
             await RunResumes.RequestIfReadyAsync(db, jobs, run.Id, cancellationToken);
@@ -353,7 +449,7 @@ internal static class ChangeSetEndpoints
             join p in db.Projects on t.ProjectId equals p.Id
             join repo in db.Repositories on c.RepositoryId equals repo.Id
             where c.Id == id
-            select new { ChangeSet = c, Run = r, TicketNumber = t.Number, t.Title, p.Slug, p.Key, RepositoryName = repo.Name, repo.DefaultBranch })
+            select new { ChangeSet = c, Run = r, TicketNumber = t.Number, t.Title, p.Slug, p.Key, p.Settings, RepositoryName = repo.Name, repo.DefaultBranch, repo.RemoteUrl })
             .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
         if (row is null)
         {
@@ -363,6 +459,10 @@ internal static class ChangeSetEndpoints
             .OrderBy(c => c.Position).ToListAsync(cancellationToken);
         var texts = criteria.ToDictionary(c => c.Id, c => c.Text);
         var rounds = await db.ReviewRounds.AsNoTracking().Where(r => r.ChangeSetId == id).OrderBy(r => r.RoundNo).ToListAsync(cancellationToken);
+        var delivery = ProjectSettings.Parse(row.Settings).DeliveryOrDefault;
+        var conflict = await db.AttentionItems.AsNoTracking()
+            .Where(i => i.RunId == row.Run.Id && i.Kind == AttentionKind.Conflict && i.Status == AttentionStatus.Open)
+            .OrderByDescending(i => i.CreatedAt).FirstOrDefaultAsync(cancellationToken);
         return new ChangeSetInfo(
             row.ChangeSet.Id,
             row.ChangeSet.Status,
@@ -392,7 +492,14 @@ internal static class ChangeSetEndpoints
                     r.CreatedAt,
                     Analysis(r));
             })],
-            row.ChangeSet.CreatedAt);
+            row.ChangeSet.CreatedAt,
+            new DeliveryInfo(
+                delivery.Mode ?? DeliveryMode.Merge,
+                delivery.MergeStyle ?? MergeStyle.Squash,
+                row.RemoteUrl is not null,
+                row.ChangeSet.DeliveredSha,
+                row.ChangeSet.DeliveryError,
+                conflict is null ? null : new ConflictInfo(conflict.Id, AttentionJson.Deserialize<ConflictPayload>(conflict.Payload).Files)));
     }
 
     internal static AnalysisInfo? Analysis(ReviewRound round) => round.AnalysisStatus is { } status

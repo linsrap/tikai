@@ -17,6 +17,16 @@ public class RunReconciliationTests
     private static IReadOnlyList<ReconcileAction> Plan(IReadOnlyList<RunContainer> containers, ActiveRun[] runs, params Guid[] watched) =>
         RunReconciliation.Plan(containers, runs, watched.ToHashSet(), _timeout);
 
+    [Fact]
+    public void An_ended_runs_directory_is_cleaned_up_and_its_cleanup_container_is_left_to_the_job()
+    {
+        var ended = Guid.Parse("019a2b3c-4d5e-7f00-8a1b-2c3d4e5f6072");
+
+        var actions = RunReconciliation.Plan([Container("clean", role: SandboxRole.Cleanup, runId: ended)], [], new HashSet<Guid>(), _timeout, [ended]);
+
+        Assert.Equal([new CleanupAction(ended)], actions);
+    }
+
     [Theory]
     [InlineData(AgentRunState.Queued)]
     [InlineData(AgentRunState.Preparing)]

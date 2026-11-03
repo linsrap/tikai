@@ -15,6 +15,7 @@ public class RunStateMachineTests
         [(AgentRunState.InReview, RunTrigger.RequestChanges)] = AgentRunState.ChangesRequested,
         [(AgentRunState.ChangesRequested, RunTrigger.Resume)] = AgentRunState.Running,
         [(AgentRunState.InReview, RunTrigger.Merge)] = AgentRunState.Merged,
+        [(AgentRunState.InReview, RunTrigger.Push)] = AgentRunState.Pushed,
     };
 
     public static TheoryData<AgentRunState, RunTrigger> AllPairs()
@@ -54,6 +55,14 @@ public class RunStateMachineTests
             state = RunStateMachine.Next(state, trigger) ?? throw new InvalidOperationException($"{trigger} refused in {state}");
         }
         Assert.Equal(AgentRunState.Merged, state);
+    }
+
+    [Fact]
+    public void A_pushed_branch_ends_the_run_like_a_merge()
+    {
+        Assert.True(AgentRunState.Pushed.IsEnded());
+        Assert.Equal([AgentRunState.Merged, AgentRunState.Pushed, AgentRunState.Failed, AgentRunState.Cancelled], AgentRunStates.Ended);
+        Assert.Equal([AgentRunState.InReview], RunStateMachine.From(RunTrigger.Push));
     }
 
     [Fact]

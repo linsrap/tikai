@@ -63,6 +63,9 @@ public static class RunLayout
     public const string Work = "/run/work";
     public const string Home = "/run/home";
     public const string Prep = "/run/prep";
+
+    /// <summary>The current default branch as a git bundle, written before a rebase round (root-owned, read-only).</summary>
+    public const string DefaultBundle = "/run/prep/default.bundle";
 }
 
 /// <summary>A file or directory written into the run directory by the hub.</summary>
@@ -142,7 +145,14 @@ public sealed record FreshSession(
     PlanPayload? ApprovedPlan, IReadOnlyList<AnsweredRequest> Answers, string GitLog, string GitStatus, ReviewRequest? Changes = null) : RunContinuation;
 
 /// <summary>A reviewer requested changes on this round; the agent reads the comments with get_review_comments.</summary>
-public sealed record ReviewRequest(int RoundNo);
+/// <param name="Rebase">Set when the round could not be merged: the agent rebases onto the current default branch.</param>
+public sealed record ReviewRequest(int RoundNo, RebaseRequest? Rebase = null);
+
+/// <summary>
+/// The default branch moved and the change conflicts with it. The hub puts the current default branch into the run
+/// directory as a bundle (<see cref="RunLayout.DefaultBundle"/>); the agent fetches it and rebases.
+/// </summary>
+public sealed record RebaseRequest(string DefaultBranch, IReadOnlyList<string> ConflictFiles);
 
 /// <summary>A question or plan of the agent and the human's answer.</summary>
 /// <param name="Question">Set for a question.</param>

@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Tikai.Core.Git;
 using Tikai.Core.Jobs;
@@ -13,7 +15,9 @@ internal sealed class RepositoryService(
     IJobQueue jobs,
     IGitService git,
     MirrorPaths paths,
+    MirrorLocks locks,
     RepositoryCredentials credentials,
+    IOptions<RepositorySyncOptions> syncOptions,
     TimeProvider timeProvider)
 {
     /// <summary>A new bare repository on the hub, ready at once. Throws <see cref="DbUpdateException"/> for a duplicate name.</summary>
@@ -58,6 +62,41 @@ internal sealed class RepositoryService(
     {
         (repository.CredentialKind, repository.EncryptedCredential) = credentials.Protect(credential);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Connects the repository to <paramref name="remote"/> (a local one gets its first remote, a remote one a new URL)
+    /// under the mirror lock: the hub fetches, pushes its default branch when the remote is empty or behind, and only
+    /// then stores the remote. Throws <see cref="GitException"/> with a reason for people when the histories do not fit
+    /// or the remote cannot be reached; nothing changes then.
+    /// </summary>
+    /// <param name="credential">Null keeps the stored credential.</param>
+    public async Task<bool> ConnectRemoteAsync(Repository repository, GitRemoteUrl remote, CredentialInput? credential, CancellationToken cancellationToken)
+    {
+        var (kind, encrypted) = credential is null ? (repository.CredentialKind, repository.EncryptedCredential) : credentials.Protect(credential);
+        GitCredential? secret;
+        try
+        {
+            secret = credentials.Unprotect(new Repository { Name = repository.Name, DefaultBranch = repository.DefaultBranch, CredentialKind = kind, EncryptedCredential = encrypted });
+        }
+        catch (CryptographicException)
+        {
+            throw new GitException("The stored credential cannot be decrypted (the hub's keys changed). Enter the credential again.");
+        }
+
+        ConnectResult result;
+        using (await locks.AcquireAsync(repository.Id, cancellationToken))
+        {
+            result = await git.ConnectRemoteAsync(paths.For(repository.ProjectId, repository.Id), remote, secret, repository.DefaultBranch, cancellationToken);
+        }
+        var now = timeProvider.GetUtcNow();
+        repository.RemoteUrl = remote.Value;
+        (repository.CredentialKind, repository.EncryptedCredential) = (kind, encrypted);
+        repository.LastError = null;
+        repository.LastFetchedAt = now;
+        repository.NextFetchAt = now + syncOptions.Value.FetchInterval;
+        await db.SaveChangesAsync(cancellationToken);
+        return result.Pushed;
     }
 
     /// <summary>Queues a fetch, or a new clone when the first one failed. Does nothing while a clone is queued.</summary>

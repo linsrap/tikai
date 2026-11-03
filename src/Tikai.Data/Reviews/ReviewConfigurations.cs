@@ -12,10 +12,16 @@ internal sealed class ChangeSetConfiguration : IEntityTypeConfiguration<ChangeSe
 {
     public void Configure(EntityTypeBuilder<ChangeSet> builder)
     {
-        builder.ToTable("change_sets", table => table.HasCheckConstraint("ck_change_sets_status", SnakeCaseEnum.CheckIn<ChangeSetStatus>("status")));
+        builder.ToTable("change_sets", table =>
+        {
+            table.HasCheckConstraint("ck_change_sets_status", SnakeCaseEnum.CheckIn<ChangeSetStatus>("status"));
+            table.HasCheckConstraint("ck_change_sets_delivered", "(status IN ('merged', 'pushed')) = (delivered_sha IS NOT NULL)");
+        });
         builder.Property(c => c.Status).HasConversion(SnakeCaseEnum.Converter<ChangeSetStatus>()).HasMaxLength(20);
         builder.Property(c => c.BaseSha).HasMaxLength(64);
         builder.Property(c => c.HeadSha).HasMaxLength(64);
+        builder.Property(c => c.DeliveredSha).HasMaxLength(64);
+        builder.Property(c => c.DeliveryError).HasMaxLength(ChangeSetRules.MaxDeliveryErrorLength);
 
         // Reviews are the audit trail, like runs: nothing they point to can be deleted.
         builder.HasOne<Ticket>().WithMany().HasForeignKey(c => c.TicketId).OnDelete(DeleteBehavior.Restrict);

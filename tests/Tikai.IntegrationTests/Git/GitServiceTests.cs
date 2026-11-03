@@ -171,13 +171,13 @@ public sealed class GitServiceTests : IDisposable
         var secret = await TestGit.CommitAsync(path, "other-team/secret", "Secret", ("s.txt", "s"));
         var bundle = _temp.Combine("run.bundle");
 
-        await _git.CreateBundleAsync(path, "main", bundle, ct);
+        await _git.CreateBundleAsync(path, "main", bundle, cancellationToken: ct);
 
         Assert.Equal($"{main} refs/heads/main", await TestGit.RunAsync(null, "bundle", "list-heads", bundle));
         var clone = _temp.Combine("clone.git");
         await TestGit.RunAsync(null, "clone", "--quiet", "--bare", bundle, clone);
         await Assert.ThrowsAsync<InvalidOperationException>(() => TestGit.RunAsync(clone, "cat-file", "-e", secret));
-        await Assert.ThrowsAsync<GitException>(() => _git.CreateBundleAsync(path, "empty", _temp.Combine("none.bundle"), ct));
+        await Assert.ThrowsAsync<GitException>(() => _git.CreateBundleAsync(path, "empty", _temp.Combine("none.bundle"), cancellationToken: ct));
     }
 
     [Fact]

@@ -38,9 +38,9 @@ public class RunTokenTests
     }
 
     [Fact]
-    public void Ended_states_are_merged_failed_and_cancelled()
+    public void Ended_states_are_merged_pushed_failed_and_cancelled()
     {
-        Assert.Equal([AgentRunState.Merged, AgentRunState.Failed, AgentRunState.Cancelled], AgentRunStates.Ended);
+        Assert.Equal([AgentRunState.Merged, AgentRunState.Pushed, AgentRunState.Failed, AgentRunState.Cancelled], AgentRunStates.Ended);
         Assert.False(AgentRunState.Blocked.IsEnded());
     }
 }
