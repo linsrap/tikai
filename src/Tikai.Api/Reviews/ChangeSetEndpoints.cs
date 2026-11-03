@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Tikai.Api.Attention;
 using Tikai.Api.Llm;
 using Tikai.Api.Projects;
+using Tikai.Api.Runs;
 using Tikai.Api.Tickets;
 using Tikai.Core.Agents;
 using Tikai.Core.Attention;
@@ -22,8 +23,8 @@ using Tikai.Review.Analysis;
 namespace Tikai.Api.Reviews;
 
 /// <summary>
-/// The review screen's API. Diffs and file contents are computed in the mirror on every request, between a round's base
-/// and head; blob ids come from that diff, never from the client.
+/// The review screen's API. Diffs and file contents are computed in the mirror on every request, for a round's full
+/// change or its interdiff (<see cref="ReviewDiffs"/>); blob ids come from that diff, never from the client.
 /// </summary>
 internal static class ChangeSetEndpoints
 {
@@ -43,15 +44,20 @@ internal static class ChangeSetEndpoints
     private static async Task<Results<Ok<ChangeSetInfo>, ProblemHttpResult>> GetAsync(Guid id, TikaiDbContext db, CancellationToken cancellationToken) =>
         await InfoAsync(db, id, cancellationToken) is { } info ? TypedResults.Ok(info) : NotFound();
 
-    /// <summary>The round's changed files (default: the latest round), with flags and the caller's viewed state.</summary>
+    /// <summary>
+    /// The round's changed files (default: the latest round): the interdiff since the round before, which for the first
+    /// round is the full change, or with <paramref name="full"/> the whole change; with flags and the caller's viewed state.
+    /// </summary>
     private static async Task<Results<Ok<ReviewFilesInfo>, ProblemHttpResult>> FilesAsync(
-        Guid id, ClaimsPrincipal user, TikaiDbContext db, IGitService git, MirrorPaths mirrors, CancellationToken cancellationToken, int? round = null)
+        Guid id, ClaimsPrincipal user, TikaiDbContext db, IGitService git, MirrorPaths mirrors, CancellationToken cancellationToken,
+        int? round = null, bool full = false)
     {
         if (await RoundAsync(db, mirrors, id, round, cancellationToken) is not { } target)
         {
             return NotFound();
         }
-        var diff = await git.DiffAsync(target.Mirror, target.Round.BaseSha, target.Round.HeadSha, MaxFiles, cancellationToken);
+        var shown = await ReviewDiffs.ForAsync(git, target.Mirror, target.Round, target.Previous, View(full), MaxFiles, cancellationToken);
+        var diff = shown.Diff;
         var classified = await ClassifyAsync(git, target.Mirror, target.Round.HeadSha, diff, cancellationToken);
         var userId = LlmProviderService.UserId(user);
         var viewed = await db.FileViewStates.AsNoTracking()
@@ -74,7 +80,19 @@ internal static class ChangeSetEndpoints
                 viewed.TryGetValue(f.Path, out var sha) && sha == ReviewRules.ViewKey(f.NewBlob),
                 Languages.For(f.Path));
         }).ToList();
-        return TypedResults.Ok(new ReviewFilesInfo(target.Round.RoundNo, target.Round.BaseSha, target.Round.HeadSha, files, diff.Truncated));
+        return TypedResults.Ok(new ReviewFilesInfo(
+            target.Round.RoundNo,
+            target.Round.BaseSha,
+            target.Round.HeadSha,
+            files,
+            diff.Truncated,
+            shown.View,
+            shown.Kind,
+            shown.FromSha,
+            shown.ToSha,
+            target.Previous?.RoundNo,
+            target.Previous?.BaseSha,
+            shown.Dropped));
     }
 
     /// <summary>The diff's files with their review flags (the head's .gitattributes counts), in the diff's order.</summary>
@@ -92,15 +110,16 @@ internal static class ChangeSetEndpoints
             classifier.Classify(f.Path, null, f.Additions, f.Deletions)))];
     }
 
-    /// <summary>Both sides of one changed file of the round, as text when it is text and not too large.</summary>
+    /// <summary>Both sides of one changed file of the round's interdiff (or whole change), as text when it is text and not too large.</summary>
     private static async Task<Results<Ok<FileContentsInfo>, ProblemHttpResult>> FileAsync(
-        Guid id, string path, TikaiDbContext db, IGitService git, MirrorPaths mirrors, CancellationToken cancellationToken, int? round = null)
+        Guid id, string path, TikaiDbContext db, IGitService git, MirrorPaths mirrors, CancellationToken cancellationToken,
+        int? round = null, bool full = false)
     {
         if (await RoundAsync(db, mirrors, id, round, cancellationToken) is not { } target)
         {
             return NotFound();
         }
-        var diff = await git.DiffAsync(target.Mirror, target.Round.BaseSha, target.Round.HeadSha, int.MaxValue, cancellationToken);
+        var diff = (await ReviewDiffs.ForAsync(git, target.Mirror, target.Round, target.Previous, View(full), int.MaxValue, cancellationToken)).Diff;
         if (diff.Files.FirstOrDefault(f => f.Path == path) is not { } file)
         {
             return ProjectEndpoints.NotFound("File");
@@ -129,7 +148,7 @@ internal static class ChangeSetEndpoints
         {
             return NotFound();
         }
-        var diff = await git.DiffAsync(target.Mirror, target.Round.BaseSha, target.Round.HeadSha, int.MaxValue, cancellationToken);
+        var diff = (await ReviewDiffs.ForAsync(git, target.Mirror, target.Round, target.Previous, View(request.Full), int.MaxValue, cancellationToken)).Diff;
         if (diff.Files.FirstOrDefault(f => f.Path == request.Path) is not { } file)
         {
             return ProjectEndpoints.NotFound("File");
@@ -156,22 +175,25 @@ internal static class ChangeSetEndpoints
 
     /// <summary>
     /// The reviewer's verdict on the latest round. Reject closes the run (cancelled), the change set and the review item;
-    /// the ticket goes back to open. Approve (merge) and request changes (a fix round) come in later versions.
+    /// the ticket goes back to open. Request changes hands the "send to agent" comments to the agent and starts a fix
+    /// round (<see cref="RequestChangesAsync"/>). Approve (merge) comes with merging.
     /// </summary>
-    private static async Task<Results<Ok<ChangeSetInfo>, ProblemHttpResult>> VerdictAsync(
+    private static async Task<Results<Ok<ChangeSetInfo>, ValidationProblem, ProblemHttpResult>> VerdictAsync(
         Guid id, VerdictRequest request, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, RunControl control,
-        IEventPublisher events, TimeProvider timeProvider, CancellationToken cancellationToken)
+        IJobQueue jobs, IEventPublisher events, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         var changeSet = await db.ChangeSets.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
         if (changeSet is null)
         {
             return NotFound();
         }
-        if (request.Verdict != ReviewVerdict.Reject)
+        if (request.Verdict == ReviewVerdict.Approve)
         {
-            return Conflict("Not available yet", request.Verdict == ReviewVerdict.Approve
-                ? "Approving merges the change; merging is not built yet. Fetch the run branch from the hub to merge it by hand."
-                : "Requesting changes resumes the agent with your comments; that is not built yet.");
+            return Conflict("Not available yet", "Approving merges the change; merging is not built yet. Fetch the run branch from the hub to merge it by hand.");
+        }
+        if (request.Verdict == ReviewVerdict.RequestChanges)
+        {
+            return await RequestChangesAsync(changeSet, request.Message, user, db, attention, control, jobs, events, timeProvider, cancellationToken);
         }
         var run = await db.AgentRuns.AsNoTracking().SingleAsync(r => r.Id == changeSet.RunId, cancellationToken);
         if (changeSet.Status != ChangeSetStatus.Open || run.State != AgentRunState.InReview)
@@ -210,6 +232,101 @@ internal static class ChangeSetEndpoints
         }
         // The run ends cancelled (its container is stopped if it is still finishing); that closes the change set.
         await control.CancelAsync(run.Id, cancellationToken);
+        return TypedResults.Ok((await InfoAsync(db, id, cancellationToken))!);
+    }
+
+    /// <summary>
+    /// Sends the change back to the agent: in one transaction with the run row locked, the latest round gets the
+    /// verdict, the message becomes a general thread, every unsent "send to agent" comment of an open thread is marked
+    /// sent, the run goes in_review → changes_requested and the ticket back to in progress, and the review item is
+    /// dismissed. A container still attached (the agent's submission container) is stopped; once it is gone the fix
+    /// round starts (<see cref="RunResumes"/>). Refused when nothing would reach the agent.
+    /// </summary>
+    private static async Task<Results<Ok<ChangeSetInfo>, ValidationProblem, ProblemHttpResult>> RequestChangesAsync(
+        ChangeSet changeSet, string? message, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, RunControl control,
+        IJobQueue jobs, IEventPublisher events, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        string? text = null;
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            (text, var error) = ThreadRules.Body(message);
+            if (text is null)
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["message"] = [error!] });
+            }
+        }
+        var id = changeSet.Id;
+        var userId = LlmProviderService.UserId(user);
+        var now = timeProvider.GetUtcNow();
+        string? containerId;
+        await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
+        {
+            var run = await RunResumes.LockAsync(db, changeSet.RunId, cancellationToken);
+            var open = await db.ChangeSets.AnyAsync(c => c.Id == id && c.Status == ChangeSetStatus.Open, cancellationToken);
+            if (!open || run is not { State: AgentRunState.InReview, CancelRequestedAt: null })
+            {
+                return Conflict("Not in review", "This change is not waiting for a review (it was closed, or its run ended).");
+            }
+            var unsent = db.ReviewComments.Where(c => c.Action == CommentAction.SendToAgent && c.SentAt == null
+                && db.ReviewThreads.Any(t => t.Id == c.ThreadId && t.ChangeSetId == id && t.Status == ThreadStatus.Open));
+            if (text is null && !await unsent.AnyAsync(cancellationToken))
+            {
+                return Conflict("Nothing to send", "Add a comment with \"Send to agent\", or a message, so the agent knows what to change.");
+            }
+            var latest = await db.ReviewRounds.Where(r => r.ChangeSetId == id).OrderByDescending(r => r.RoundNo).FirstAsync(cancellationToken);
+            var decided = await db.ReviewRounds.Where(r => r.Id == latest.Id && r.Verdict == null)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.Verdict, ReviewVerdict.RequestChanges)
+                    .SetProperty(r => r.VerdictById, userId)
+                    .SetProperty(r => r.VerdictAt, now)
+                    .SetProperty(r => r.UpdatedAt, now), cancellationToken);
+            if (decided == 0)
+            {
+                return Conflict("Already decided", "Someone gave a verdict on this round first. Reload to see it.");
+            }
+            await unsent.ExecuteUpdateAsync(s => s.SetProperty(c => c.SentAt, now).SetProperty(c => c.UpdatedAt, now), cancellationToken);
+            if (text is not null)
+            {
+                var thread = new ReviewThread { ChangeSetId = id, ReviewRoundId = latest.Id, Status = ThreadStatus.Open, CreatedById = userId };
+                db.ReviewThreads.Add(thread);
+                await db.SaveChangesAsync(cancellationToken);
+                db.ReviewComments.Add(new ReviewComment
+                {
+                    ThreadId = thread.Id,
+                    AuthorUserId = userId,
+                    Body = text,
+                    Action = CommentAction.SendToAgent,
+                    SentAt = now,
+                });
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            await db.AgentRuns.Where(r => r.Id == run.Id && r.State == AgentRunState.InReview)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.State, AgentRunState.ChangesRequested).SetProperty(r => r.UpdatedAt, now), cancellationToken);
+            await db.Tickets.Where(t => t.Id == run.TicketId && t.Status == TicketStatus.InReview)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TicketStatus.InProgress).SetProperty(t => t.UpdatedAt, now), cancellationToken);
+            var reviewItems = await db.AttentionItems
+                .Where(i => i.RunId == run.Id && i.Kind == AttentionKind.Review && i.Status == AttentionStatus.Open)
+                .Select(i => i.Id).ToListAsync(cancellationToken);
+            foreach (var item in reviewItems)
+            {
+                await attention.DismissAsync(item, userId, cancellationToken);
+            }
+            await db.AppendAsync(run.Id,
+                [new ParsedEvent(RunEventKind.Log, new System.Text.Json.Nodes.JsonObject { ["source"] = "hub", ["text"] = $"Changes requested in review (round {latest.RoundNo})" })],
+                null, now, cancellationToken);
+            // Without a container the fix round starts now; otherwise when the container's end is recorded.
+            await RunResumes.RequestIfReadyAsync(db, jobs, run.Id, cancellationToken);
+            await events.PublishAsync(RunEvent.Topic, run.Id, cancellationToken);
+            await events.PublishAsync(AgentRun.Topic, run.Id, cancellationToken);
+            await events.PublishAsync(ChangeSet.Topic, id, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            containerId = run.ContainerId;
+        }
+        if (containerId is not null)
+        {
+            // The agent was told to stop after submitting; one that keeps going would hold up the fix round.
+            await control.StopAsync(containerId, cancellationToken);
+        }
         return TypedResults.Ok((await InfoAsync(db, id, cancellationToken))!);
     }
 
@@ -321,8 +438,8 @@ internal static class ChangeSetEndpoints
         return TypedResults.Ok((await InfoAsync(db, id, cancellationToken))!);
     }
 
-    /// <summary>The change set's round (the latest when none is given) and the mirror it lives in.</summary>
-    private static async Task<(ReviewRound Round, string Mirror)?> RoundAsync(
+    /// <summary>The change set's round (the latest when none is given), the round before it, and the mirror they live in.</summary>
+    internal static async Task<(ReviewRound Round, ReviewRound? Previous, string Mirror)?> RoundAsync(
         TikaiDbContext db, MirrorPaths mirrors, Guid id, int? roundNo, CancellationToken cancellationToken)
     {
         var target = await (
@@ -338,8 +455,15 @@ internal static class ChangeSetEndpoints
         var round = roundNo is { } n
             ? await rounds.SingleOrDefaultAsync(r => r.RoundNo == n, cancellationToken)
             : await rounds.OrderByDescending(r => r.RoundNo).FirstOrDefaultAsync(cancellationToken);
-        return round is null ? null : (round, mirrors.For(target.ProjectId, target.RepositoryId));
+        if (round is null)
+        {
+            return null;
+        }
+        var previous = await rounds.SingleOrDefaultAsync(r => r.RoundNo == round.RoundNo - 1, cancellationToken);
+        return (round, previous, mirrors.For(target.ProjectId, target.RepositoryId));
     }
+
+    private static ReviewView View(bool full) => full ? ReviewView.Full : ReviewView.Interdiff;
 
     private static ProblemHttpResult NotFound() => ProjectEndpoints.NotFound("Change set");
 

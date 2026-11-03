@@ -45,6 +45,7 @@ public enum StoryLayer
 /// <param name="TierReason">Why the tier was chosen, for people ("strict: src/Migrations/x.cs").</param>
 /// <param name="PromptVersion">The prompt file that produced it, e.g. "review-analysis.v1".</param>
 /// <param name="PatchesOmitted">Files the model saw only as a list entry (over the tier's budget, or no text diff).</param>
+/// <param name="InterdiffSince">Set when the model read only the interdiff since that round, with its analysis.</param>
 public sealed record ReviewAnalysis(
     AnalysisTier Tier,
     string TierReason,
@@ -57,7 +58,8 @@ public sealed record ReviewAnalysis(
     IReadOnlyList<string> PatchesOmitted,
     long? InputTokens,
     long? OutputTokens,
-    int DurationMs);
+    int DurationMs,
+    int? InterdiffSince = null);
 
 /// <summary>How the analysis sees one acceptance criterion; refs point at lines of the new files.</summary>
 public sealed record AnalysisCoverage(Guid CriterionId, CriterionCoverage Status, string Note, IReadOnlyList<CodeRef> Refs);

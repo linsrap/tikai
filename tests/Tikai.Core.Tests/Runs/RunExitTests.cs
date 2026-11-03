@@ -24,6 +24,17 @@ public class RunExitTests
         Assert.False(RunExit.KeepsReview(AgentRunState.Running, trigger));
     }
 
+    [Theory]
+    [InlineData(RunTrigger.Submit)]
+    [InlineData(RunTrigger.Fail)]
+    [InlineData(RunTrigger.RequestChanges)]
+    public void A_container_end_after_a_request_for_changes_keeps_the_run_waiting_for_its_fix_round(RunTrigger trigger)
+    {
+        Assert.True(RunExit.KeepsChangesRequested(AgentRunState.ChangesRequested, trigger));
+        Assert.False(RunExit.KeepsChangesRequested(AgentRunState.InReview, trigger));
+        Assert.False(RunExit.KeepsChangesRequested(AgentRunState.ChangesRequested, RunTrigger.Cancel));
+    }
+
     [Fact]
     public void Only_a_cancel_ends_a_run_in_review()
     {

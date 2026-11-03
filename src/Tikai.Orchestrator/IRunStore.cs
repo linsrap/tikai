@@ -99,10 +99,14 @@ public sealed record RunStartInfo(
     public override string ToString() => $"RunStartInfo {{ RunId = {RunId}, TicketKey = {TicketKey}, Branch = {Branch}, Llm = {Llm} }}";
 }
 
-/// <param name="CanResume">Blocked without a container and nothing open (or, for a summary, running without one), not cancelled.</param>
+/// <param name="CanResume">
+/// Blocked without a container and nothing open, or waiting for its fix round without a container (or, for a summary,
+/// running without one), not cancelled.
+/// </param>
 /// <param name="ToDeliver">The answers the agent has not got yet (ids and content), oldest first.</param>
 /// <param name="Answered">Every answered question and plan of the run, oldest first (for a summary).</param>
 /// <param name="ApprovedPlan">The latest plan the human approved.</param>
+/// <param name="Changes">Set while the run works on a reviewer's request for changes (its latest round's verdict).</param>
 public sealed record ResumeInfo(
     AgentRunState State,
     bool CanResume,
@@ -110,7 +114,8 @@ public sealed record ResumeInfo(
     string? SessionId,
     IReadOnlyList<(Guid Id, AnsweredRequest Answer)> ToDeliver,
     IReadOnlyList<AnsweredRequest> Answered,
-    PlanPayload? ApprovedPlan);
+    PlanPayload? ApprovedPlan,
+    ReviewRequest? Changes = null);
 
 /// <summary>A run cannot start; the message is for people and becomes the failure reason.</summary>
 public sealed class RunStartException(string message) : Exception(message);

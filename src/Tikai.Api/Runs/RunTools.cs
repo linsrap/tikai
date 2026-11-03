@@ -6,6 +6,7 @@ using Tikai.Api.Reviews;
 using Tikai.Core.Agents;
 using Tikai.Core.Attention;
 using Tikai.Core.Events;
+using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
 using Tikai.Data;
@@ -72,6 +73,56 @@ internal sealed class RunTools(
 
     public Task DeliveredAsync(RunScope run, Guid itemId, CancellationToken cancellationToken) =>
         attention.DeliveredAsync(run, itemId, cancellationToken);
+
+    public async Task<IReadOnlyList<ReviewThreadResult>> GetReviewCommentsAsync(RunScope run, CancellationToken cancellationToken)
+    {
+        var threads = await (
+            from t in AgentThreads(run.RunId)
+            join r in db.ReviewRounds on t.ReviewRoundId equals r.Id
+            orderby t.CreatedAt, t.Id
+            select new { Thread = t, r.RoundNo }).AsNoTracking().ToListAsync(cancellationToken);
+        var ids = threads.Select(t => t.Thread.Id).ToList();
+        // Sent comments and the agent's own replies; notes among humans stay among them.
+        var comments = (await db.ReviewComments.AsNoTracking()
+            .Where(c => ids.Contains(c.ThreadId) && (c.SentAt != null || c.AuthorRunId == run.RunId))
+            .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
+            .ToListAsync(cancellationToken)).ToLookup(c => c.ThreadId);
+        return [.. threads.Select(t => new ReviewThreadResult(
+            t.Thread.Id.ToString("D"),
+            t.RoundNo,
+            t.Thread.FilePath,
+            t.Thread.Side is { } side ? SnakeCase(side) : null,
+            t.Thread.LineStart,
+            t.Thread.LineEnd,
+            [.. comments[t.Thread.Id].Select(c => new ReviewCommentResult(c.AuthorRunId is null ? "reviewer" : "you", c.Body, c.CreatedAt))]))];
+    }
+
+    public async Task<string?> ReplyToThreadAsync(RunScope run, Guid threadId, string body, CancellationToken cancellationToken)
+    {
+        var changeSetId = await AgentThreads(run.RunId).Where(t => t.Id == threadId).Select(t => (Guid?)t.ChangeSetId).SingleOrDefaultAsync(cancellationToken);
+        if (changeSetId is null)
+        {
+            return null;
+        }
+        if (!await db.AgentRuns.AnyAsync(r => r.Id == run.RunId && r.State == AgentRunState.Running, cancellationToken))
+        {
+            throw new McpException("Your work is in review; replies are taken while you work on requested changes.");
+        }
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        db.ReviewComments.Add(new ReviewComment { ThreadId = threadId, AuthorRunId = run.RunId, Body = _redactor.Redact(body), Action = CommentAction.Note });
+        await db.SaveChangesAsync(cancellationToken);
+        await events.PublishAsync(ChangeSet.Topic, changeSetId.Value, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return "Reply added.";
+    }
+
+    /// <summary>Open threads of the run's change set with at least one comment sent to the agent.</summary>
+    private IQueryable<ReviewThread> AgentThreads(Guid runId) =>
+        from t in db.ReviewThreads
+        join c in db.ChangeSets on t.ChangeSetId equals c.Id
+        where c.RunId == runId && c.Status == ChangeSetStatus.Open && t.Status == ThreadStatus.Open
+            && db.ReviewComments.Any(m => m.ThreadId == t.Id && m.SentAt != null)
+        select t;
 
     private static string SnakeCase<TEnum>(TEnum value)
         where TEnum : struct, Enum =>

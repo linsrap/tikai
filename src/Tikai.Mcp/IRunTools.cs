@@ -24,7 +24,33 @@ public interface IRunTools
 
     /// <summary>The item's answer is being returned to the agent; once it has every answer, its run runs again.</summary>
     Task DeliveredAsync(RunScope run, Guid itemId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The open review threads of the run's change set that have comments sent to the agent: those comments and the
+    /// agent's own replies (notes among humans are left out).
+    /// </summary>
+    Task<IReadOnlyList<ReviewThreadResult>> GetReviewCommentsAsync(RunScope run, CancellationToken cancellationToken);
+
+    /// <summary>Adds the agent's reply to a thread it can see; null when there is no such thread.</summary>
+    Task<string?> ReplyToThreadAsync(RunScope run, Guid threadId, string body, CancellationToken cancellationToken);
 }
+
+/// <summary>A review thread as get_review_comments returns it.</summary>
+/// <param name="ThreadId">For reply_to_thread.</param>
+/// <param name="Round">The review round the thread is about; its lines are lines of that round's version.</param>
+/// <param name="Path">Null for a general comment on the whole change.</param>
+/// <param name="Side">"new" for lines of your version, "old" for lines of the version before your change.</param>
+public sealed record ReviewThreadResult(
+    string ThreadId,
+    int Round,
+    string? Path,
+    string? Side,
+    int? LineStart,
+    int? LineEnd,
+    IReadOnlyList<ReviewCommentResult> Comments);
+
+/// <param name="Author">"reviewer" or "you".</param>
+public sealed record ReviewCommentResult(string Author, string Body, DateTimeOffset At);
 
 /// <param name="Message">For the agent: what was submitted, or what to fix.</param>
 public sealed record SubmitResult(bool Accepted, string Message);

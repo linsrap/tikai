@@ -29,6 +29,7 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
     public const string PromptVersion = "run-start.v1";
     public const string ResumePromptVersion = "run-resume.v1";
     public const string SummaryPromptVersion = "run-summary.v1";
+    public const string ChangesPromptVersion = "run-changes.v1";
 
     /// <summary>Everything else is denied (dontAsk). request_permission (Phase 2) will widen this per run.</summary>
     public const string AllowedTools = "Read,Write,Edit,Glob,Grep,Bash,TodoWrite,mcp__tikai__*";
@@ -36,6 +37,7 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
     private static readonly Lazy<string> _promptTemplate = new(() => ReadPrompt(PromptVersion));
     private static readonly Lazy<Dictionary<string, string>> _resumeTemplates = new(() => Sections(ReadPrompt(ResumePromptVersion)));
     private static readonly Lazy<Dictionary<string, string>> _summaryTemplates = new(() => Sections(ReadPrompt(SummaryPromptVersion)));
+    private static readonly Lazy<Dictionary<string, string>> _changesTemplates = new(() => Sections(ReadPrompt(ChangesPromptVersion)));
 
     public string Kind => Core.Runs.RunRules.ClaudeCodeAdapter;
 
@@ -52,6 +54,8 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
 
     public ContainerSpec BuildResumeContainer(AgentRunContext context, RunContinuation continuation) => continuation switch
     {
+        // Answers the agent waited for come first (a fix round can ask questions too); otherwise the review request.
+        ResumeSession { Answers.Count: 0, Changes: { } changes } session => Container(context, ChangesPrompt(context, changes), session.SessionId),
         ResumeSession session => Container(context, ResumePrompt(session.Answers), session.SessionId),
         FreshSession fresh => Container(context, SummaryPrompt(context, fresh), resume: null),
         _ => throw new ArgumentOutOfRangeException(nameof(continuation), continuation, "Unknown continuation."),
@@ -135,10 +139,19 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
         return Fill(t["message"], ("answers", string.Join("\n\n", lines)));
     }
 
-    /// <summary>The prompt for a fresh session that takes over a run whose session could not be resumed (spike Q5).</summary>
+    /// <summary>The message for a resumed session whose work a reviewer sent back with comments.</summary>
+    public static string ChangesPrompt(AgentRunContext context, ReviewRequest changes) =>
+        Fill(_changesTemplates.Value["message"],
+            ("round", changes.RoundNo.ToString(CultureInfo.InvariantCulture)),
+            ("branch", context.Branch));
+
+    /// <summary>
+    /// The prompt for a fresh session that takes over a run whose session could not be resumed (spike Q5); in a fix
+    /// round it also points at the review comments.
+    /// </summary>
     public static string SummaryPrompt(AgentRunContext context, FreshSession summary)
     {
-        var t = _summaryTemplates.Value;
+        var t = summary.Changes is null ? _summaryTemplates.Value : _changesTemplates.Value;
         var plan = summary.ApprovedPlan is { } approved ? Steps(approved) : t["no_plan"];
         var answers = summary.Answers.Count == 0 ? t["no_answers"] : string.Join("\n", summary.Answers.Select(a => a switch
         {
@@ -149,6 +162,7 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
                 ("notes", string.IsNullOrWhiteSpace(a.Answer.Text) ? "" : " (" + a.Answer.Text + ")")),
         }));
         return Fill(t["prompt"],
+            ("round", summary.Changes?.RoundNo.ToString(CultureInfo.InvariantCulture) ?? ""),
             ("ticket_key", context.TicketKey),
             ("ticket_title", context.TicketTitle),
             ("branch", context.Branch),

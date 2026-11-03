@@ -145,6 +145,18 @@ public sealed class GitReviewTests : IDisposable
         Assert.Equal("", await _git.PatchAsync(mirror, start, head, "missing.txt", null, 10_000, ct));
     }
 
+    [Fact]
+    public async Task A_files_blob_id_is_read_at_a_commit_and_a_missing_file_has_none()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mirror, _, start) = await SetUpAsync(("a.txt", "a\n"), ("[ab].txt", "x\n"));
+
+        var blob = await _git.BlobIdAsync(mirror, start, "a.txt", ct);
+        Assert.Equal("a\n", System.Text.Encoding.UTF8.GetString((await _git.ReadBlobAsync(mirror, blob!, 100, ct))!.Content!));
+        Assert.NotEqual(blob, await _git.BlobIdAsync(mirror, start, "[ab].txt", ct));
+        Assert.Null(await _git.BlobIdAsync(mirror, start, "missing.txt", ct));
+    }
+
     /// <summary>A mirror with the files on main, and a bare clone of it standing in for a run clone.</summary>
     private async Task<(string Mirror, string Clone, string Start)> SetUpAsync(params (string Name, string Content)[] files)
     {

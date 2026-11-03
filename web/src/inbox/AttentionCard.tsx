@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { components } from '../api/schema'
 import { RunLog } from '../live/RunLog'
 import { SelfReport } from '../review/SelfReport'
-import { analysisLine } from './inbox'
+import { analysisLine, roundLine, type RoundBrief } from './inbox'
 import { eventSummary, runStateLabel } from '../runs/runs'
 import { PlanAnswer, QuestionAnswer } from './AnswerForms'
 import { ago, kindLabel, useDismiss, useRetry, type AttentionItem } from './inbox'
@@ -59,6 +59,7 @@ export function AttentionCard({ item }: { item: AttentionItem }) {
           coverage={item.reviewCoverage}
           changeSetId={item.changeSetId}
           analysis={item.analysis}
+          round={item.round ?? null}
         />
       )}
 
@@ -121,17 +122,21 @@ function ReviewReport({
   coverage,
   changeSetId,
   analysis,
+  round,
 }: {
   id: string
   review: ReviewPayload
   coverage: AttentionItem['reviewCoverage']
   changeSetId: string | null
   analysis: AttentionItem['analysis']
+  round: RoundBrief | null
 }) {
   const dismiss = useDismiss(id)
+  const roundText = roundLine(round)
   return (
     <div className="stack">
       <SelfReport summary={review.summary} coverage={coverage} openConcerns={review.openConcerns} />
+      {roundText && <p className="muted round-line">{roundText}</p>}
       {analysis && (
         <p className="muted analysis-line" role="status">
           {analysisLine(analysis)}

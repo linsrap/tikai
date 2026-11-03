@@ -20,6 +20,10 @@
 //                   before.txt, asks "Which word?" with the options alpha and beta and waits, prints <n> lines 250 ms
 //                   apart (stdout only, so a hub restart meanwhile loses nothing), then like wait; MCP calls after the
 //                   lines are retried for a minute (the browser test restarts the hub while they print)
+//   fix             commits fix.txt and keep.txt, submits; resumed (or taken over from a summary) for requested
+//                   changes it reads get_review_comments, changes fix.txt, replies to every thread, commits, submits
+//   fix-rebase      like fix, but stays after its first submission until it is stopped, and the fix round first moves
+//                   its commits onto the default branch's parent (a new base)
 // Like Claude Code it keeps a session file in $CLAUDE_CONFIG_DIR/projects/-run-work/<session>.jsonl, continues it with
 // --resume <session> (the answer comes in the -p message; a missing file is "No conversation found", exit 1), and
 // takes over from a summary prompt in a fresh session. It reports what it sees from the inside (uid, branch, hook,
@@ -323,6 +327,9 @@ async function resume() {
   }
   const entries = session.read();
   const scenario = entries.find((e) => e.scenario)?.scenario;
+  if (prompt.includes("requested changes")) {
+    return fixRound(scenario);
+  }
   init(await connect());
   if (scenario === "wait-badresume") {
     out({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, result: "could not continue the session" });
@@ -339,7 +346,65 @@ async function resume() {
   });
 }
 
+/** fix: the first round. */
+async function fixStart(ticket, scenario) {
+  bash("printf 'first version\\nsecond line\\n' > fix.txt && printf 'stays\\n' > keep.txt && git add -A && git commit --quiet -m 'Add fix.txt'");
+  await tool("submit_for_review", {
+    summary: "Added fix.txt.",
+    criteria_mapping: ticket.criteria.map((c) => ({ criterion_id: c.id, status: "covered", note: "stub" })),
+    open_concerns: [],
+  });
+  if (scenario === "fix-rebase") {
+    say("Lingering after the submission.");
+    await sleep(3600_000);
+  }
+  result({ result: "Done.", total_cost_usd: 0.002 });
+  return 0;
+}
+
+/** fix: a round for requested changes, in a resumed or a fresh session. */
+async function fixRound(scenario) {
+  session.add({ step: "fix" });
+  init(await connect());
+  const ticket = JSON.parse(await tool("get_ticket", {}));
+  const { threads } = JSON.parse(await tool("get_review_comments", {}));
+  if (scenario === "fix-rebase") {
+    bash('base=$(git merge-base HEAD main) && git rebase --quiet --onto "$base~1" "$base"');
+  }
+  bash("sed -i 's/first version/fixed version/' fix.txt && git commit --quiet -am 'Fix fix.txt'");
+  for (const thread of threads) {
+    const reviewer = thread.comments.find((c) => c.author === "reviewer");
+    await tool("reply_to_thread", { thread_id: thread.thread_id, body: `Fixed: ${reviewer?.body ?? "done"}` });
+  }
+  let unknown = "accepted";
+  try {
+    await tool("reply_to_thread", { thread_id: "00000000-0000-0000-0000-000000000000", body: "Hello?" });
+  } catch (e) {
+    unknown = e.message;
+  }
+  say(
+    "STUB_FIX " +
+      JSON.stringify({
+        mode,
+        round: /reviewed round (\d+)/.exec(prompt)?.[1] ?? null,
+        threads: threads.map((t) => ({ path: t.path ?? null, side: t.side ?? null, line_start: t.line_start ?? null, round: t.round, comments: t.comments.map((c) => `${c.author}: ${c.body}`) })),
+        unknown,
+      }),
+  );
+  const submitted = await tool("submit_for_review", {
+    summary: "Fixed what the review asked.",
+    criteria_mapping: ticket.criteria.map((c) => ({ criterion_id: c.id, status: "covered", note: "fixed" })),
+    open_concerns: [],
+  });
+  say("STUB_RESUBMITTED " + JSON.stringify({ submitted }));
+  result({ result: "Done.", total_cost_usd: 0.004 });
+  return 0;
+}
+
 async function fromSummary() {
+  if (prompt.includes("requested changes")) {
+    return fixRound(/stub:([a-z-]+)/.exec(sh("cat .tikai/ticket.md") ?? "")?.[1] ?? "fix");
+  }
   session.add({ step: "summary" });
   init(await connect());
   const answer = /^ {2}Answer: (.*)$/m.exec(prompt)?.[1] ?? null;
@@ -392,6 +457,9 @@ async function main() {
   }
   if (scenario === "review") {
     return reviewChanges(ticket);
+  }
+  if (scenario.startsWith("fix")) {
+    return fixStart(ticket, scenario);
   }
   if (scenario === "no-commit") {
     let first = "accepted";

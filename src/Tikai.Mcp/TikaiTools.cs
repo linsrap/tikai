@@ -92,15 +92,31 @@ internal sealed partial class TikaiTools(
     }
 
     [McpServerTool(Name = "get_review_comments", ReadOnly = true)]
-    [Description("Returns the open review comments sent to you from the last review round, to fix and answer with reply_to_thread.")]
-    public static string GetReviewComments() => "There are no review comments for you.";
+    [Description("Returns the open review threads with comments a reviewer sent to you, and your replies so far. Fix what they ask for and answer each thread with reply_to_thread.")]
+    public async Task<ReviewCommentsResult> GetReviewComments(RequestContext<CallToolRequestParams> request, CancellationToken cancellationToken)
+    {
+        var threads = await runs.GetReviewCommentsAsync(RunScope.From(request.User), cancellationToken);
+        return new ReviewCommentsResult(threads, threads.Count == 0 ? "There are no review comments for you." : null);
+    }
 
     [McpServerTool(Name = "reply_to_thread")]
-    [Description("Answers a review comment thread (thread_id from get_review_comments).")]
-    public static string ReplyToThread(
+    [Description("Answers a review thread (thread_id from get_review_comments): what you changed, or why you did not. Does not wait.")]
+    public async Task<string> ReplyToThread(
+        RequestContext<CallToolRequestParams> request,
         [Description("The thread to answer.")] string thread_id,
-        [Description("Your reply (markdown).")] string body) =>
-        throw new McpException($"There is no review thread '{thread_id}'. Call get_review_comments for the open threads.");
+        [Description("Your reply (markdown).")] string body,
+        CancellationToken cancellationToken = default)
+    {
+        var (text, error) = Core.Reviews.ThreadRules.Body(body);
+        if (text is null)
+        {
+            throw new McpException(error!);
+        }
+        var reply = Guid.TryParse(thread_id, out var threadId)
+            ? await runs.ReplyToThreadAsync(RunScope.From(request.User), threadId, text, cancellationToken)
+            : null;
+        return reply ?? throw new McpException($"There is no review thread '{thread_id}' for you. Call get_review_comments for the open threads.");
+    }
 
     private async Task<AttentionAnswer> RaiseAndWaitAsync<TPayload>(
         RequestContext<CallToolRequestParams> request,
@@ -150,6 +166,9 @@ internal sealed partial class TikaiTools(
 }
 
 public sealed record AskResult(string Answer);
+
+/// <param name="Note">Set when there is nothing to do.</param>
+public sealed record ReviewCommentsResult(IReadOnlyList<ReviewThreadResult> Threads, string? Note);
 
 /// <param name="Notes">What to change (revise), or remarks with an approval.</param>
 public sealed record PlanResult(PlanDecision Decision, string? Notes);

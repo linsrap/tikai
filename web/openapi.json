@@ -1160,6 +1160,87 @@
         }
       }
     },
+    "/api/change-sets/{id}/threads": {
+      "get": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewThreadInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateThreadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewThreadInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/attention-items": {
       "get": {
         "tags": [
@@ -1614,6 +1695,14 @@
               "type": "integer",
               "format": "int32"
             }
+          },
+          {
+            "name": "full",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
           }
         ],
         "responses": {
@@ -1659,6 +1748,14 @@
             "schema": {
               "type": "integer",
               "format": "int32"
+            }
+          },
+          {
+            "name": "full",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
             }
           }
         ],
@@ -1762,6 +1859,16 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -1801,6 +1908,187 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/review-threads/{id}/comments": {
+      "post": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewThreadInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/review-threads/{id}/resolve": {
+      "post": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewThreadInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/review-threads/{id}/reopen": {
+      "post": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewThreadInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/review-comments/{id}": {
+      "patch": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewThreadInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -2160,6 +2448,16 @@
                 "$ref": "#/components/schemas/AnalysisBrief"
               }
             ]
+          },
+          "round": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoundBrief"
+              }
+            ]
           }
         }
       },
@@ -2329,6 +2627,33 @@
           }
         }
       },
+      "CommentAction": {
+        "enum": [
+          "note",
+          "send_to_agent"
+        ]
+      },
+      "CommentAuthorKind": {
+        "enum": [
+          "person",
+          "agent"
+        ]
+      },
+      "CommentRequest": {
+        "required": [
+          "body",
+          "action"
+        ],
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "action": {
+            "$ref": "#/components/schemas/CommentAction"
+          }
+        }
+      },
       "CreateLlmProviderRequest": {
         "required": [
           "name",
@@ -2406,6 +2731,56 @@
                 "$ref": "#/components/schemas/CredentialInput"
               }
             ]
+          }
+        }
+      },
+      "CreateThreadRequest": {
+        "required": [
+          "roundNo",
+          "body",
+          "action"
+        ],
+        "type": "object",
+        "properties": {
+          "roundNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "body": {
+            "type": "string"
+          },
+          "action": {
+            "$ref": "#/components/schemas/CommentAction"
+          },
+          "path": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "side": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DiffSide"
+              }
+            ]
+          },
+          "lineStart": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "lineEnd": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -2560,6 +2935,13 @@
           }
         }
       },
+      "DiffSide": {
+        "enum": [
+          "old",
+          "new",
+          null
+        ]
+      },
       "FailurePayload": {
         "required": [
           "reason",
@@ -2710,6 +3092,13 @@
             }
           }
         }
+      },
+      "InterdiffKind": {
+        "enum": [
+          "none",
+          "heads",
+          "per_file"
+        ]
       },
       "ItemRun": {
         "required": [
@@ -3121,6 +3510,66 @@
           "durationMs": {
             "type": "integer",
             "format": "int32"
+          },
+          "interdiffSince": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ReviewCommentInfo": {
+        "required": [
+          "id",
+          "author",
+          "authorName",
+          "body",
+          "action",
+          "createdAt",
+          "editedAt",
+          "sentAt",
+          "canEdit"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "author": {
+            "$ref": "#/components/schemas/CommentAuthorKind"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "action": {
+            "$ref": "#/components/schemas/CommentAction"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "editedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "sentAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "canEdit": {
+            "type": "boolean"
           }
         }
       },
@@ -3222,7 +3671,14 @@
           "baseSha",
           "headSha",
           "files",
-          "truncated"
+          "truncated",
+          "view",
+          "interdiff",
+          "fromSha",
+          "toSha",
+          "previousRound",
+          "previousBaseSha",
+          "dropped"
         ],
         "type": "object",
         "properties": {
@@ -3244,6 +3700,37 @@
           },
           "truncated": {
             "type": "boolean"
+          },
+          "view": {
+            "$ref": "#/components/schemas/ReviewView"
+          },
+          "interdiff": {
+            "$ref": "#/components/schemas/InterdiffKind"
+          },
+          "fromSha": {
+            "type": "string"
+          },
+          "toSha": {
+            "type": "string"
+          },
+          "previousRound": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "previousBaseSha": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dropped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -3368,6 +3855,88 @@
           }
         }
       },
+      "ReviewThreadInfo": {
+        "required": [
+          "id",
+          "roundNo",
+          "path",
+          "side",
+          "lineStart",
+          "lineEnd",
+          "status",
+          "createdAt",
+          "resolvedBy",
+          "resolvedAt",
+          "comments"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "roundNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "path": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "side": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DiffSide"
+              }
+            ]
+          },
+          "lineStart": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "lineEnd": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ThreadStatus"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewCommentInfo"
+            }
+          }
+        }
+      },
       "ReviewVerdict": {
         "enum": [
           "approve",
@@ -3375,6 +3944,34 @@
           "reject",
           null
         ]
+      },
+      "ReviewView": {
+        "enum": [
+          "full",
+          "interdiff"
+        ]
+      },
+      "RoundBrief": {
+        "required": [
+          "roundNo",
+          "answered",
+          "unanswered"
+        ],
+        "type": "object",
+        "properties": {
+          "roundNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "answered": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unanswered": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "RunAttemptKind": {
         "enum": [
@@ -3751,6 +4348,12 @@
           "other"
         ]
       },
+      "ThreadStatus": {
+        "enum": [
+          "open",
+          "resolved"
+        ]
+      },
       "TicketInfo": {
         "required": [
           "id",
@@ -3957,6 +4560,12 @@
         "properties": {
           "verdict": {
             "$ref": "#/components/schemas/ReviewVerdict"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -3994,6 +4603,10 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "full": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -4056,13 +4669,13 @@
       "name": "Tickets"
     },
     {
+      "name": "Reviews"
+    },
+    {
       "name": "Attention"
     },
     {
       "name": "Runs"
-    },
-    {
-      "name": "Reviews"
     }
   ]
 }

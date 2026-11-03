@@ -3,8 +3,10 @@ import { Link } from '@tanstack/react-router'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useWatch } from '../live/live'
 import {
+  anchorFor,
   changeSetQuery,
   fileOrder,
+  fileThreads,
   groupFiles,
   kindLabel,
   kindLetter,
@@ -12,6 +14,7 @@ import {
   loadDiffMode,
   loadOrderMode,
   nextUnviewed,
+  openThreadCounts,
   reviewFileQuery,
   reviewFilesQuery,
   saveDiffMode,
@@ -22,19 +25,28 @@ import {
   startsCollapsed,
   stepFile,
   storyFiles,
+  threadsQuery,
+  unsentForAgent,
+  useThreads,
   useVerdict,
   useViewed,
+  viewLabel,
   type ChangeSet,
   type CodeRef,
   type DiffMode,
   type FileOrderMode,
   type FileSide,
+  type Pane,
   type ReviewAnalysis,
   type ReviewFile,
+  type ReviewFiles,
   type ReviewRound,
+  type ReviewThread,
 } from '../review/review'
 import { AnalysisPanel } from '../review/AnalysisPanel'
 import { SelfReport } from '../review/SelfReport'
+import { GeneralComments, NewThreadForm, ThreadView } from '../review/Threads'
+import type { DiffZone, LineSelection } from '../review/DiffView'
 import { runStateLabel } from '../runs/runs'
 import { AppShell } from './AppShell'
 
@@ -47,11 +59,17 @@ type Reveal = CodeRef & { n: number }
 export function ReviewPage({ id }: { id: string }) {
   useWatch('WatchAll')
   const changeSet = useQuery(changeSetQuery(id))
+  const threads = useQuery(threadsQuery(id))
+  const mutations = useThreads(id)
   const [roundNo, setRoundNo] = useState<number | null>(null)
+  // A later round shows the interdiff since the round before unless the whole change is asked for.
+  const [full, setFull] = useState(false)
   const [reveal, setReveal] = useState<Reveal | null>(null)
   const data = changeSet.data
   const round = data?.rounds.find((r) => r.roundNo === roundNo) ?? data?.rounds.at(-1)
   const analysis = round?.analysis?.result ?? null
+  const threadList = threads.data ?? []
+  const locked = data?.status !== 'open'
 
   return (
     <AppShell wide>
@@ -63,7 +81,16 @@ export function ReviewPage({ id }: { id: string }) {
       {!data && !changeSet.error && <p>Loading…</p>}
       {data && round && (
         <article className="stack review">
-          <Header changeSet={data} round={round} onRound={setRoundNo} />
+          <Header
+            changeSet={data}
+            round={round}
+            full={full}
+            onRound={(n) => {
+              setRoundNo(n)
+              setFull(false)
+            }}
+            onFull={setFull}
+          />
           <AnalysisPanel
             changeSet={data}
             round={round}
@@ -81,8 +108,30 @@ export function ReviewPage({ id }: { id: string }) {
               uncommitted={round.uncommitted}
             />
           </details>
-          <VerdictBar changeSet={data} round={round} />
-          <Files key={round.roundNo} id={id} round={round} analysis={analysis} reveal={reveal} />
+          <details open className="card">
+            <summary>
+              <strong>Comments on the whole change</strong>{' '}
+              <span className="muted">({threadList.filter((t) => t.path === null).length})</span>
+            </summary>
+            <GeneralComments
+              roundNo={round.roundNo}
+              list={threadList.filter((t) => t.path === null)}
+              threads={mutations}
+              locked={locked}
+            />
+            {threads.error && <p className="error">{threads.error.message}</p>}
+          </details>
+          <VerdictBar changeSet={data} round={round} threads={threadList} />
+          <Files
+            key={`${round.roundNo}-${full}`}
+            id={id}
+            round={round}
+            full={full}
+            analysis={analysis}
+            reveal={reveal}
+            threads={threadList}
+            locked={locked}
+          />
         </article>
       )}
     </AppShell>
@@ -92,11 +141,15 @@ export function ReviewPage({ id }: { id: string }) {
 function Header({
   changeSet,
   round,
+  full,
   onRound,
+  onFull,
 }: {
   changeSet: ChangeSet
   round: ReviewRound
+  full: boolean
   onRound: (no: number) => void
+  onFull: (full: boolean) => void
 }) {
   return (
     <header className="stack">
@@ -130,21 +183,48 @@ function Header({
             </select>
           </label>
         )}
+        {round.roundNo > 1 && (
+          <span className="row" role="group" aria-label="What to show">
+            <button type="button" aria-pressed={!full} onClick={() => onFull(false)}>
+              Changes since round {round.roundNo - 1}
+            </button>
+            <button type="button" aria-pressed={full} onClick={() => onFull(true)}>
+              Full change
+            </button>
+          </span>
+        )}
       </p>
     </header>
   )
 }
 
-function VerdictBar({ changeSet, round }: { changeSet: ChangeSet; round: ReviewRound }) {
+function VerdictBar({
+  changeSet,
+  round,
+  threads,
+}: {
+  changeSet: ChangeSet
+  round: ReviewRound
+  threads: readonly ReviewThread[]
+}) {
   const verdict = useVerdict(changeSet.id)
+  const [requesting, setRequesting] = useState(false)
+  const [message, setMessage] = useState('')
   const latest = round.roundNo === changeSet.rounds.at(-1)?.roundNo
+  const unsent = unsentForAgent(threads)
   if (round.verdict) {
+    const working = latest && round.verdict === 'request_changes' && changeSet.status === 'open'
     return (
-      <p className="card">
+      <p className="card" data-testid="verdict">
         Round {round.roundNo}:{' '}
-        <strong>{round.verdict === 'reject' ? 'rejected' : round.verdict.replace('_', ' ')}</strong>
+        <strong>{round.verdict === 'reject' ? 'rejected' : 'changes requested'}</strong>
         {round.verdictAt && (
           <span className="muted"> on {new Date(round.verdictAt).toLocaleString()}</span>
+        )}
+        {working && (
+          <span className="muted">
+            . The agent is working on them; its next round shows up here.
+          </span>
         )}
       </p>
     )
@@ -163,12 +243,8 @@ function VerdictBar({ changeSet, round }: { changeSet: ChangeSet; round: ReviewR
       <button type="button" disabled title="Merging comes in a later version">
         Approve
       </button>
-      <button
-        type="button"
-        disabled
-        title="Sending comments back to the agent comes in a later version"
-      >
-        Request changes
+      <button type="button" disabled={verdict.isPending} onClick={() => setRequesting((r) => !r)}>
+        Request changes…
       </button>
       <button
         type="button"
@@ -180,13 +256,52 @@ function VerdictBar({ changeSet, round }: { changeSet: ChangeSet; round: ReviewR
               'Reject this change? The run is closed and the ticket goes back to open. The branch stays on the hub.',
             )
           ) {
-            verdict.mutate('reject')
+            verdict.mutate({ verdict: 'reject' })
           }
         }}
       >
         Reject
       </button>
-      <span className="muted">Approve and request changes come in later versions.</span>
+      <span className="muted">
+        {unsent === 0
+          ? 'No comments for the agent yet.'
+          : `${unsent} comment${unsent === 1 ? '' : 's'} will be sent to the agent.`}{' '}
+        Approve comes in a later version.
+      </span>
+      {requesting && (
+        <form
+          className="stack request-changes"
+          onSubmit={(e) => {
+            e.preventDefault()
+            verdict.mutate({ verdict: 'request_changes', message })
+          }}
+        >
+          <label className="field">
+            <span>
+              A message for the agent (optional
+              {unsent === 0 ? ', but without line comments it is all the agent gets' : ''})
+            </span>
+            <textarea
+              rows={3}
+              value={message}
+              maxLength={10000}
+              onChange={(e) => setMessage(e.target.value)}
+            />
+          </label>
+          <div className="row">
+            <button
+              type="submit"
+              className="primary"
+              disabled={verdict.isPending || (unsent === 0 && message.trim() === '')}
+            >
+              Send to the agent
+            </button>
+            <span className="muted">
+              The agent continues with your comments and submits a new round.
+            </span>
+          </div>
+        </form>
+      )}
       {verdict.error && <span className="error">{verdict.error.message}</span>}
     </div>
   )
@@ -202,16 +317,22 @@ const isTyping = (target: EventTarget | null) =>
 function Files({
   id,
   round,
+  full,
   analysis,
   reveal,
+  threads,
+  locked,
 }: {
   id: string
   round: ReviewRound
+  full: boolean
   analysis: ReviewAnalysis | null
   reveal: Reveal | null
+  threads: readonly ReviewThread[]
+  locked: boolean
 }) {
-  const files = useQuery(reviewFilesQuery(id, round.roundNo))
-  const viewed = useViewed(id, round.roundNo)
+  const files = useQuery(reviewFilesQuery(id, round.roundNo, full))
+  const viewed = useViewed(id, round.roundNo, full)
   const [selected, setSelected] = useState<string | null>(null)
   const [mode, setMode] = useState<DiffMode>(() => loadDiffMode())
   const [orderMode, setOrderMode] = useState<FileOrderMode>(() => loadOrderMode())
@@ -256,67 +377,93 @@ function Files({
   if (files.error) return <p className="error">{files.error.message}</p>
   if (!files.data || !list) return <p>Loading the files…</p>
   const viewedCount = list.filter((f) => f.viewed).length
+  const shown = files.data
 
   return (
-    <div className="review-layout">
-      <nav className="file-tree card" aria-label="Changed files">
-        <p className="row spread">
-          <strong>
-            {viewedCount} of {list.length} files viewed
-          </strong>
-          <span className="muted" title="j / k: next or previous file, v: viewed">
-            j k v
-          </span>
+    <div className="stack">
+      {shown.interdiff === 'per_file' && (
+        <p className="card notice" role="note">
+          The base changed since round {shown.previousRound} (
+          {shortSha(shown.previousBaseSha ?? '')} → {shortSha(shown.baseSha)}): the agent rebased.
+          Showing the files whose change differs from round {shown.previousRound}, each with its
+          whole change.
+          {shown.dropped.length > 0 && (
+            <>
+              {' '}
+              No longer changed: <span className="mono">{shown.dropped.join(', ')}</span>.
+            </>
+          )}
         </p>
-        {analysis && (
-          <p className="row" role="group" aria-label="File order">
-            {(['story', 'path'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                aria-pressed={orderMode === m}
-                onClick={() => {
-                  setOrderMode(m)
-                  saveOrderMode(m)
-                }}
-              >
-                {m === 'story' ? 'Story order' : 'Path order'}
-              </button>
-            ))}
+      )}
+      <div className="review-layout">
+        <nav className="file-tree card" aria-label="Changed files">
+          <p className="row spread">
+            <strong>
+              {viewedCount} of {list.length} files viewed
+            </strong>
+            {shown.previousRound !== null && <span className="muted">{viewLabel(shown)}</span>}
+            <span className="muted" title="j / k: next or previous file, v: viewed">
+              j k v
+            </span>
           </p>
-        )}
-        {files.data.truncated && (
-          <p className="muted">Only the first {list.length} files are listed.</p>
-        )}
-        <FileTree
-          files={list}
-          story={story}
-          risks={analysis}
-          current={current?.path ?? null}
-          onSelect={setSelected}
-          onToggle={toggleViewed}
-        />
-        {viewed.error && <p className="error">{viewed.error.message}</p>}
-      </nav>
-      <section className="diff-pane" aria-label="Diff">
-        {current ? (
-          <FilePane
-            key={current.path}
-            id={id}
-            round={round.roundNo}
-            file={current}
-            reveal={reveal?.path === current.path ? reveal : null}
-            mode={mode}
-            onMode={(m) => {
-              setMode(m)
-              saveDiffMode(m)
-            }}
-            onToggleViewed={() => toggleViewed(current)}
+          {analysis && (
+            <p className="row" role="group" aria-label="File order">
+              {(['story', 'path'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={orderMode === m}
+                  onClick={() => {
+                    setOrderMode(m)
+                    saveOrderMode(m)
+                  }}
+                >
+                  {m === 'story' ? 'Story order' : 'Path order'}
+                </button>
+              ))}
+            </p>
+          )}
+          {files.data.truncated && (
+            <p className="muted">Only the first {list.length} files are listed.</p>
+          )}
+          <FileTree
+            files={list}
+            story={story}
+            risks={analysis}
+            comments={openThreadCounts(threads)}
+            current={current?.path ?? null}
+            onSelect={setSelected}
+            onToggle={toggleViewed}
           />
-        ) : (
-          <p className="muted">No files changed.</p>
-        )}
-      </section>
+          {viewed.error && <p className="error">{viewed.error.message}</p>}
+        </nav>
+        <section className="diff-pane" aria-label="Diff">
+          {current ? (
+            <FilePane
+              key={current.path}
+              id={id}
+              shown={shown}
+              full={full}
+              threads={threads}
+              locked={locked}
+              file={current}
+              reveal={reveal?.path === current.path ? reveal : null}
+              mode={mode}
+              onMode={(m) => {
+                setMode(m)
+                saveDiffMode(m)
+              }}
+              onToggleViewed={() => toggleViewed(current)}
+            />
+          ) : (
+            <p className="muted">
+              {shown.previousRound !== null && !full
+                ? `No files changed since round ${shown.previousRound}.`
+                : 'No files changed.'}
+            </p>
+          )}
+        </section>
+      </div>
     </div>
   )
 }
@@ -325,6 +472,7 @@ function FileTree({
   files,
   story,
   risks,
+  comments,
   current,
   onSelect,
   onToggle,
@@ -332,6 +480,8 @@ function FileTree({
   files: readonly ReviewFile[]
   story: ReviewAnalysis | null
   risks: ReviewAnalysis | null
+  /** Open threads per path. */
+  comments: ReadonlyMap<string, number>
   current: string | null
   onSelect: (path: string) => void
   onToggle: (file: ReviewFile) => void
@@ -365,6 +515,11 @@ function FileTree({
         {risk && (
           <span className={`badge risk ${risk.risk}`} title={risk.reason}>
             {risk.risk}
+          </span>
+        )}
+        {(comments.get(file.path) ?? 0) > 0 && (
+          <span className="badge comments" title="Open comment threads">
+            {comments.get(file.path)} 💬
           </span>
         )}
         <span className="muted counts">{lineCounts(file)}</span>
@@ -412,7 +567,10 @@ function FileTree({
 
 function FilePane({
   id,
-  round,
+  shown,
+  full,
+  threads,
+  locked,
   file,
   reveal,
   mode,
@@ -420,7 +578,10 @@ function FilePane({
   onToggleViewed,
 }: {
   id: string
-  round: number
+  shown: ReviewFiles
+  full: boolean
+  threads: readonly ReviewThread[]
+  locked: boolean
   file: ReviewFile
   reveal: Reveal | null
   mode: DiffMode
@@ -430,7 +591,47 @@ function FilePane({
   const [opened, setExpanded] = useState(!startsCollapsed(file))
   // A ref from the analysis opens a collapsed file too.
   const expanded = opened || reveal !== null
-  const contents = useQuery({ ...reviewFileQuery(id, round, file.path), enabled: expanded })
+  const contents = useQuery({
+    ...reviewFileQuery(id, shown.roundNo, file.path, full),
+    enabled: expanded,
+  })
+  const mutations = useThreads(id)
+  const [selection, setSelection] = useState<LineSelection | null>(null)
+  const [draft, setDraft] = useState<LineSelection | null>(null)
+  const { inline, listed } = fileThreads(threads, file, shown, mode === 'side-by-side')
+  const pathIn = (pane: Pane) => (pane === 'original' ? (file.oldPath ?? file.path) : file.path)
+  const lines = (s: LineSelection) =>
+    s.lineEnd > s.lineStart ? `lines ${s.lineStart}–${s.lineEnd}` : `line ${s.lineStart}`
+  const zones: DiffZone[] = [
+    ...inline.map(({ thread, pane }) => ({
+      key: thread.id,
+      pane,
+      afterLine: thread.lineEnd ?? thread.lineStart ?? 1,
+      content: <ThreadView thread={thread} threads={mutations} locked={locked} />,
+    })),
+    ...(draft
+      ? [
+          {
+            key: 'draft',
+            pane: draft.pane,
+            afterLine: draft.lineEnd,
+            content: (
+              <NewThreadForm
+                threads={mutations}
+                anchor={{
+                  ...anchorFor(shown, draft.pane),
+                  path: pathIn(draft.pane),
+                  lineStart: draft.lineStart,
+                  lineEnd: draft.lineEnd,
+                }}
+                label={`Comment on ${lines(draft)} of the ${draft.pane === 'original' ? 'old' : 'new'} version`}
+                onDone={() => setDraft(null)}
+              />
+            ),
+          },
+        ]
+      : []),
+  ]
   const flags = [
     file.lock && 'lock file',
     file.generated && 'generated',
@@ -455,6 +656,16 @@ function FilePane({
           ))}
         </span>
         <span className="row">
+          {!locked && expanded && (
+            <button
+              type="button"
+              disabled={!selection || draft !== null}
+              title="Click a line (or select lines) in the diff first"
+              onClick={() => setDraft(selection)}
+            >
+              {selection ? `Comment on ${lines(selection)}` : 'Comment on a line'}
+            </button>
+          )}
           <label className="row">
             <input type="checkbox" checked={file.viewed} onChange={onToggleViewed} /> Viewed
           </label>
@@ -470,6 +681,18 @@ function FilePane({
           </button>
         </span>
       </header>
+      {listed.length > 0 && (
+        <details className="card">
+          <summary className="small">
+            {listed.length} thread{listed.length === 1 ? '' : 's'} on other versions of this file
+          </summary>
+          <div className="stack">
+            {listed.map((t) => (
+              <ThreadView key={t.id} thread={t} threads={mutations} locked={locked} showPlace />
+            ))}
+          </div>
+        </details>
+      )}
       {!expanded ? (
         <div className="card stack">
           <p className="muted">
@@ -496,6 +719,8 @@ function FilePane({
           language={contents.data.language}
           mode={mode}
           reveal={reveal}
+          zones={zones}
+          onSelection={setSelection}
         />
       )}
     </div>
@@ -508,12 +733,16 @@ function Contents({
   language,
   mode,
   reveal,
+  zones,
+  onSelection,
 }: {
   old: FileSide | null
   next: FileSide | null
   language: string
   mode: DiffMode
   reveal: Reveal | null
+  zones: readonly DiffZone[]
+  onSelection: (selection: LineSelection | null) => void
 }) {
   const sides = [old, next].filter((s): s is FileSide => s !== null)
   const sizes = `${old ? sizeText(old.size) : 'none'} → ${next ? sizeText(next.size) : 'deleted'}`
@@ -535,6 +764,8 @@ function Contents({
         language={language}
         mode={mode}
         reveal={reveal}
+        zones={zones}
+        onSelection={onSelection}
       />
     </Suspense>
   )

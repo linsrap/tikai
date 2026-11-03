@@ -40,6 +40,10 @@ public class TikaiDbContext(DbContextOptions options)
 
     public DbSet<FileViewState> FileViewStates => Set<FileViewState>();
 
+    public DbSet<ReviewThread> ReviewThreads => Set<ReviewThread>();
+
+    public DbSet<ReviewComment> ReviewComments => Set<ReviewComment>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

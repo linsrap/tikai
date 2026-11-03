@@ -39,9 +39,11 @@ export function staleKeys(
       // The board and the ticket page show what a run waits for.
       return [['attention-items'], [...ticket, 'runs'], ['runs']]
     case 'ChangeSetChanged':
-      // A new round or a verdict: the review itself (not its files: a round never changes), and the links to it.
+      // A new round, a verdict or a comment: the review itself and its threads (not its files: a round never
+      // changes), and the links to it.
       return [
         ['change-sets', change.changeSetId],
+        ['change-set-threads', change.changeSetId],
         [...ticket, 'runs'],
         ['runs'],
         ['attention-items'],
@@ -50,7 +52,13 @@ export function staleKeys(
 }
 
 /** Everything a page can show from live data, re-read after a reconnect or a resync. */
-export const liveKeys: unknown[][] = [['attention-items'], ['runs'], ['projects'], ['change-sets']]
+export const liveKeys: unknown[][] = [
+  ['attention-items'],
+  ['runs'],
+  ['projects'],
+  ['change-sets'],
+  ['change-set-threads'],
+]
 
 type Watch = { method: 'WatchAll' | 'WatchProject' | 'WatchRun'; arg?: string; count: number }
 

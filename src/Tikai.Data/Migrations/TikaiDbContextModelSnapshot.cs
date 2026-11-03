@@ -637,6 +637,80 @@ namespace Tikai.Data.Migrations
                     b.ToTable("file_view_states", (string)null);
                 });
 
+            modelBuilder.Entity("Tikai.Core.Reviews.ReviewComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("AuthorRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_run_id");
+
+                    b.Property<Guid?>("AuthorUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_user_id");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(10000)
+                        .HasColumnType("character varying(10000)")
+                        .HasColumnName("body");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("EditedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("edited_at");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at");
+
+                    b.Property<Guid>("ThreadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("thread_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_review_comments");
+
+                    b.HasIndex("AuthorRunId")
+                        .HasDatabaseName("ix_review_comments_author_run_id");
+
+                    b.HasIndex("AuthorUserId")
+                        .HasDatabaseName("ix_review_comments_author_user_id");
+
+                    b.HasIndex("ThreadId")
+                        .HasDatabaseName("ix_review_comments_thread_id");
+
+                    b.ToTable("review_comments", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_review_comments_action", "action IN ('note', 'send_to_agent')");
+
+                            t.HasCheckConstraint("ck_review_comments_author", "(author_user_id IS NULL) <> (author_run_id IS NULL)");
+
+                            t.HasCheckConstraint("ck_review_comments_sent", "sent_at IS NULL OR action = 'send_to_agent'");
+                        });
+                });
+
             modelBuilder.Entity("Tikai.Core.Reviews.ReviewRound", b =>
                 {
                     b.Property<Guid>("Id")
@@ -738,6 +812,97 @@ namespace Tikai.Data.Migrations
                             t.HasCheckConstraint("ck_review_rounds_verdict", "verdict IN ('approve', 'request_changes', 'reject')");
 
                             t.HasCheckConstraint("ck_review_rounds_verdict_given", "(verdict IS NULL) = (verdict_at IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Tikai.Core.Reviews.ReviewThread", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChangeSetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("change_set_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<string>("FilePath")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("file_path");
+
+                    b.Property<int?>("LineEnd")
+                        .HasColumnType("integer")
+                        .HasColumnName("line_end");
+
+                    b.Property<int?>("LineStart")
+                        .HasColumnType("integer")
+                        .HasColumnName("line_start");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<Guid?>("ResolvedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("resolved_by_id");
+
+                    b.Property<Guid>("ReviewRoundId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("review_round_id");
+
+                    b.Property<string>("Side")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("side");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_review_threads");
+
+                    b.HasIndex("ChangeSetId")
+                        .HasDatabaseName("ix_review_threads_change_set_id");
+
+                    b.HasIndex("CreatedById")
+                        .HasDatabaseName("ix_review_threads_created_by_id");
+
+                    b.HasIndex("ResolvedById")
+                        .HasDatabaseName("ix_review_threads_resolved_by_id");
+
+                    b.HasIndex("ReviewRoundId")
+                        .HasDatabaseName("ix_review_threads_review_round_id");
+
+                    b.ToTable("review_threads", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_review_threads_anchor", "(file_path IS NULL AND side IS NULL AND line_start IS NULL AND line_end IS NULL) OR (file_path IS NOT NULL AND side IS NOT NULL AND line_start >= 1 AND line_end >= line_start)");
+
+                            t.HasCheckConstraint("ck_review_threads_resolved", "(status = 'resolved') = (resolved_at IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_review_threads_side", "side IN ('old', 'new')");
+
+                            t.HasCheckConstraint("ck_review_threads_status", "status IN ('open', 'resolved')");
                         });
                 });
 
@@ -1402,6 +1567,28 @@ namespace Tikai.Data.Migrations
                         .HasConstraintName("fk_file_view_states_users_user_id");
                 });
 
+            modelBuilder.Entity("Tikai.Core.Reviews.ReviewComment", b =>
+                {
+                    b.HasOne("Tikai.Core.Runs.AgentRun", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorRunId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_review_comments_agent_runs_author_run_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_review_comments_users_author_user_id");
+
+                    b.HasOne("Tikai.Core.Reviews.ReviewThread", null)
+                        .WithMany()
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_review_comments_review_threads_thread_id");
+                });
+
             modelBuilder.Entity("Tikai.Core.Reviews.ReviewRound", b =>
                 {
                     b.HasOne("Tikai.Core.Reviews.ChangeSet", null)
@@ -1416,6 +1603,35 @@ namespace Tikai.Data.Migrations
                         .HasForeignKey("VerdictById")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_review_rounds_users_verdict_by_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Reviews.ReviewThread", b =>
+                {
+                    b.HasOne("Tikai.Core.Reviews.ChangeSet", null)
+                        .WithMany()
+                        .HasForeignKey("ChangeSetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_review_threads_change_sets_change_set_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_review_threads_users_created_by_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("ResolvedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_review_threads_users_resolved_by_id");
+
+                    b.HasOne("Tikai.Core.Reviews.ReviewRound", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewRoundId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_review_threads_review_rounds_review_round_id");
                 });
 
             modelBuilder.Entity("Tikai.Core.Runs.AgentRun", b =>

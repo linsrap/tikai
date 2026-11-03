@@ -158,7 +158,7 @@ public sealed partial class RunStarter(
         var resume = await store.GetResumeInfoAsync(runId, cancellationToken);
         if (resume is null || !resume.CanResume)
         {
-            if (resume is { CancelRequested: true, State: AgentRunState.Blocked or AgentRunState.Running })
+            if (resume is { CancelRequested: true, State: AgentRunState.Blocked or AgentRunState.Running or AgentRunState.ChangesRequested })
             {
                 await store.EndAsync(runId, new RunEnd(RunTrigger.Cancel, null), cancellationToken);
             }
@@ -188,10 +188,11 @@ public sealed partial class RunStarter(
             ["session_found"] = clone.SessionExists,
         }, cancellationToken);
 
-        // 3. The agent's own session when it is there, otherwise a fresh one that gets a summary.
+        // 3. The agent's own session when it is there, otherwise a fresh one that gets a summary. In a fix round both
+        //    point the agent at the review comments.
         RunContinuation continuation = kind == RunJobKind.Resume && session is not null && clone.SessionExists
-            ? new ResumeSession(session, [.. resume.ToDeliver.Select(a => a.Answer)])
-            : new FreshSession(resume.ApprovedPlan, resume.Answered, clone.GitLog, clone.GitStatus);
+            ? new ResumeSession(session, [.. resume.ToDeliver.Select(a => a.Answer)], resume.Changes)
+            : new FreshSession(resume.ApprovedPlan, resume.Answered, clone.GitLog, clone.GitStatus, resume.Changes);
         var attempt = continuation is ResumeSession ? RunAttemptKind.Resume : RunAttemptKind.Summary;
         var spec = adapter.BuildResumeContainer(context, continuation);
         var containerId = await containers.CreateAsync(new SandboxSpec(runId, SandboxRole.Agent, spec, WithNetwork: true), cancellationToken);
@@ -210,6 +211,7 @@ public sealed partial class RunStarter(
             ["container_id"] = containerId,
             ["model"] = info.Llm.Model,
             ["answers"] = resume.ToDeliver.Count,
+            ["changes_requested_on_round"] = resume.Changes?.RoundNo,
             ["reason"] = attempt == RunAttemptKind.Resume ? null
                 : kind == RunJobKind.Summary ? "the resumed session failed"
                 : session is null ? "no session was recorded"

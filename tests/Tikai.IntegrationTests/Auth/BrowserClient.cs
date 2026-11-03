@@ -36,6 +36,8 @@ public sealed class BrowserClient(HttpClient http) : IDisposable
 
     public Task<HttpResponseMessage> PutAsync(string path, object body) => Http.PutAsJsonAsync(new Uri(path, UriKind.Relative), body, TikaiJson.Options);
 
+    public Task<HttpResponseMessage> PatchAsync(string path, object body) => Http.PatchAsJsonAsync(new Uri(path, UriKind.Relative), body, TikaiJson.Options);
+
     public Task<HttpResponseMessage> DeleteAsync(string path) => Http.DeleteAsync(new Uri(path, UriKind.Relative));
 
     /// <summary>Signs up the first (admin) user and keeps the session, ready for API calls.</summary>

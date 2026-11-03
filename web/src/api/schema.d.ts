@@ -1188,6 +1188,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/change-sets/{id}/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReviewThreadInfo"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateThreadRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReviewThreadInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/attention-items": {
         parameters: {
             query?: never;
@@ -1663,6 +1734,7 @@ export interface paths {
             parameters: {
                 query?: {
                     round?: number;
+                    full?: boolean;
                 };
                 header?: never;
                 path: {
@@ -1703,6 +1775,7 @@ export interface paths {
                 query: {
                     path: string;
                     round?: number;
+                    full?: boolean;
                 };
                 header?: never;
                 path: {
@@ -1814,6 +1887,15 @@ export interface paths {
                         "application/json": components["schemas"]["ChangeSetInfo"];
                     };
                 };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -1858,6 +1940,199 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/review-threads/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CommentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReviewThreadInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review-threads/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReviewThreadInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review-threads/{id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReviewThreadInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review-comments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CommentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReviewThreadInfo"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
 }
@@ -1937,6 +2212,7 @@ export interface components {
             /** Format: uuid */
             changeSetId: null | string;
             analysis: null | components["schemas"]["AnalysisBrief"];
+            round?: null | components["schemas"]["RoundBrief"];
         };
         /** @enum {unknown} */
         AttentionKind: "question" | "permission" | "plan_approval" | "review" | "conflict" | "failure";
@@ -1981,6 +2257,14 @@ export interface components {
             /** Format: int32 */
             lineEnd: number;
         };
+        /** @enum {unknown} */
+        CommentAction: "note" | "send_to_agent";
+        /** @enum {unknown} */
+        CommentAuthorKind: "person" | "agent";
+        CommentRequest: {
+            body: string;
+            action: components["schemas"]["CommentAction"];
+        };
         CreateLlmProviderRequest: {
             name: string;
             defaultModel: string;
@@ -1998,6 +2282,18 @@ export interface components {
             remoteUrl?: null | string;
             defaultBranch?: null | string;
             credential?: null | components["schemas"]["CredentialInput"];
+        };
+        CreateThreadRequest: {
+            /** Format: int32 */
+            roundNo: number;
+            body: string;
+            action: components["schemas"]["CommentAction"];
+            path?: null | string;
+            side?: null | components["schemas"]["DiffSide"];
+            /** Format: int32 */
+            lineStart?: null | number;
+            /** Format: int32 */
+            lineEnd?: null | number;
         };
         CreateTicketRequest: {
             title: string;
@@ -2039,6 +2335,8 @@ export interface components {
             displayName: string;
             isAdmin: boolean;
         };
+        /** @enum {unknown} */
+        DiffSide: "old" | "new" | null;
         FailurePayload: {
             reason: string;
             /** Format: int32 */
@@ -2073,6 +2371,8 @@ export interface components {
                 [key: string]: string[];
             };
         };
+        /** @enum {unknown} */
+        InterdiffKind: "none" | "heads" | "per_file";
         ItemRun: {
             state: components["schemas"]["AgentRunState"];
             adapter: null | string;
@@ -2174,6 +2474,23 @@ export interface components {
             outputTokens: null | number;
             /** Format: int32 */
             durationMs: number;
+            /** Format: int32 */
+            interdiffSince?: null | number;
+        };
+        ReviewCommentInfo: {
+            /** Format: uuid */
+            id: string;
+            author: components["schemas"]["CommentAuthorKind"];
+            authorName: string;
+            body: string;
+            action: components["schemas"]["CommentAction"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            editedAt: null | string;
+            /** Format: date-time */
+            sentAt: null | string;
+            canEdit: boolean;
         };
         ReviewCoverage: {
             /** Format: uuid */
@@ -2204,6 +2521,14 @@ export interface components {
             headSha: string;
             files: components["schemas"]["ReviewFileInfo"][];
             truncated: boolean;
+            view: components["schemas"]["ReviewView"];
+            interdiff: components["schemas"]["InterdiffKind"];
+            fromSha: string;
+            toSha: string;
+            /** Format: int32 */
+            previousRound: null | number;
+            previousBaseSha: null | string;
+            dropped: string[];
         };
         ReviewModels: {
             light?: null | string;
@@ -2230,8 +2555,37 @@ export interface components {
             createdAt: string;
             analysis: null | components["schemas"]["AnalysisInfo"];
         };
+        ReviewThreadInfo: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            roundNo: number;
+            path: null | string;
+            side: null | components["schemas"]["DiffSide"];
+            /** Format: int32 */
+            lineStart: null | number;
+            /** Format: int32 */
+            lineEnd: null | number;
+            status: components["schemas"]["ThreadStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            resolvedBy: null | string;
+            /** Format: date-time */
+            resolvedAt: null | string;
+            comments: components["schemas"]["ReviewCommentInfo"][];
+        };
         /** @enum {unknown} */
         ReviewVerdict: "approve" | "request_changes" | "reject" | null;
+        /** @enum {unknown} */
+        ReviewView: "full" | "interdiff";
+        RoundBrief: {
+            /** Format: int32 */
+            roundNo: number;
+            /** Format: int32 */
+            answered: number;
+            /** Format: int32 */
+            unanswered: number;
+        };
         /** @enum {unknown} */
         RunAttemptKind: "start" | "resume" | "summary";
         RunEventInfo: {
@@ -2323,6 +2677,8 @@ export interface components {
         };
         /** @enum {unknown} */
         StoryLayer: "data" | "domain" | "api" | "ui" | "tests" | "config" | "docs" | "other";
+        /** @enum {unknown} */
+        ThreadStatus: "open" | "resolved";
         TicketInfo: {
             /** Format: uuid */
             id: string;
@@ -2380,6 +2736,7 @@ export interface components {
         };
         VerdictRequest: {
             verdict: components["schemas"]["ReviewVerdict"];
+            message?: null | string;
         };
         ViewedInfo: {
             path: string;
@@ -2390,6 +2747,8 @@ export interface components {
             viewed: boolean;
             /** Format: int32 */
             round?: null | number;
+            /** @default false */
+            full: boolean;
         };
         WaitingItem: {
             /** Format: uuid */

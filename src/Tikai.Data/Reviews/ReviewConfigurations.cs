@@ -66,3 +66,52 @@ internal sealed class FileViewStateConfiguration : IEntityTypeConfiguration<File
         builder.HasIndex(v => v.ChangeSetId);
     }
 }
+
+internal sealed class ReviewThreadConfiguration : IEntityTypeConfiguration<ReviewThread>
+{
+    public void Configure(EntityTypeBuilder<ReviewThread> builder)
+    {
+        builder.ToTable("review_threads", table =>
+        {
+            table.HasCheckConstraint("ck_review_threads_side", SnakeCaseEnum.CheckIn<DiffSide>("side"));
+            table.HasCheckConstraint("ck_review_threads_status", SnakeCaseEnum.CheckIn<ThreadStatus>("status"));
+            // Anchored (path, side and lines) or general (none of them).
+            table.HasCheckConstraint("ck_review_threads_anchor",
+                "(file_path IS NULL AND side IS NULL AND line_start IS NULL AND line_end IS NULL) OR " +
+                "(file_path IS NOT NULL AND side IS NOT NULL AND line_start >= 1 AND line_end >= line_start)");
+            table.HasCheckConstraint("ck_review_threads_resolved", "(status = 'resolved') = (resolved_at IS NOT NULL)");
+        });
+        builder.Property(t => t.FilePath).HasMaxLength(ReviewRules.MaxFilePathLength);
+        builder.Property(t => t.Side).HasConversion(SnakeCaseEnum.Converter<DiffSide>()).HasMaxLength(10);
+        builder.Property(t => t.Status).HasConversion(SnakeCaseEnum.Converter<ThreadStatus>()).HasMaxLength(20);
+
+        builder.HasOne<ChangeSet>().WithMany().HasForeignKey(t => t.ChangeSetId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<ReviewRound>().WithMany().HasForeignKey(t => t.ReviewRoundId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<TikaiUser>().WithMany().HasForeignKey(t => t.CreatedById).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<TikaiUser>().WithMany().HasForeignKey(t => t.ResolvedById).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(t => t.ChangeSetId);
+        builder.HasIndex(t => t.ReviewRoundId);
+    }
+}
+
+internal sealed class ReviewCommentConfiguration : IEntityTypeConfiguration<ReviewComment>
+{
+    public void Configure(EntityTypeBuilder<ReviewComment> builder)
+    {
+        builder.ToTable("review_comments", table =>
+        {
+            table.HasCheckConstraint("ck_review_comments_action", SnakeCaseEnum.CheckIn<CommentAction>("action"));
+            table.HasCheckConstraint("ck_review_comments_author", "(author_user_id IS NULL) <> (author_run_id IS NULL)");
+            table.HasCheckConstraint("ck_review_comments_sent", "sent_at IS NULL OR action = 'send_to_agent'");
+        });
+        builder.Property(c => c.Body).HasMaxLength(ThreadRules.MaxBodyLength);
+        builder.Property(c => c.Action).HasConversion(SnakeCaseEnum.Converter<CommentAction>()).HasMaxLength(20);
+
+        builder.HasOne<ReviewThread>().WithMany().HasForeignKey(c => c.ThreadId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<TikaiUser>().WithMany().HasForeignKey(c => c.AuthorUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<AgentRun>().WithMany().HasForeignKey(c => c.AuthorRunId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(c => c.ThreadId);
+        builder.HasIndex(c => c.AuthorUserId);
+        builder.HasIndex(c => c.AuthorRunId);
+    }
+}

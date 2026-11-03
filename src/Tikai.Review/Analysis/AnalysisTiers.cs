@@ -71,6 +71,20 @@ public static class AnalysisTiers
         return new(AnalysisTier.Normal, $"{lines} changed lines");
     }
 
+    /// <summary>
+    /// The tier of a later round analysed by its interdiff: chosen by the interdiff's size and paths (a small fix of a
+    /// strict-sized change is not strict), except that a sensitive path anywhere in the whole change keeps it strict.
+    /// </summary>
+    public static TierChoice ChooseForInterdiff(IReadOnlyCollection<AnalysisFile> whole, IReadOnlyCollection<AnalysisFile> interdiff)
+    {
+        if (whole.Where(f => f.Reviewable).FirstOrDefault(f => Matches(_strict, f)) is { } sensitive)
+        {
+            return new(AnalysisTier.Strict, $"strict path: {sensitive.Path}");
+        }
+        var choice = Choose(interdiff);
+        return choice with { Reason = "interdiff, " + choice.Reason };
+    }
+
     // A rename out of (or into) a sensitive place is strict; a light rename stays within light places.
     private static bool Matches(PathPattern[] patterns, AnalysisFile file) =>
         patterns.Any(p => p.Matches(file.Path)) || (file.OldPath is { } old && patterns.Any(p => p.Matches(old)));

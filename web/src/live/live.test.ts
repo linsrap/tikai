@@ -15,7 +15,7 @@ describe('live updates', () => {
     ])
   })
 
-  it('re-reads the review and the links to it when a change set changes, not its files', () => {
+  it('re-reads the review, its threads and the links to it when a change set changes, not its files', () => {
     const keys = staleKeys('ChangeSetChanged', {
       projectSlug: 'hub',
       ticketNumber: 7,
@@ -24,6 +24,7 @@ describe('live updates', () => {
 
     expect(keys).toEqual([
       ['change-sets', 'cs1'],
+      ['change-set-threads', 'cs1'],
       ['projects', 'hub', 'tickets', 7, 'runs'],
       ['runs'],
       ['attention-items'],
