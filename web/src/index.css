@@ -436,3 +436,93 @@ ul.files {
   border-radius: 0.5rem;
   overflow: hidden;
 }
+
+/* Review analysis: coverage next to the agent's claims, story groups, risk. */
+.analysis h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+table.coverage {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.95rem;
+}
+
+table.coverage th,
+table.coverage td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+table.coverage td.stack {
+  gap: 0.25rem;
+}
+
+table.coverage tr.disagree {
+  background: color-mix(in srgb, #bf8700 12%, transparent);
+}
+
+.coverage .differs {
+  color: #9a6700;
+}
+
+.refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: #0969da;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.badge.tier.strict,
+.badge.risk.high {
+  color: #b42318;
+}
+
+.badge.risk.medium {
+  color: #9a6700;
+}
+
+.badge.risk {
+  font-size: 0.75rem;
+  padding: 0 0.4rem;
+}
+
+.story-group .group-title {
+  margin: 0;
+}
+
+.story-group > p.small {
+  margin: 0.15rem 0 0.25rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  button.link {
+    color: #4493f8;
+  }
+
+  .coverage .differs,
+  .badge.risk.medium {
+    color: #d29922;
+  }
+
+  .badge.tier.strict,
+  .badge.risk.high {
+    color: #f85149;
+  }
+}

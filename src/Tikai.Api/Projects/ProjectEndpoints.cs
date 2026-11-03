@@ -16,6 +16,8 @@ internal static class ProjectEndpoints
         projects.MapGet("/{slug}", GetAsync);
         projects.MapPut("/{slug}", UpdateAsync);
         projects.MapDelete("/{slug}", DeleteAsync);
+        projects.MapGet("/{slug}/settings", GetSettingsAsync);
+        projects.MapPut("/{slug}/settings", UpdateSettingsAsync);
 
         projects.MapGroup("/{slug}/repositories").MapRepositoryEndpoints();
     }
@@ -81,6 +83,43 @@ internal static class ProjectEndpoints
         }
         return TypedResults.Ok(ProjectInfo.From((await FindAsync(db, slug, cancellationToken))!));
     }
+
+    private static async Task<Results<Ok<ProjectSettingsInfo>, ProblemHttpResult>> GetSettingsAsync(
+        string slug, TikaiDbContext db, CancellationToken cancellationToken)
+    {
+        var project = await FindAsync(db, slug, cancellationToken);
+        return project is null ? NotFound() : TypedResults.Ok(ProjectSettingsInfo.From(project));
+    }
+
+    /// <summary>
+    /// The model per review analysis tier. Ids are checked for form only: the provider (maybe a gateway) decides which
+    /// exist, and a wrong one shows as a failed analysis with the provider's message.
+    /// </summary>
+    private static async Task<Results<Ok<ProjectSettingsInfo>, ValidationProblem, ProblemHttpResult>> UpdateSettingsAsync(
+        string slug, UpdateProjectSettingsRequest request, TikaiDbContext db, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        var models = request.AnalysisModels ?? new ReviewModels();
+        models = new ReviewModels(Empty(models.Light), Empty(models.Normal), Empty(models.Strict));
+        var errors = models.Errors().ToDictionary(e => "analysisModels." + e.Field, e => new[] { e.Error });
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+        var project = await FindAsync(db, slug, cancellationToken);
+        if (project is null)
+        {
+            return NotFound();
+        }
+        var settings = ProjectSettings.Parse(project.Settings);
+        var json = (settings with { Review = (settings.Review ?? new ReviewSettings()) with { Models = models } }).ToJson();
+        // Not a tracked save, for the same reason as a rename (the ticket counter shares the row).
+        await db.Projects.Where(p => p.Id == project.Id).ExecuteUpdateAsync(
+            set => set.SetProperty(p => p.Settings, json).SetProperty(p => p.UpdatedAt, timeProvider.GetUtcNow()), cancellationToken);
+        project.Settings = json;
+        return TypedResults.Ok(ProjectSettingsInfo.From(project));
+    }
+
+    private static string? Empty(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
 
     private static async Task<Results<NoContent, ProblemHttpResult>> DeleteAsync(string slug, TikaiDbContext db, CancellationToken cancellationToken)
     {

@@ -16,6 +16,7 @@ import {
   type RepositoryForm,
   type RepositoryInfo,
 } from '../projects/projects'
+import { AnalysisSettings } from './AnalysisSettings'
 import { AppShell } from './AppShell'
 import { ProvidersSection } from './ProvidersSection'
 
@@ -60,6 +61,8 @@ export function ProjectPage({ slug }: { slug: string }) {
         Settings.
       </p>
       <ProvidersSection owner={{ kind: 'project', slug }} />
+      <h2>Review analysis</h2>
+      <AnalysisSettings slug={slug} />
       {repositories.data?.length === 0 && (
         <p>
           <button

@@ -35,7 +35,8 @@ public static partial class LlmProviderRules
     }
 
     /// <summary>Optional; only https, without user info, query or fragment (the key is sent there).</summary>
-    public static string? BaseUrlError(string? baseUrl)
+    /// <param name="allowHttp">The hub allows plain http (setting Tikai:Llm:AllowHttpBaseUrls), e.g. for a gateway next to it.</param>
+    public static string? BaseUrlError(string? baseUrl, bool allowHttp = false)
     {
         if (baseUrl is null)
         {
@@ -43,12 +44,12 @@ public static partial class LlmProviderRules
         }
         return baseUrl.Length <= MaxBaseUrlLength
             && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
-            && uri.Scheme == Uri.UriSchemeHttps
+            && (uri.Scheme == Uri.UriSchemeHttps || (allowHttp && uri.Scheme == Uri.UriSchemeHttp))
             && uri.UserInfo.Length == 0
             && uri.Query.Length == 0
             && uri.Fragment.Length == 0
                 ? null
-                : "Enter an https:// URL without user name, query or fragment, or leave it empty for the provider's default.";
+                : $"Enter an {(allowHttp ? "http(s)" : "https")}:// URL without user name, query or fragment, or leave it empty for the provider's default.";
     }
 
     /// <summary>The last characters of the key, shown as "…abcd".</summary>

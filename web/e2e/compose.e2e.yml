@@ -5,3 +5,15 @@ services:
     image: tikai/hub:e2e
     environment:
       Tikai__Agents__ClaudeCodeImage: tikai/agent-stub:e2e
+      # The providers point at fake-llm over plain http.
+      Tikai__Llm__AllowHttpBaseUrls: 'true'
+
+  # A fake Messages API for the review analysis (fake-llm.mjs); built on the e2e agent base for its Node.
+  fake-llm:
+    build:
+      context: web/e2e
+      dockerfile_inline: |
+        FROM tikai/agent-base:e2e
+        COPY fake-llm.mjs /opt/fake-llm.mjs
+        CMD ["node", "/opt/fake-llm.mjs"]
+    image: tikai/fake-llm:e2e

@@ -28,6 +28,9 @@ public sealed record ProcessResult(int ExitCode, byte[] StandardOutput, string S
 
 public sealed class ProcessTimeoutException(string message) : Exception(message);
 
+/// <summary>The program wrote more than <see cref="ProcessRequest.MaxOutputBytes"/>; it was killed.</summary>
+public sealed class ProcessOutputLimitException(string message) : Exception(message);
+
 public sealed class ProcessRunner : IProcessRunner
 {
     public async Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken = default)
@@ -119,7 +122,7 @@ public sealed class ProcessRunner : IProcessRunner
         {
             if (target.Length + read > maxBytes)
             {
-                throw new InvalidOperationException($"The program wrote more than {maxBytes} bytes of output.");
+                throw new ProcessOutputLimitException($"The program wrote more than {maxBytes} bytes of output.");
             }
             target.Write(buffer, 0, read);
         }

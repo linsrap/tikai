@@ -386,6 +386,13 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<string>("Settings")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("settings")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -636,6 +643,23 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Analysis")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("analysis");
+
+                    b.Property<DateTimeOffset?>("AnalysisAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("analysis_at");
+
+                    b.Property<string>("AnalysisError")
+                        .HasColumnType("text")
+                        .HasColumnName("analysis_error");
+
+                    b.Property<string>("AnalysisStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("analysis_status");
+
                     b.Property<string>("BaseSha")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -705,6 +729,10 @@ namespace Tikai.Data.Migrations
 
                     b.ToTable("review_rounds", null, t =>
                         {
+                            t.HasCheckConstraint("ck_review_rounds_analysis_done", "(analysis_status = 'done') = (analysis IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_review_rounds_analysis_status", "analysis_status IN ('pending', 'done', 'failed')");
+
                             t.HasCheckConstraint("ck_review_rounds_round_no", "round_no > 0");
 
                             t.HasCheckConstraint("ck_review_rounds_verdict", "verdict IN ('approve', 'request_changes', 'reject')");

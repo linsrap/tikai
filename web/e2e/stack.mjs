@@ -1,4 +1,4 @@
-// Runs the browser test against a throwaway compose stack: the hub image and the stub agent, as compose project
+// Runs the browser test against a throwaway compose stack: the hub image, the stub agent and a fake Messages API, as compose project
 // tikai-e2e on port 18092 with test settings (e2e.env). Plain Node, so it works the same in PowerShell, bash and CI.
 //   node e2e/stack.mjs          build images, start the stack, run Playwright, remove the stack (always)
 //   node e2e/stack.mjs --keep   the same, but leave the stack running (for debugging: npm run e2e:test)
@@ -13,7 +13,12 @@ const web = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const root = path.resolve(web, '..')
 const project = 'tikai-e2e'
 const runsVolume = `${project}_runs`
-const images = ['tikai/hub:e2e', 'tikai/agent-stub:e2e', 'tikai/agent-base:e2e']
+const images = [
+  'tikai/hub:e2e',
+  'tikai/agent-stub:e2e',
+  'tikai/agent-base:e2e',
+  'tikai/fake-llm:e2e',
+]
 const baseUrl = 'http://127.0.0.1:18092'
 const compose = [
   'compose',
@@ -68,11 +73,11 @@ function build() {
     'tikai/agent-stub:e2e',
     'tests/agent-stub',
   ])
-  docker([...compose, 'build', 'hub'])
+  docker([...compose, 'build', 'hub', 'fake-llm'])
 }
 
 async function up() {
-  docker([...compose, 'up', '-d', '--wait', 'hub'])
+  docker([...compose, 'up', '-d', '--wait', 'hub', 'fake-llm'])
   for (let i = 0; i < 120; i++) {
     try {
       if ((await fetch(`${baseUrl}/health/ready`)).ok) return

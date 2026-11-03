@@ -11,6 +11,12 @@ export type FileContents = components['schemas']['FileContentsInfo']
 export type FileSide = components['schemas']['FileSide']
 export type ChangeKind = components['schemas']['GitChangeKind']
 export type Verdict = NonNullable<components['schemas']['ReviewVerdict']>
+export type Analysis = components['schemas']['AnalysisInfo']
+export type ReviewAnalysis = components['schemas']['ReviewAnalysis']
+export type AnalysisCoverage = components['schemas']['AnalysisCoverage']
+export type CodeRef = components['schemas']['CodeRef']
+export type StoryLayer = components['schemas']['StoryLayer']
+export type Coverage = components['schemas']['CriterionCoverage']
 
 export const kindLetter: Record<ChangeKind, string> = {
   added: 'A',
@@ -59,9 +65,45 @@ export function groupFiles(files: readonly ReviewFile[]): {
   }
 }
 
-/** The order j/k move through: the tree from top to bottom. */
-export function fileOrder(files: readonly ReviewFile[]): string[] {
-  const { groups, skimmed } = groupFiles(files)
+export type StoryFileGroup = {
+  title: string
+  layer: StoryLayer
+  note: string
+  files: ReviewFile[]
+}
+
+/**
+ * The file list in the analysis's reading order: its groups with their files, then any file it did not place, and
+ * the skimmed files apart as in the path order.
+ */
+export function storyFiles(
+  files: readonly ReviewFile[],
+  analysis: Pick<ReviewAnalysis, 'groups'>,
+): { groups: StoryFileGroup[]; skimmed: ReviewFile[] } {
+  const byPath = new Map(files.filter((f) => !isSkimmed(f)).map((f) => [f.path, f]))
+  const groups: StoryFileGroup[] = []
+  for (const group of analysis.groups) {
+    const list = group.files.flatMap((path) => {
+      const file = byPath.get(path)
+      byPath.delete(path)
+      return file ? [file] : []
+    })
+    if (list.length > 0) groups.push({ ...group, files: list })
+  }
+  const rest = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
+  if (rest.length > 0)
+    groups.push({ title: 'Other changes', layer: 'other', note: '', files: rest })
+  return { groups, skimmed: groupFiles(files).skimmed }
+}
+
+export type FileOrderMode = 'story' | 'path'
+
+/** The order j/k move through: the list from top to bottom, by story when an analysis gives one. */
+export function fileOrder(
+  files: readonly ReviewFile[],
+  story: Pick<ReviewAnalysis, 'groups'> | null = null,
+): string[] {
+  const { groups, skimmed } = story ? storyFiles(files, story) : groupFiles(files)
   return [...groups.flatMap((g) => g.files), ...skimmed].map((f) => f.path)
 }
 
@@ -82,8 +124,8 @@ export function nextUnviewed(
   files: readonly ReviewFile[],
   current: string | null,
   viewedNow: ReadonlySet<string> = new Set(),
+  order: readonly string[] = fileOrder(files),
 ): string | null {
-  const order = fileOrder(files)
   const viewed = new Set([...files.filter((f) => f.viewed).map((f) => f.path), ...viewedNow])
   const start = current === null ? 0 : order.indexOf(current) + 1
   for (let i = 0; i < order.length; i++) {
@@ -131,6 +173,72 @@ export function saveDiffMode(
     // Private windows and blocked storage: the choice lasts for this page only.
   }
 }
+
+const orderKey = 'tikai.review.order'
+
+/** Story order unless the reviewer chose path order in this browser. */
+export function loadOrderMode(
+  storage: Pick<Storage, 'getItem'> | undefined = globalThis.localStorage,
+): FileOrderMode {
+  try {
+    return storage?.getItem(orderKey) === 'path' ? 'path' : 'story'
+  } catch {
+    return 'story'
+  }
+}
+
+export function saveOrderMode(
+  mode: FileOrderMode,
+  storage: Pick<Storage, 'setItem'> | undefined = globalThis.localStorage,
+) {
+  try {
+    storage?.setItem(orderKey, mode)
+  } catch {
+    // The choice lasts for this page only.
+  }
+}
+
+/** A file's risk from the analysis; only medium and high get a badge. */
+export function riskOf(analysis: Pick<ReviewAnalysis, 'risks'> | null | undefined, path: string) {
+  const risk = analysis?.risks.find((r) => r.path === path)
+  return risk && risk.risk !== 'low' ? risk : null
+}
+
+export type CoverageRow = {
+  criterionId: string
+  text: string
+  /** What the agent claims; null when it did not say. */
+  claimed: Coverage | null
+  claimedNote: string | null
+  /** What the analysis found; null when it did not assess the criterion. */
+  found: AnalysisCoverage | null
+  /** Agent and analysis both rated it, differently. */
+  disagree: boolean
+}
+
+/** One row per ticket criterion, with the agent's claim next to the analysis. */
+export function coverageRows(
+  criteria: readonly { id: string; text: string }[],
+  claims: readonly { criterionId: string; status: Coverage; note: string | null }[],
+  analysis: Pick<ReviewAnalysis, 'coverage'> | null,
+): CoverageRow[] {
+  return criteria.map((criterion) => {
+    const claim = claims.find((c) => c.criterionId === criterion.id) ?? null
+    const found = analysis?.coverage.find((c) => c.criterionId === criterion.id) ?? null
+    return {
+      criterionId: criterion.id,
+      text: criterion.text,
+      claimed: claim?.status ?? null,
+      claimedNote: claim?.note ?? null,
+      found,
+      disagree: !!claim && !!found && claim.status !== found.status,
+    }
+  })
+}
+
+/** "src/a.cs:3–9", or "src/a.cs:3" for one line. */
+export const refText = (ref: CodeRef) =>
+  `${ref.path}:${ref.lineStart}${ref.lineEnd > ref.lineStart ? `–${ref.lineEnd}` : ''}`
 
 export const changeSetQuery = (id: string) =>
   queryOptions({
@@ -205,5 +313,22 @@ export function useVerdict(id: string) {
       void queryClient.invalidateQueries({ queryKey: ['attention-items'] })
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
+  })
+}
+
+/** Analyses the round again; the review shows "Analysing…" until the job is done. */
+export function useRetryAnalysis(id: string, roundNo: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      await ensureAntiforgery()
+      return unwrap(
+        api.POST('/api/change-sets/{id}/rounds/{roundNo}/analysis', {
+          params: { path: { id, roundNo } },
+        }),
+        'start the analysis',
+      )
+    },
+    onSuccess: (changeSet) => queryClient.setQueryData(changeSetQuery(id).queryKey, changeSet),
   })
 }

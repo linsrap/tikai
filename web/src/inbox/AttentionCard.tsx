@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { components } from '../api/schema'
 import { RunLog } from '../live/RunLog'
 import { SelfReport } from '../review/SelfReport'
+import { analysisLine } from './inbox'
 import { eventSummary, runStateLabel } from '../runs/runs'
 import { PlanAnswer, QuestionAnswer } from './AnswerForms'
 import { ago, kindLabel, useDismiss, useRetry, type AttentionItem } from './inbox'
@@ -57,6 +58,7 @@ export function AttentionCard({ item }: { item: AttentionItem }) {
           review={item.review}
           coverage={item.reviewCoverage}
           changeSetId={item.changeSetId}
+          analysis={item.analysis}
         />
       )}
 
@@ -118,16 +120,23 @@ function ReviewReport({
   review,
   coverage,
   changeSetId,
+  analysis,
 }: {
   id: string
   review: ReviewPayload
   coverage: AttentionItem['reviewCoverage']
   changeSetId: string | null
+  analysis: AttentionItem['analysis']
 }) {
   const dismiss = useDismiss(id)
   return (
     <div className="stack">
       <SelfReport summary={review.summary} coverage={coverage} openConcerns={review.openConcerns} />
+      {analysis && (
+        <p className="muted analysis-line" role="status">
+          {analysisLine(analysis)}
+        </p>
+      )}
       {changeSetId ? (
         <div className="row">
           <Link to="/reviews/$id" params={{ id: changeSetId }} className="button primary">

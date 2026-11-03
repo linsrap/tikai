@@ -4,4 +4,8 @@
     <ProjectReference Include="..\Tikai.Core\Tikai.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tikai.Core.Tests" />
+  </ItemGroup>
+
 </Project>

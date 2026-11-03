@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Tikai.Api.Projects;
 using Tikai.Core.Llm;
 using Tikai.Data;
@@ -44,22 +45,22 @@ internal static class LlmProviderEndpoints
     }
 
     private static Task<Results<Created<LlmProviderInfo>, ValidationProblem, ProblemHttpResult>> CreateOwnAsync(
-        CreateLlmProviderRequest request, ClaimsPrincipal user, LlmProviderService service, CancellationToken cancellationToken) =>
-        CreateAsync(request, service, LlmProviderService.UserId(user), null, cancellationToken);
+        CreateLlmProviderRequest request, ClaimsPrincipal user, LlmProviderService service, IOptions<LlmOptions> options, CancellationToken cancellationToken) =>
+        CreateAsync(request, service, options.Value, LlmProviderService.UserId(user), null, cancellationToken);
 
     private static async Task<Results<Created<LlmProviderInfo>, ValidationProblem, ProblemHttpResult>> CreateForProjectAsync(
-        string slug, CreateLlmProviderRequest request, TikaiDbContext db, LlmProviderService service, CancellationToken cancellationToken)
+        string slug, CreateLlmProviderRequest request, TikaiDbContext db, LlmProviderService service, IOptions<LlmOptions> options, CancellationToken cancellationToken)
     {
         var project = await ProjectEndpoints.FindAsync(db, slug, cancellationToken);
         return project is null
             ? ProjectEndpoints.NotFound()
-            : await CreateAsync(request, service, null, project.Id, cancellationToken);
+            : await CreateAsync(request, service, options.Value, null, project.Id, cancellationToken);
     }
 
     private static async Task<Results<Created<LlmProviderInfo>, ValidationProblem, ProblemHttpResult>> CreateAsync(
-        CreateLlmProviderRequest request, LlmProviderService service, Guid? userId, Guid? projectId, CancellationToken cancellationToken)
+        CreateLlmProviderRequest request, LlmProviderService service, LlmOptions options, Guid? userId, Guid? projectId, CancellationToken cancellationToken)
     {
-        var errors = Validate(request.Name, request.DefaultModel, request.BaseUrl);
+        var errors = Validate(request.Name, request.DefaultModel, request.BaseUrl, options);
         ProjectEndpoints.AddError(errors, "apiKey", LlmProviderRules.ApiKeyError(request.ApiKey));
         if (errors.Count > 0)
         {
@@ -84,9 +85,9 @@ internal static class LlmProviderEndpoints
     }
 
     private static async Task<Results<Ok<LlmProviderInfo>, ValidationProblem, ProblemHttpResult>> UpdateAsync(
-        Guid id, UpdateLlmProviderRequest request, ClaimsPrincipal user, LlmProviderService service, CancellationToken cancellationToken)
+        Guid id, UpdateLlmProviderRequest request, ClaimsPrincipal user, LlmProviderService service, IOptions<LlmOptions> options, CancellationToken cancellationToken)
     {
-        var errors = Validate(request.Name, request.DefaultModel, request.BaseUrl);
+        var errors = Validate(request.Name, request.DefaultModel, request.BaseUrl, options.Value);
         if (request.ApiKey is not null)
         {
             ProjectEndpoints.AddError(errors, "apiKey", LlmProviderRules.ApiKeyError(request.ApiKey));
@@ -138,12 +139,12 @@ internal static class LlmProviderEndpoints
         return TypedResults.Ok(new LlmTestResponse(result.Ok, result.Message, result.Reply, (int)result.Duration.TotalMilliseconds));
     }
 
-    private static Dictionary<string, string[]> Validate(string? name, string? model, string? baseUrl)
+    private static Dictionary<string, string[]> Validate(string? name, string? model, string? baseUrl, LlmOptions options)
     {
         var errors = new Dictionary<string, string[]>();
         ProjectEndpoints.AddError(errors, "name", LlmProviderRules.NameError(name));
         ProjectEndpoints.AddError(errors, "defaultModel", LlmProviderRules.ModelError(model));
-        ProjectEndpoints.AddError(errors, "baseUrl", LlmProviderRules.BaseUrlError(baseUrl));
+        ProjectEndpoints.AddError(errors, "baseUrl", LlmProviderRules.BaseUrlError(baseUrl, options.AllowHttpBaseUrls));
         return errors;
     }
 

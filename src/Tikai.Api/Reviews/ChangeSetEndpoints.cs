@@ -9,6 +9,7 @@ using Tikai.Core.Agents;
 using Tikai.Core.Attention;
 using Tikai.Core.Events;
 using Tikai.Core.Git;
+using Tikai.Core.Jobs;
 using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
@@ -16,6 +17,7 @@ using Tikai.Data;
 using Tikai.Data.Runs;
 using Tikai.Orchestrator;
 using Tikai.Review;
+using Tikai.Review.Analysis;
 
 namespace Tikai.Api.Reviews;
 
@@ -35,6 +37,7 @@ internal static class ChangeSetEndpoints
         changeSets.MapGet("/{id:guid}/file", FileAsync);
         changeSets.MapPut("/{id:guid}/viewed", ViewedAsync);
         changeSets.MapPost("/{id:guid}/verdict", VerdictAsync);
+        changeSets.MapPost("/{id:guid}/rounds/{roundNo:int}/analysis", RetryAnalysisAsync);
     }
 
     private static async Task<Results<Ok<ChangeSetInfo>, ProblemHttpResult>> GetAsync(Guid id, TikaiDbContext db, CancellationToken cancellationToken) =>
@@ -49,16 +52,15 @@ internal static class ChangeSetEndpoints
             return NotFound();
         }
         var diff = await git.DiffAsync(target.Mirror, target.Round.BaseSha, target.Round.HeadSha, MaxFiles, cancellationToken);
-        var attributes = await git.ReadFileAsync(target.Mirror, target.Round.HeadSha, ".gitattributes", cancellationToken);
-        var classifier = new FileClassifier(attributes is null ? null : FileText.Decode(attributes));
+        var classified = await ClassifyAsync(git, target.Mirror, target.Round.HeadSha, diff, cancellationToken);
         var userId = LlmProviderService.UserId(user);
         var viewed = await db.FileViewStates.AsNoTracking()
             .Where(v => v.UserId == userId && v.ChangeSetId == id)
             .ToDictionaryAsync(v => v.FilePath, v => v.ViewedSha, StringComparer.Ordinal, cancellationToken);
 
-        var files = diff.Files.Select(f =>
+        var files = diff.Files.Select((f, i) =>
         {
-            var flags = classifier.Classify(f.Path, null, f.Additions, f.Deletions);
+            var flags = classified[i].Flags;
             return new ReviewFileInfo(
                 f.Path,
                 f.Kind == GitChangeKind.Renamed ? f.OldPath : null,
@@ -73,6 +75,21 @@ internal static class ChangeSetEndpoints
                 Languages.For(f.Path));
         }).ToList();
         return TypedResults.Ok(new ReviewFilesInfo(target.Round.RoundNo, target.Round.BaseSha, target.Round.HeadSha, files, diff.Truncated));
+    }
+
+    /// <summary>The diff's files with their review flags (the head's .gitattributes counts), in the diff's order.</summary>
+    internal static async Task<IReadOnlyList<AnalysisFile>> ClassifyAsync(
+        IGitService git, string mirror, string headSha, GitDiff diff, CancellationToken cancellationToken)
+    {
+        var attributes = await git.ReadFileAsync(mirror, headSha, ".gitattributes", cancellationToken);
+        var classifier = new FileClassifier(attributes is null ? null : FileText.Decode(attributes));
+        return [.. diff.Files.Select(f => new AnalysisFile(
+            f.Path,
+            f.Kind == GitChangeKind.Renamed ? f.OldPath : null,
+            f.Kind,
+            f.Additions,
+            f.Deletions,
+            classifier.Classify(f.Path, null, f.Additions, f.Deletions)))];
     }
 
     /// <summary>Both sides of one changed file of the round, as text when it is text and not too large.</summary>
@@ -255,9 +272,53 @@ internal static class ChangeSetEndpoints
                     r.Uncommitted,
                     r.Verdict,
                     r.VerdictAt,
-                    r.CreatedAt);
+                    r.CreatedAt,
+                    Analysis(r));
             })],
             row.ChangeSet.CreatedAt);
+    }
+
+    internal static AnalysisInfo? Analysis(ReviewRound round) => round.AnalysisStatus is { } status
+        ? new AnalysisInfo(status, round.AnalysisError, round.AnalysisAt, round.Analysis is { } json ? AttentionJson.Deserialize<ReviewAnalysis>(json) : null)
+        : null;
+
+    /// <summary>
+    /// Analyses the round again (after a failure, or with other models): its status goes back to pending and a job is
+    /// queued. Refused while an analysis is pending, and for rounds from before analyses existed.
+    /// </summary>
+    private static async Task<Results<Ok<ChangeSetInfo>, ProblemHttpResult>> RetryAnalysisAsync(
+        Guid id, int roundNo, TikaiDbContext db, IJobQueue jobs, IEventPublisher events, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        var round = await db.ReviewRounds.AsNoTracking().SingleOrDefaultAsync(r => r.ChangeSetId == id && r.RoundNo == roundNo, cancellationToken);
+        if (round is null)
+        {
+            return ProjectEndpoints.NotFound("Review round");
+        }
+        if (round.AnalysisStatus is null or AnalysisStatus.Pending)
+        {
+            return Conflict("Cannot analyse now", round.AnalysisStatus is null
+                ? "This round is from before review analyses existed."
+                : "The analysis of this round is still running.");
+        }
+        var now = timeProvider.GetUtcNow();
+        await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
+        {
+            var reset = await db.ReviewRounds.Where(r => r.Id == round.Id && r.AnalysisStatus != AnalysisStatus.Pending)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.AnalysisStatus, AnalysisStatus.Pending)
+                    .SetProperty(r => r.Analysis, (string?)null)
+                    .SetProperty(r => r.AnalysisError, (string?)null)
+                    .SetProperty(r => r.AnalysisAt, (DateTimeOffset?)null)
+                    .SetProperty(r => r.UpdatedAt, now), cancellationToken);
+            if (reset == 0)
+            {
+                return Conflict("Cannot analyse now", "The analysis of this round is still running.");
+            }
+            await ReviewAnalysisJob.EnqueueAsync(jobs, round.Id, cancellationToken);
+            await events.PublishAsync(ChangeSet.Topic, id, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return TypedResults.Ok((await InfoAsync(db, id, cancellationToken))!);
     }
 
     /// <summary>The change set's round (the latest when none is given) and the mirror it lives in.</summary>

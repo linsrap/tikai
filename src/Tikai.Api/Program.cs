@@ -31,6 +31,7 @@ builder.Services.AddTikaiAuth(builder.Configuration, builder.Environment);
 builder.Services.AddTikaiProjects(builder.Configuration, builder.Environment);
 builder.Services.AddTikaiLlm();
 builder.Services.AddScoped<LlmProviderService>();
+builder.Services.AddOptions<LlmOptions>().Bind(builder.Configuration.GetSection(LlmOptions.Section));
 builder.Services.AddScoped<TicketService>();
 builder.Services.AddTikaiMcp(builder.Configuration);
 builder.Services.AddTikaiRuns(builder.Configuration);

@@ -5,9 +5,12 @@ import { expect, test, type APIRequestContext, type BrowserContext } from '@play
 // The main loop through the browser, with the stub agent (tests/agent-stub, scenario plan-wait): create a ticket,
 // assign it, approve the plan and answer the question in the inbox, watch the run on the board, restart the hub while
 // its log streams, and see the run end in review. The page is loaded once and never reloaded: everything after that
-// arrives through live updates.
+// arrives through live updates. Review analyses go to the stack's fake Messages API (e2e/fake-llm.mjs).
 
 const lines = 40
+
+/** The stack's fake Messages API (service fake-llm); the hub allows http base URLs there. */
+const fakeLlm = 'http://fake-llm:8080'
 
 type RunEvent = { seq: number; kind: string; payload: { text?: string } }
 
@@ -46,7 +49,7 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
   await page.getByRole('button', { name: 'Create admin account' }).click()
   await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible()
 
-  // Project, repository and provider (any key: the stub never calls the LLM).
+  // Project, repository and provider (any key: the stub never calls the LLM, the analysis calls the fake API).
   const request = page.request
   await post(request, context, '/api/projects', { name: 'End to end', slug: 'e2e', key: 'E2E' })
   await post(request, context, '/api/projects/e2e/repositories', { name: 'app' })
@@ -54,6 +57,7 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
     name: 'Stub key',
     defaultModel: 'claude-haiku-5-5',
     apiKey: 'stub-key-not-used-0123456789',
+    baseUrl: fakeLlm,
   })
   await expect
     .poll(
@@ -161,6 +165,24 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
   await expect(page.getByRole('heading', { name: /Write the chosen word/ })).toBeVisible()
   const tree = page.getByRole('navigation', { name: 'Changed files' })
   await expect(tree.getByText('0 of 2 files viewed')).toBeVisible()
+
+  // The analysis sits above the files: coverage next to the agent's claim, files in story order.
+  const analysis = page.getByRole('region', { name: 'Analysis' })
+  await expect(analysis.getByText(/fake analysis\)\.$/)).toBeVisible({ timeout: 30_000 })
+  const row = analysis.getByRole('row', { name: /answer\.txt holds the chosen word/ })
+  await expect(row.getByText('covered', { exact: true }).last()).toBeVisible()
+  await expect(tree.getByRole('button', { name: 'Story order' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await expect(tree.getByText('The agent’s files')).toBeVisible()
+  await expect(tree.getByText('high', { exact: true })).toBeVisible()
+  // A ref opens its file in the diff.
+  await row.getByRole('button', { name: /\.txt:1$/ }).click()
+  await expect(page.locator('.monaco-diff-editor')).toBeVisible()
+  await tree.getByRole('button', { name: 'Path order' }).click()
+  await expect(tree.getByText('The agent’s files')).toHaveCount(0)
+
   await tree.getByRole('button', { name: /answer\.txt/ }).click()
   await expect(page.locator('.monaco-diff-editor')).toContainText('beta')
 
@@ -191,7 +213,15 @@ test('the review screen flags files, warns about uncommitted work, and rejects',
     name: 'Stub key',
     defaultModel: 'claude-haiku-5-5',
     apiKey: 'stub-key-not-used-0123456789',
+    baseUrl: fakeLlm,
   })
+  // A model the fake API does not know: this project's analysis fails, and the review works without it.
+  const missing = 'e2e-missing-model'
+  const settings = await request.put('/api/projects/flags/settings', {
+    data: { analysisModels: { light: missing, normal: missing, strict: missing } },
+    headers: await xsrf(context),
+  })
+  expect(settings.ok(), await settings.text()).toBe(true)
   await post(request, context, '/api/projects/flags/tickets', {
     title: 'Change some files',
     description: 'Every kind of change. stub:review',
@@ -208,6 +238,10 @@ test('the review screen flags files, warns about uncommitted work, and rejects',
   await expect(page.getByText('Left out: 1 uncommitted file')).toBeVisible()
   await expect(page.getByText('?? notes.txt')).toBeVisible()
   await expect(page.getByText('Criteria: 1 covered, 1 partial')).toBeVisible()
+  const analysis = page.getByRole('region', { name: 'Analysis' })
+  await expect(analysis.getByText('Analysis unavailable.')).toBeVisible({ timeout: 30_000 })
+  await expect(analysis.getByText(/e2e-missing-model/)).toBeVisible()
+  await expect(analysis.getByRole('button', { name: 'Retry analysis' })).toBeEnabled()
 
   // Lock files apart; binary and large files not shown until asked for.
   const tree = page.getByRole('navigation', { name: 'Changed files' })
