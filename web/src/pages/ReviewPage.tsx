@@ -61,6 +61,7 @@ import { CrumbSep, Kbd, Loading } from '../ui/layout'
 import { ConfirmDialog } from '../ui/overlay'
 import { Segmented } from '../ui/Segmented'
 import { Tag } from '../ui/Tag'
+import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 
 // Monaco is large: it loads with the first diff, not with the app.
@@ -79,6 +80,7 @@ export function ReviewPage({ id }: { id: string }) {
   const [full, setFull] = useState(false)
   const [reveal, setReveal] = useState<Reveal | null>(null)
   const data = changeSet.data
+  usePageTitle(data ? `Review ${data.ticketKey}` : 'Review')
   const round = data?.rounds.find((r) => r.roundNo === roundNo) ?? data?.rounds.at(-1)
   const analysis = round?.analysis?.result ?? null
   const threadList = threads.data ?? []

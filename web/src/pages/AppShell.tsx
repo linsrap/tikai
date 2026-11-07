@@ -20,6 +20,7 @@ import {
 import { Tooltip } from '../ui/overlay'
 import { Segmented } from '../ui/Segmented'
 import { setTheme, useThemeChoice, type ThemeChoice } from '../ui/theme'
+import { useWaitingInTitle } from '../ui/title'
 import { Dot } from '../ui/Tag'
 
 // TanStack Router marks the link of the current page with data-status='active'.
@@ -51,6 +52,7 @@ export function AppShell({ children, rail = false }: { children: ReactNode; rail
   useWatch('WatchAll')
   const inbox = useQuery(inboxQuery)
   const waiting = waitingCount(inbox.data)
+  useWaitingInTitle(waiting)
   const liveStatus = useLiveStatus()
 
   return (
