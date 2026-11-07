@@ -6,10 +6,12 @@ import { Button } from '../ui/Button'
 import { ErrorText, Field, Input } from '../ui/form'
 import { ChevronRightIcon } from '../ui/icons'
 import { EmptyState, FormPanel, Loading, PageBody, PageHeader, SectionLabel } from '../ui/layout'
+import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 
 export function ProjectsPage() {
   const projects = useQuery(projectsQuery)
+  usePageTitle('Projects')
 
   return (
     <AppShell>

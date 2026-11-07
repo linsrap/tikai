@@ -26,6 +26,7 @@ import { FormPanel, PageBody, SettingsSection } from '../ui/layout'
 import { ConfirmDialog } from '../ui/overlay'
 import { Tag, type Tone } from '../ui/Tag'
 import { AnalysisSettings } from './AnalysisSettings'
+import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 import { DeliverySettingsForm } from './DeliverySettings'
 import { ProjectHeader } from './ProjectHeader'
@@ -33,6 +34,7 @@ import { ProvidersSection } from './ProvidersSection'
 
 export function ProjectPage({ slug }: { slug: string }) {
   const project = useQuery(projectQuery(slug))
+  usePageTitle(`Settings · ${project.data?.name ?? slug}`)
   const repositories = useQuery(repositoriesQuery(slug))
   const deleteProject = useDeleteProject(slug)
   const navigate = useNavigate()

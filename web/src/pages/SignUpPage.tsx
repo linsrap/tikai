@@ -1,9 +1,11 @@
 import { useNavigate } from '@tanstack/react-router'
 import { useSignUp } from '../auth/auth'
+import { usePageTitle } from '../ui/title'
 import { AuthForm } from './AuthForm'
 
 export function SignUpPage() {
   const signUp = useSignUp()
+  usePageTitle('Sign up')
   const navigate = useNavigate()
 
   return (

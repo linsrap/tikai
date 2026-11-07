@@ -22,6 +22,7 @@ import { CrumbSep, EmptyState, Loading, PageBody, PageHeader } from '../ui/layou
 import { table } from '../ui/table'
 import { Segmented } from '../ui/Segmented'
 import { Dot } from '../ui/Tag'
+import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 import { ProjectHeader } from './ProjectHeader'
 import { TicketFormView } from './TicketForm'
@@ -35,6 +36,8 @@ const filterLabel: Record<TicketFilter, string> = {
 
 export function TicketsPage({ slug }: { slug: string }) {
   const tickets = useQuery(ticketsQuery(slug))
+  const project = useQuery(projectQuery(slug))
+  usePageTitle(`Tickets · ${project.data?.name ?? slug}`)
   const [filter, setFilter] = useState<TicketFilter>('active')
   const inFilter = (f: TicketFilter) =>
     tickets.data?.filter((t) => (ticketFilters[f] as string[]).includes(t.status))
@@ -164,6 +167,7 @@ export function NewTicketPage({ slug }: { slug: string }) {
   const create = useCreateTicket(slug)
   const navigate = useNavigate()
   const project = useQuery(projectQuery(slug))
+  usePageTitle(`New ticket · ${project.data?.name ?? slug}`)
 
   return (
     <AppShell>

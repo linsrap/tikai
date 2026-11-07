@@ -15,10 +15,10 @@ function Page({ title }: { title: string }) {
 /** Every value written to document.title while `run` runs, after its microtasks. */
 async function titleWrites(run: () => void): Promise<string[]> {
   const writes: string[] = []
-  const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'title')!
+  const setTitle = Object.getOwnPropertyDescriptor(Document.prototype, 'title')?.set
   const spy = vi.spyOn(document, 'title', 'set').mockImplementation((value: string) => {
     writes.push(value)
-    descriptor.set!.call(document, value)
+    setTitle?.call(document, value)
   })
   await act(async () => {
     run()

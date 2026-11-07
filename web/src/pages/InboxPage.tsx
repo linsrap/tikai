@@ -6,6 +6,7 @@ import { useWatch } from '../live/live'
 import { ErrorText } from '../ui/form'
 import { EmptyState, Loading, PageBody, PageHeader, SectionLabel } from '../ui/layout'
 import { Dot } from '../ui/Tag'
+import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 
 /**
@@ -17,6 +18,7 @@ export function InboxPage() {
   const items = useQuery(inboxQuery)
   const waiting = items.data?.filter((i) => i.blocking) ?? []
   const others = items.data?.filter((i) => !i.blocking) ?? []
+  usePageTitle('Inbox')
 
   return (
     <AppShell>

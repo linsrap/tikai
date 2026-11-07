@@ -1,8 +1,10 @@
 import { PageBody, PageHeader, SettingsSection } from '../ui/layout'
+import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 import { ProvidersSection } from './ProvidersSection'
 
 export function SettingsPage() {
+  usePageTitle('Settings')
   return (
     <AppShell>
       <PageHeader title="Settings" />
