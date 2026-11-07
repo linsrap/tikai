@@ -1,28 +1,10 @@
 import './monaco'
 import { DiffEditor, type DiffOnMount } from '@monaco-editor/react'
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useDarkMode } from '../ui/theme'
 import { defineMonacoThemes, monacoFont, monacoTheme } from './monacoTheme'
 import type { DiffMode, Pane } from './review'
-
-const darkScheme = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
-
-function useDarkScheme() {
-  return useSyncExternalStore(
-    (listener) => {
-      darkScheme?.addEventListener('change', listener)
-      return () => darkScheme?.removeEventListener('change', listener)
-    },
-    () => darkScheme?.matches ?? false,
-  )
-}
 
 type Editor = Parameters<DiffOnMount>[0]
 type CodeEditor = ReturnType<Editor['getModifiedEditor']>
@@ -73,7 +55,7 @@ export default function DiffView({
   zones?: readonly DiffZone[]
   onSelection?: (selection: LineSelection | null) => void
 }) {
-  const dark = useDarkScheme()
+  const dark = useDarkMode()
   const editor = useRef<Editor | null>(null)
   const [panes, setPanes] = useState<Record<Pane, CodeEditor> | null>(null)
   const selectionListener = useRef(onSelection)

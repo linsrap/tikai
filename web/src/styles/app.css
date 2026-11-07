@@ -7,7 +7,8 @@
  * theme redefines: no class needs a dark: variant. Tailwind's own palette is switched off, so only these exist.
  * Status colours: wait (amber, an agent waits for a person), run (blue), ok (green), bad (red), neutral.
  */
-:root {
+:root,
+:root[data-theme='light'] {
   color-scheme: light;
   --c-bg: #fbfbfa;
   --c-sidebar: #f4f3f0;
@@ -47,8 +48,9 @@
   --shadow-overlay: 0 8px 24px rgb(28 28 26 / 0.12), 0 0 0 1px rgb(28 28 26 / 0.08);
 }
 
+/* Dark: from the system setting unless Light was chosen in the app, or when Dark was chosen (src/ui/theme.ts). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     color-scheme: dark;
     --c-bg: #161615;
     --c-sidebar: #1b1b1a;
@@ -87,6 +89,46 @@
     --c-neutral-solid: #75746e;
     --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08);
   }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --c-bg: #161615;
+  --c-sidebar: #1b1b1a;
+  --c-surface: #1f1f1d;
+  --c-sunken: #1b1b1a;
+  --c-hover: #2a2a28;
+  --c-track: #2a2a28;
+  --c-line: #2f2f2c;
+  --c-line-soft: #282826;
+  --c-line-strong: #3d3d39;
+  --c-fg: #edede9;
+  --c-fg-2: #d2d1cc;
+  --c-fg-muted: #aeada7;
+  --c-fg-subtle: #9d9c96;
+  --c-fg-faint: #75746e;
+  --c-primary: #edede9;
+  --c-primary-hover: #ffffff;
+  --c-on-primary: #161615;
+  --c-link: #84a9f5;
+  --c-focus: #84a9f5;
+  --c-selected: #1f2840;
+  --c-wait: #f0b45e;
+  --c-wait-bg: #3a2a12;
+  --c-wait-solid: #d98a1f;
+  --c-run: #93b3f7;
+  --c-run-bg: #1d2a47;
+  --c-run-solid: #5a88ea;
+  --c-ok: #7fcc96;
+  --c-ok-bg: #183224;
+  --c-ok-solid: #3fa35f;
+  --c-bad: #f28f86;
+  --c-bad-bg: #3d1c19;
+  --c-bad-solid: #e5534b;
+  --c-neutral: #cac9c3;
+  --c-neutral-bg: #2a2a28;
+  --c-neutral-solid: #75746e;
+  --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08);
 }
 
 @theme inline {

@@ -1,7 +1,13 @@
 import type { ReactNode } from 'react'
 import { cx } from './cx'
 
-export type SegmentedOption<T extends string> = { value: T; label: ReactNode; count?: number }
+export type SegmentedOption<T extends string> = {
+  value: T
+  label: ReactNode
+  count?: number
+  /** Accessible name and tooltip, for an option that shows only an icon. */
+  title?: string
+}
 
 /** A group of toggle buttons where one is on (filters, view modes). Each button carries aria-pressed. */
 export function Segmented<T extends string>({
@@ -32,6 +38,8 @@ export function Segmented<T extends string>({
             key={option.value}
             type="button"
             aria-pressed={on}
+            aria-label={option.title}
+            title={option.title}
             onClick={() => onChange(option.value)}
             className={cx(
               'inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 font-medium whitespace-nowrap transition-colors',

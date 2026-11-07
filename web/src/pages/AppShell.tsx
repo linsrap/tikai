@@ -6,8 +6,20 @@ import { inboxQuery, waitingCount } from '../inbox/inbox'
 import { live, useLiveConnection, useLiveStatus, useWatch, type LiveStatus } from '../live/live'
 import { projectsQuery } from '../projects/projects'
 import { cx } from '../ui/cx'
-import { BoardIcon, FolderIcon, InboxIcon, LogOutIcon, PlusIcon, SettingsIcon } from '../ui/icons'
+import {
+  BoardIcon,
+  FolderIcon,
+  InboxIcon,
+  LogOutIcon,
+  PlusIcon,
+  SettingsIcon,
+  MonitorIcon,
+  MoonIcon,
+  SunIcon,
+} from '../ui/icons'
 import { Tooltip } from '../ui/overlay'
+import { Segmented } from '../ui/Segmented'
+import { setTheme, useThemeChoice, type ThemeChoice } from '../ui/theme'
 import { Dot } from '../ui/Tag'
 
 // TanStack Router marks the link of the current page with data-status='active'.
@@ -184,11 +196,12 @@ function Sidebar({
         </div>
       </nav>
 
+      <ThemeSwitch />
       <UserFooter
         userName={userName}
         isAdmin={isAdmin}
         liveStatus={liveStatus}
-        className="md:mt-auto md:border-t md:border-line md:px-2 md:pt-2.5"
+        className="md:border-t md:border-line md:px-2 md:pt-2.5"
       />
     </aside>
   )
@@ -301,9 +314,55 @@ function Rail({ waiting }: { waiting: number }) {
           </Link>
         </Tooltip>
       </nav>
-      <div className="ml-auto md:mt-auto md:ml-0">
+      <div className="ml-auto flex items-center gap-1 md:mt-auto md:ml-0 md:flex-col">
+        <ThemeCycle />
         <LogoutButton />
       </div>
     </aside>
+  )
+}
+
+const themeIcon = { system: MonitorIcon, light: SunIcon, dark: MoonIcon }
+const themeName: Record<ThemeChoice, string> = {
+  system: 'Theme: as the system',
+  light: 'Theme: light',
+  dark: 'Theme: dark',
+}
+
+/** System, light or dark, in the sidebar above the user. */
+function ThemeSwitch() {
+  const choice = useThemeChoice()
+  return (
+    <div className="max-md:hidden md:mt-auto md:mb-2 md:px-2">
+      <Segmented
+        label="Theme"
+        size="sm"
+        value={choice}
+        onChange={setTheme}
+        options={(['system', 'light', 'dark'] as const).map((value) => {
+          const Icon = themeIcon[value]
+          return { value, title: themeName[value], label: <Icon size={13} /> }
+        })}
+      />
+    </div>
+  )
+}
+
+/** The rail has no room for three buttons: one that steps system → light → dark. */
+function ThemeCycle() {
+  const choice = useThemeChoice()
+  const next: ThemeChoice = choice === 'system' ? 'light' : choice === 'light' ? 'dark' : 'system'
+  const Icon = themeIcon[choice]
+  return (
+    <Tooltip content={`${themeName[choice]} (click for ${next})`}>
+      <button
+        type="button"
+        aria-label={`${themeName[choice]}, switch to ${next}`}
+        className="flex size-7 cursor-pointer items-center justify-center rounded-md text-fg-subtle hover:bg-hover hover:text-fg"
+        onClick={() => setTheme(next)}
+      >
+        <Icon size={15} />
+      </button>
+    </Tooltip>
   )
 }

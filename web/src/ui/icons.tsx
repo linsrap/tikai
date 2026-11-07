@@ -71,3 +71,16 @@ export const MoreIcon = icon(
 )
 export const CommentIcon = icon(<path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z" />)
 export const FileIcon = icon(<path d="M4 2h5l3 3v9H4zM9 2v3h3" />)
+export const SunIcon = icon(
+  <>
+    <circle cx="8" cy="8" r="2.8" />
+    <path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />
+  </>,
+)
+export const MoonIcon = icon(<path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z" />)
+export const MonitorIcon = icon(
+  <>
+    <rect x="2" y="2.5" width="12" height="8.5" rx="1.2" />
+    <path d="M6 14h4M8 11v3" />
+  </>,
+)
