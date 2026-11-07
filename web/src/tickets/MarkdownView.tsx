@@ -6,7 +6,7 @@ const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markd
 /** Ticket markdown, sanitized (see Markdown). */
 export function MarkdownView({ text }: { text: string }) {
   return (
-    <Suspense fallback={<p className="muted">Loading…</p>}>
+    <Suspense fallback={<p className="m-0 text-sm text-fg-subtle">Loading…</p>}>
       <Markdown text={text} />
     </Suspense>
   )

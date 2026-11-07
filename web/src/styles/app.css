@@ -1,0 +1,371 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
+/*
+ * Tikai's theme. Colours are named by what they mean, not by hue, and every one is a variable that the dark
+ * theme redefines: no class needs a dark: variant. Tailwind's own palette is switched off, so only these exist.
+ * Status colours: wait (amber, an agent waits for a person), run (blue), ok (green), bad (red), neutral.
+ */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --c-bg: #fbfbfa;
+  --c-sidebar: #f4f3f0;
+  --c-surface: #ffffff;
+  --c-sunken: #f4f3f0;
+  --c-hover: #eae9e5;
+  --c-track: #efeeea;
+  --c-line: #e6e5e1;
+  --c-line-soft: #eeedea;
+  --c-line-strong: #dad8d2;
+  --c-fg: #1c1c1a;
+  --c-fg-2: #45443f;
+  --c-fg-muted: #5f5e5a;
+  --c-fg-subtle: #6f6e69;
+  --c-fg-faint: #9a9892;
+  --c-primary: #1c1c1a;
+  --c-primary-hover: #34332f;
+  --c-on-primary: #fbfbfa;
+  --c-link: #1f56c2;
+  --c-focus: #1f56c2;
+  --c-selected: #eef2fb;
+  --c-wait: #8a4b00;
+  --c-wait-bg: #fdf3e1;
+  --c-wait-solid: #b25e09;
+  --c-run: #1f4fb0;
+  --c-run-bg: #eaf0fc;
+  --c-run-solid: #2557c7;
+  --c-ok: #22693a;
+  --c-ok-bg: #e8f3ea;
+  --c-ok-solid: #2e8a4e;
+  --c-bad: #a9261d;
+  --c-bad-bg: #fbeae8;
+  --c-bad-solid: #c0352b;
+  --c-neutral: #4f4e4a;
+  --c-neutral-bg: #f0efec;
+  --c-neutral-solid: #9a9892;
+  --shadow-overlay: 0 8px 24px rgb(28 28 26 / 0.12), 0 0 0 1px rgb(28 28 26 / 0.08);
+}
+
+/* Dark: from the system setting unless Light was chosen in the app, or when Dark was chosen (src/ui/theme.ts). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --c-bg: #161615;
+    --c-sidebar: #1b1b1a;
+    --c-surface: #1f1f1d;
+    --c-sunken: #1b1b1a;
+    --c-hover: #2a2a28;
+    --c-track: #2a2a28;
+    --c-line: #2f2f2c;
+    --c-line-soft: #282826;
+    --c-line-strong: #3d3d39;
+    --c-fg: #edede9;
+    --c-fg-2: #d2d1cc;
+    --c-fg-muted: #aeada7;
+    --c-fg-subtle: #9d9c96;
+    --c-fg-faint: #75746e;
+    --c-primary: #edede9;
+    --c-primary-hover: #ffffff;
+    --c-on-primary: #161615;
+    --c-link: #84a9f5;
+    --c-focus: #84a9f5;
+    --c-selected: #1f2840;
+    --c-wait: #f0b45e;
+    --c-wait-bg: #3a2a12;
+    --c-wait-solid: #d98a1f;
+    --c-run: #93b3f7;
+    --c-run-bg: #1d2a47;
+    --c-run-solid: #5a88ea;
+    --c-ok: #7fcc96;
+    --c-ok-bg: #183224;
+    --c-ok-solid: #3fa35f;
+    --c-bad: #f28f86;
+    --c-bad-bg: #3d1c19;
+    --c-bad-solid: #e5534b;
+    --c-neutral: #cac9c3;
+    --c-neutral-bg: #2a2a28;
+    --c-neutral-solid: #75746e;
+    --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --c-bg: #161615;
+  --c-sidebar: #1b1b1a;
+  --c-surface: #1f1f1d;
+  --c-sunken: #1b1b1a;
+  --c-hover: #2a2a28;
+  --c-track: #2a2a28;
+  --c-line: #2f2f2c;
+  --c-line-soft: #282826;
+  --c-line-strong: #3d3d39;
+  --c-fg: #edede9;
+  --c-fg-2: #d2d1cc;
+  --c-fg-muted: #aeada7;
+  --c-fg-subtle: #9d9c96;
+  --c-fg-faint: #75746e;
+  --c-primary: #edede9;
+  --c-primary-hover: #ffffff;
+  --c-on-primary: #161615;
+  --c-link: #84a9f5;
+  --c-focus: #84a9f5;
+  --c-selected: #1f2840;
+  --c-wait: #f0b45e;
+  --c-wait-bg: #3a2a12;
+  --c-wait-solid: #d98a1f;
+  --c-run: #93b3f7;
+  --c-run-bg: #1d2a47;
+  --c-run-solid: #5a88ea;
+  --c-ok: #7fcc96;
+  --c-ok-bg: #183224;
+  --c-ok-solid: #3fa35f;
+  --c-bad: #f28f86;
+  --c-bad-bg: #3d1c19;
+  --c-bad-solid: #e5534b;
+  --c-neutral: #cac9c3;
+  --c-neutral-bg: #2a2a28;
+  --c-neutral-solid: #75746e;
+  --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-white: #ffffff;
+  --color-bg: var(--c-bg);
+  --color-sidebar: var(--c-sidebar);
+  --color-surface: var(--c-surface);
+  --color-sunken: var(--c-sunken);
+  --color-hover: var(--c-hover);
+  --color-track: var(--c-track);
+  --color-line: var(--c-line);
+  --color-line-soft: var(--c-line-soft);
+  --color-line-strong: var(--c-line-strong);
+  --color-fg: var(--c-fg);
+  --color-fg-2: var(--c-fg-2);
+  --color-fg-muted: var(--c-fg-muted);
+  --color-fg-subtle: var(--c-fg-subtle);
+  --color-fg-faint: var(--c-fg-faint);
+  --color-primary: var(--c-primary);
+  --color-primary-hover: var(--c-primary-hover);
+  --color-on-primary: var(--c-on-primary);
+  --color-link: var(--c-link);
+  --color-focus: var(--c-focus);
+  --color-selected: var(--c-selected);
+  --color-wait: var(--c-wait);
+  --color-wait-bg: var(--c-wait-bg);
+  --color-wait-solid: var(--c-wait-solid);
+  --color-run: var(--c-run);
+  --color-run-bg: var(--c-run-bg);
+  --color-run-solid: var(--c-run-solid);
+  --color-ok: var(--c-ok);
+  --color-ok-bg: var(--c-ok-bg);
+  --color-ok-solid: var(--c-ok-solid);
+  --color-bad: var(--c-bad);
+  --color-bad-bg: var(--c-bad-bg);
+  --color-bad-solid: var(--c-bad-solid);
+  --color-neutral: var(--c-neutral);
+  --color-neutral-bg: var(--c-neutral-bg);
+  --color-neutral-solid: var(--c-neutral-solid);
+  --shadow-overlay: var(--shadow-overlay);
+}
+
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.25rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-mono: 0.78125rem;
+  --text-mono--line-height: 1.25rem;
+}
+
+@layer base {
+  html {
+    background: var(--c-bg);
+  }
+
+  body {
+    margin: 0;
+    background: var(--c-bg);
+    color: var(--c-fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11';
+  }
+
+  a {
+    color: var(--c-link);
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--c-focus);
+    outline-offset: 1px;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--c-focus) 25%, transparent);
+  }
+}
+
+/*
+ * Ticket and comment markdown. It is user content, so it is styled by element here rather than with classes.
+ */
+@layer components {
+  .markdown {
+    overflow-wrap: anywhere;
+    color: var(--c-fg);
+    line-height: 1.5rem;
+  }
+
+  .markdown > :first-child {
+    margin-top: 0;
+  }
+
+  .markdown > :last-child {
+    margin-bottom: 0;
+  }
+
+  .markdown p,
+  .markdown ul,
+  .markdown ol,
+  .markdown pre,
+  .markdown table,
+  .markdown blockquote {
+    margin: 0 0 0.75rem;
+  }
+
+  .markdown h1,
+  .markdown h2,
+  .markdown h3,
+  .markdown h4 {
+    margin: 1.25rem 0 0.5rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .markdown h1 {
+    font-size: 1.125rem;
+  }
+
+  .markdown h2 {
+    font-size: 1rem;
+  }
+
+  .markdown h3,
+  .markdown h4 {
+    font-size: 0.875rem;
+  }
+
+  .markdown ul {
+    list-style: disc;
+    padding-left: 1.25rem;
+  }
+
+  .markdown ol {
+    list-style: decimal;
+    padding-left: 1.25rem;
+  }
+
+  .markdown li {
+    margin: 0.2rem 0;
+  }
+
+  .markdown li > input[type='checkbox'] {
+    margin-right: 0.4rem;
+  }
+
+  .markdown ul:has(> li > input[type='checkbox']) {
+    list-style: none;
+    padding-left: 0.25rem;
+  }
+
+  .markdown a {
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--c-link) 40%, transparent);
+    text-underline-offset: 2px;
+  }
+
+  .markdown code {
+    font-size: 0.8125em;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    background: var(--c-neutral-bg);
+  }
+
+  .markdown pre {
+    overflow-x: auto;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--c-line);
+    border-radius: 6px;
+    background: var(--c-sunken);
+    font-size: var(--text-mono);
+    line-height: 1.25rem;
+  }
+
+  .markdown pre code {
+    padding: 0;
+    background: none;
+    font-size: inherit;
+  }
+
+  .markdown blockquote {
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--c-line-strong);
+    color: var(--c-fg-muted);
+  }
+
+  .markdown table {
+    border-collapse: collapse;
+    display: block;
+    overflow-x: auto;
+  }
+
+  .markdown th,
+  .markdown td {
+    border: 1px solid var(--c-line);
+    padding: 0.3rem 0.6rem;
+    text-align: left;
+  }
+
+  .markdown th {
+    background: var(--c-sunken);
+    font-weight: 600;
+  }
+
+  .markdown img {
+    max-width: 100%;
+  }
+
+  .markdown hr {
+    border: 0;
+    border-top: 1px solid var(--c-line);
+    margin: 1rem 0;
+  }
+}

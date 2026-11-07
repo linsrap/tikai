@@ -10,7 +10,7 @@ export function SignUpPage() {
     <AuthForm
       title="Set up Tikai"
       intro={
-        <p>
+        <p className="m-0">
           No account exists yet. The account you create now is the admin account. After that,
           sign-up is closed.
         </p>

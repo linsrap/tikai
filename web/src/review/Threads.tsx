@@ -1,5 +1,11 @@
 import { useState } from 'react'
 import { MarkdownView } from '../tickets/MarkdownView'
+import { Button } from '../ui/Button'
+import { cx } from '../ui/cx'
+import { ErrorText, Textarea } from '../ui/form'
+import { ChevronRightIcon } from '../ui/icons'
+import { ConfirmDialog } from '../ui/overlay'
+import { Tag } from '../ui/Tag'
 import {
   threadPlace,
   useThreads,
@@ -35,44 +41,46 @@ export function CommentForm({
   const empty = body.trim() === ''
   return (
     <form
-      className="stack comment-form"
+      className="flex flex-col gap-2"
       onSubmit={(e) => {
         e.preventDefault()
         if (!empty) onSave(body, initialAction ?? 'note')
       }}
     >
-      <label className="field">
-        <span className="muted small">{label}</span>
-        <textarea
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-fg-muted">{label}</span>
+        <Textarea
           rows={3}
+          className="min-h-16"
           value={body}
           onChange={(e) => setBody(e.target.value)}
           autoFocus
           maxLength={10000}
         />
       </label>
-      <div className="row">
-        <button
-          type="button"
-          className={initialAction === 'send_to_agent' || !initialAction ? 'primary' : undefined}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant={initialAction === 'note' ? 'secondary' : 'primary'}
           disabled={pending || empty}
           onClick={() => onSave(body, 'send_to_agent')}
           title="Sent to the agent with your next request for changes"
         >
           Send to agent
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          size="sm"
+          variant={initialAction === 'note' ? 'primary' : 'secondary'}
           disabled={pending || empty}
           onClick={() => onSave(body, 'note')}
           title="For people only"
         >
           Add as note
-        </button>
+        </Button>
         {onCancel && (
-          <button type="button" onClick={onCancel}>
+          <Button size="sm" variant="ghost" onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
         )}
       </div>
     </form>
@@ -92,7 +100,7 @@ export function NewThreadForm({
   onDone: () => void
 }) {
   return (
-    <div className="card thread">
+    <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3 shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
       <CommentForm
         label={label}
         pending={threads.create.isPending}
@@ -101,7 +109,7 @@ export function NewThreadForm({
         }
         onCancel={onDone}
       />
-      {threads.create.error && <p className="error">{threads.create.error.message}</p>}
+      {threads.create.error && <ErrorText>{threads.create.error.message}</ErrorText>}
     </div>
   )
 }
@@ -134,38 +142,64 @@ function CommentView({
     )
   }
   return (
-    <li className={`comment ${comment.author}`} data-testid="comment">
-      <p className="row small">
-        <strong>{comment.authorName}</strong>
-        <span className="muted">{new Date(comment.createdAt).toLocaleString()}</span>
-        {comment.author === 'person' &&
-          (comment.action === 'note' ? (
-            <span className="badge">note</span>
-          ) : comment.sentAt ? (
-            <span className="badge sent">sent to agent</span>
-          ) : (
-            <span className="badge unsent">for the agent, not sent yet</span>
-          ))}
-        {comment.editedAt && <span className="muted">edited</span>}
-        {comment.canEdit && !locked && (
-          <>
-            <button type="button" className="link" onClick={() => setEditing(true)}>
-              Edit
-            </button>
-            <button
-              type="button"
-              className="link"
-              disabled={threads.remove.isPending}
-              onClick={() => {
-                if (window.confirm('Delete this comment?')) threads.remove.mutate(comment.id)
-              }}
-            >
-              Delete
-            </button>
-          </>
+    <li className="flex gap-2.5" data-testid="comment">
+      <span
+        aria-hidden="true"
+        className={cx(
+          'mt-px flex size-[22px] shrink-0 items-center justify-center rounded-full text-[10px] font-semibold',
+          comment.author === 'agent' ? 'bg-run-bg text-run' : 'bg-line-strong text-fg-2',
         )}
-      </p>
-      <MarkdownView text={comment.body} />
+      >
+        {initials(comment.authorName)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="m-0 mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <strong className="text-sm font-semibold">{comment.authorName}</strong>
+          <span className="text-fg-subtle">{new Date(comment.createdAt).toLocaleString()}</span>
+          {comment.author === 'person' &&
+            (comment.action === 'note' ? (
+              <Tag className="h-[18px] px-1.5">note</Tag>
+            ) : comment.sentAt ? (
+              <Tag tone="ok" className="h-[18px] px-1.5">
+                sent to agent
+              </Tag>
+            ) : (
+              <Tag tone="wait" className="h-[18px] px-1.5">
+                for the agent, not sent yet
+              </Tag>
+            ))}
+          {comment.editedAt && <span className="text-fg-subtle">edited</span>}
+          {comment.canEdit && !locked && (
+            <span className="ml-auto flex gap-1">
+              <button
+                type="button"
+                className="cursor-pointer rounded px-1 text-fg-muted hover:bg-hover hover:text-fg"
+                onClick={() => setEditing(true)}
+              >
+                Edit
+              </button>
+              <ConfirmDialog
+                trigger={
+                  <button
+                    type="button"
+                    className="cursor-pointer rounded px-1 text-fg-muted hover:bg-bad-bg hover:text-bad disabled:opacity-50"
+                    disabled={threads.remove.isPending}
+                  >
+                    Delete
+                  </button>
+                }
+                title="Delete this comment?"
+                confirmLabel="Delete comment"
+                danger
+                onConfirm={() => threads.remove.mutate(comment.id)}
+              />
+            </span>
+          )}
+        </p>
+        <div className="text-sm">
+          <MarkdownView text={comment.body} />
+        </div>
+      </div>
     </li>
   )
 }
@@ -187,8 +221,8 @@ export function ThreadView({
   const [open, setOpen] = useState(thread.status === 'open')
   const resolved = thread.status === 'resolved'
   const body = (
-    <div className="stack">
-      <ul className="comments">
+    <div className="flex flex-col gap-3 px-3 pt-1 pb-3">
+      <ul className="m-0 flex list-none flex-col gap-3 p-0">
         {thread.comments.map((c) => (
           <CommentView key={c.id} comment={c} threads={threads} locked={locked} />
         ))}
@@ -207,40 +241,44 @@ export function ThreadView({
             onCancel={() => setReplying(false)}
           />
         ) : (
-          <div className="row">
-            <button type="button" onClick={() => setReplying(true)}>
+          <div className="flex flex-wrap gap-2 pl-8">
+            <Button size="sm" onClick={() => setReplying(true)}>
               Reply
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
               disabled={threads.status.isPending}
               onClick={() => threads.status.mutate({ threadId: thread.id, resolve: !resolved })}
             >
               {resolved ? 'Reopen' : 'Resolve'}
-            </button>
+            </Button>
           </div>
         ))}
       {[threads.reply, threads.status, threads.edit, threads.remove].map(
-        (m, i) =>
-          m.error && (
-            <p key={i} className="error">
-              {m.error.message}
-            </p>
-          ),
+        (m, i) => m.error && <ErrorText key={i}>{m.error.message}</ErrorText>,
       )}
     </div>
   )
   return (
     <details
-      className={`card thread ${thread.status}`}
+      className="group/thread rounded-lg border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]"
       data-testid="thread"
       data-status={thread.status}
       open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
-      <summary className="small">
-        {showPlace ? <span className="mono">{threadPlace(thread)}</span> : <span>Thread</span>}{' '}
-        <span className="muted">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs text-fg-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronRightIcon
+          size={13}
+          className="shrink-0 transition-transform group-open/thread:rotate-90"
+        />
+        {showPlace ? (
+          <span className="font-mono text-fg-2">{threadPlace(thread)}</span>
+        ) : (
+          <span className="font-medium text-fg-2">Thread</span>
+        )}
+        <span>
           · {thread.comments.length} comment{thread.comments.length === 1 ? '' : 's'}
           {resolved && ` · resolved${thread.resolvedBy ? ` by ${thread.resolvedBy}` : ''}`}
         </span>
@@ -264,7 +302,7 @@ export function GeneralComments({
 }) {
   const [writing, setWriting] = useState(false)
   return (
-    <section className="stack" aria-label="General comments">
+    <section className="flex flex-col gap-2.5" aria-label="General comments">
       {list.map((t) => (
         <ThreadView key={t.id} thread={t} threads={threads} locked={locked} showPlace />
       ))}
@@ -278,11 +316,20 @@ export function GeneralComments({
           />
         ) : (
           <div>
-            <button type="button" onClick={() => setWriting(true)}>
+            <Button size="sm" onClick={() => setWriting(true)}>
               Comment on the whole change
-            </button>
+            </Button>
           </div>
         ))}
     </section>
   )
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
 }

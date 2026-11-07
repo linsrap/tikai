@@ -1,5 +1,14 @@
 import type { ReviewCoverage } from '../inbox/inbox'
 import { coverageSummary } from '../inbox/inbox'
+import { Tag } from '../ui/Tag'
+import { coverageTone } from './coverage'
+
+type CoverageStatus = ReviewCoverage['status']
+
+/** A coverage status as a tag; the text stays the status word ("covered"). */
+export function CoverageTag({ status }: { status: CoverageStatus }) {
+  return <Tag tone={coverageTone[status]}>{status}</Tag>
+}
 
 /** The agent's self-report: summary, coverage per criterion (with the criterion's text now), open concerns. */
 export function SelfReport({
@@ -14,17 +23,21 @@ export function SelfReport({
   uncommitted?: readonly string[]
 }) {
   return (
-    <div className="stack self-report">
-      <p className="pre-wrap">{summary}</p>
+    <div className="flex flex-col gap-3">
+      <p className="m-0 [overflow-wrap:anywhere] whitespace-pre-wrap text-fg-2">{summary}</p>
       {coverage.length > 0 && (
         <div>
-          <strong>Criteria: {coverageSummary(coverage)}</strong>
-          <ul className="list">
+          <h3 className="m-0 mb-1.5 text-xs font-semibold text-fg-muted">
+            Criteria: {coverageSummary(coverage)}
+          </h3>
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
             {coverage.map((c) => (
-              <li key={c.criterionId}>
-                <span className={`badge ${c.status}`}>{c.status}</span>{' '}
-                {c.text ?? <span className="muted">(criterion deleted)</span>}
-                {c.note && <span className="muted"> – {c.note}</span>}
+              <li key={c.criterionId} className="flex items-baseline gap-2">
+                <CoverageTag status={c.status} />
+                <span>
+                  {c.text ?? <span className="text-fg-subtle">(criterion deleted)</span>}
+                  {c.note && <span className="text-fg-subtle"> – {c.note}</span>}
+                </span>
               </li>
             ))}
           </ul>
@@ -32,8 +45,8 @@ export function SelfReport({
       )}
       {openConcerns.length > 0 && (
         <div>
-          <strong>Open concerns</strong>
-          <ul className="list">
+          <h3 className="m-0 mb-1.5 text-xs font-semibold text-fg-muted">Open concerns</h3>
+          <ul className="m-0 list-disc space-y-1 pl-5 marker:text-fg-faint">
             {openConcerns.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
@@ -41,14 +54,14 @@ export function SelfReport({
         </div>
       )}
       {uncommitted.length > 0 && (
-        <div className="banner" role="note">
-          <strong>
+        <div className="rounded-md border border-wait-bg bg-wait-bg px-4 py-3" role="note">
+          <h3 className="m-0 text-sm font-semibold text-wait">
             Left out: {uncommitted.length} uncommitted file{uncommitted.length === 1 ? '' : 's'}
-          </strong>
-          <p className="muted">
+          </h3>
+          <p className="mt-0.5 mb-2 text-sm text-fg-2">
             The agent did not commit these, so they are not part of this review.
           </p>
-          <ul className="list mono">
+          <ul className="m-0 list-none space-y-0.5 p-0 font-mono text-mono text-fg-2">
             {uncommitted.map((line) => (
               <li key={line}>{line}</li>
             ))}
