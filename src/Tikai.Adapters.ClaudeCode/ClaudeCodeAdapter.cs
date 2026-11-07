@@ -30,6 +30,7 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
     public const string ResumePromptVersion = "run-resume.v1";
     public const string SummaryPromptVersion = "run-summary.v1";
     public const string ChangesPromptVersion = "run-changes.v1";
+    public const string RebasePromptVersion = "run-rebase.v1";
 
     /// <summary>Everything else is denied (dontAsk). request_permission (Phase 2) will widen this per run.</summary>
     public const string AllowedTools = "Read,Write,Edit,Glob,Grep,Bash,TodoWrite,mcp__tikai__*";
@@ -38,6 +39,7 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
     private static readonly Lazy<Dictionary<string, string>> _resumeTemplates = new(() => Sections(ReadPrompt(ResumePromptVersion)));
     private static readonly Lazy<Dictionary<string, string>> _summaryTemplates = new(() => Sections(ReadPrompt(SummaryPromptVersion)));
     private static readonly Lazy<Dictionary<string, string>> _changesTemplates = new(() => Sections(ReadPrompt(ChangesPromptVersion)));
+    private static readonly Lazy<Dictionary<string, string>> _rebaseTemplates = new(() => Sections(ReadPrompt(RebasePromptVersion)));
 
     public string Kind => Core.Runs.RunRules.ClaudeCodeAdapter;
 
@@ -139,11 +141,25 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
         return Fill(t["message"], ("answers", string.Join("\n\n", lines)));
     }
 
-    /// <summary>The message for a resumed session whose work a reviewer sent back with comments.</summary>
-    public static string ChangesPrompt(AgentRunContext context, ReviewRequest changes) =>
-        Fill(_changesTemplates.Value["message"],
-            ("round", changes.RoundNo.ToString(CultureInfo.InvariantCulture)),
-            ("branch", context.Branch));
+    /// <summary>
+    /// The message for a resumed session whose work a reviewer sent back with comments, or (after a conflict) asked to
+    /// rebase onto the current default branch.
+    /// </summary>
+    public static string ChangesPrompt(AgentRunContext context, ReviewRequest changes)
+    {
+        var t = changes.Rebase is null ? _changesTemplates.Value : _rebaseTemplates.Value;
+        return Fill(t["message"], [("round", changes.RoundNo.ToString(CultureInfo.InvariantCulture)), ("branch", context.Branch), .. RebaseValues(changes, t)]);
+    }
+
+    /// <summary>The default branch, the conflicting files and where the bundle is; nothing without a rebase.</summary>
+    private static (string Name, string Value)[] RebaseValues(ReviewRequest? changes, Dictionary<string, string> t) => changes?.Rebase is { } rebase
+        ?
+        [
+            ("default_branch", rebase.DefaultBranch),
+            ("bundle", RunLayout.DefaultBundle),
+            ("files", rebase.ConflictFiles.Count == 0 ? t["no_files"] : string.Join("\n", rebase.ConflictFiles.Take(50).Select(f => "- " + f))),
+        ]
+        : [];
 
     /// <summary>
     /// The prompt for a fresh session that takes over a run whose session could not be resumed (spike Q5); in a fix
@@ -151,7 +167,7 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
     /// </summary>
     public static string SummaryPrompt(AgentRunContext context, FreshSession summary)
     {
-        var t = summary.Changes is null ? _summaryTemplates.Value : _changesTemplates.Value;
+        var t = summary.Changes is null ? _summaryTemplates.Value : summary.Changes.Rebase is null ? _changesTemplates.Value : _rebaseTemplates.Value;
         var plan = summary.ApprovedPlan is { } approved ? Steps(approved) : t["no_plan"];
         var answers = summary.Answers.Count == 0 ? t["no_answers"] : string.Join("\n", summary.Answers.Select(a => a switch
         {
@@ -162,6 +178,7 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
                 ("notes", string.IsNullOrWhiteSpace(a.Answer.Text) ? "" : " (" + a.Answer.Text + ")")),
         }));
         return Fill(t["prompt"],
+        [
             ("round", summary.Changes?.RoundNo.ToString(CultureInfo.InvariantCulture) ?? ""),
             ("ticket_key", context.TicketKey),
             ("ticket_title", context.TicketTitle),
@@ -169,7 +186,9 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
             ("plan", plan),
             ("answers", answers),
             ("git_log", string.IsNullOrWhiteSpace(summary.GitLog) ? t["no_commits"] : summary.GitLog.Trim()),
-            ("git_status", string.IsNullOrWhiteSpace(summary.GitStatus) ? t["clean"] : summary.GitStatus.Trim()));
+            ("git_status", string.IsNullOrWhiteSpace(summary.GitStatus) ? t["clean"] : summary.GitStatus.Trim()),
+            .. RebaseValues(summary.Changes, t),
+        ]);
     }
 
     private static string Steps(PlanPayload plan, string indent = "") =>

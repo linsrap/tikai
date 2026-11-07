@@ -1,13 +1,20 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Tikai.Core.Llm;
 using Tikai.Core.Reviews;
 
 namespace Tikai.Core.Projects;
 
 /// <summary>Per-project settings, stored as JSON in <c>projects.settings</c>. Missing parts mean the defaults.</summary>
-public sealed record ProjectSettings(ReviewSettings? Review = null)
+public sealed record ProjectSettings(
+    ReviewSettings? Review = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DeliverySettings? Delivery = null)
 {
-    private static readonly JsonSerializerOptions _options = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+    private static readonly JsonSerializerOptions _options = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
+    };
 
     public static ProjectSettings Parse(string json) => JsonSerializer.Deserialize<ProjectSettings>(json, _options) ?? new();
 
@@ -15,6 +22,31 @@ public sealed record ProjectSettings(ReviewSettings? Review = null)
 
     /// <summary>The model the review analysis of a tier uses: the project's choice, else the default.</summary>
     public string AnalysisModel(AnalysisTier tier) => Review?.Models?.For(tier) ?? ReviewModels.Default(tier);
+
+    /// <summary>How an approved change leaves the hub, with the defaults filled in.</summary>
+    [JsonIgnore]
+    public DeliverySettings DeliveryOrDefault => new(Delivery?.Mode ?? DeliveryMode.Merge, Delivery?.MergeStyle ?? MergeStyle.Squash);
+}
+
+/// <summary>What Approve does; null parts mean the defaults (merge, squash).</summary>
+public sealed record DeliverySettings(DeliveryMode? Mode = null, MergeStyle? MergeStyle = null);
+
+public enum DeliveryMode
+{
+    /// <summary>The hub merges into the default branch and pushes it (when the repository has a remote).</summary>
+    Merge,
+
+    /// <summary>The hub pushes the run branch as it is; people merge it on the remote (e.g. a pull request).</summary>
+    PushBranch,
+}
+
+public enum MergeStyle
+{
+    /// <summary>One new commit on the default branch with the change's tree.</summary>
+    Squash,
+
+    /// <summary>A merge commit with the default branch and the run branch as parents, keeping the agent's commits.</summary>
+    MergeCommit,
 }
 
 public sealed record ReviewSettings(ReviewModels? Models = null);

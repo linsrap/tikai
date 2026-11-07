@@ -26,6 +26,9 @@ public enum SandboxRole
 
     /// <summary>Bundles the run branch for the hub when the agent submits its work, without network.</summary>
     Bundle,
+
+    /// <summary>Removes an ended run's directory from the runs volume, without network.</summary>
+    Cleanup,
 }
 
 /// <summary>A container to create: the agent part from the adapter, the sandbox from the orchestrator's settings.</summary>
@@ -54,6 +57,13 @@ public interface IContainerRuntime
 
     /// <summary>Creates a never-started container with the whole runs volume at /runs, only for archive uploads.</summary>
     Task<string> CreateSeedAsync(Guid runId, string image, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a container that removes the run's directory: root (the directory holds root-owned and agent-owned files)
+    /// with only the capability to override file permissions, no network, the whole runs volume at /runs, and a fixed
+    /// command built from the run id.
+    /// </summary>
+    Task<string> CreateCleanupAsync(Guid runId, string image, CancellationToken cancellationToken);
 
     /// <summary>Extracts a tar into the container's file system; the tar headers set owner and mode.</summary>
     Task UploadAsync(string containerId, string path, Stream tar, CancellationToken cancellationToken);
@@ -171,6 +181,35 @@ public sealed class DockerContainerRuntime(IDockerClient docker, IOptions<Orches
             {
                 Mounts = [new Mount { Type = "volume", Source = _options.RunsVolume, Target = "/runs" }],
                 NetworkMode = "none",
+            },
+        }, cancellationToken);
+        return response.ID;
+    }
+
+    public async Task<string> CreateCleanupAsync(Guid runId, string image, CancellationToken cancellationToken)
+    {
+        var response = await docker.Containers.CreateContainerAsync(new CreateContainerParameters
+        {
+            Name = Name(SandboxRole.Cleanup, runId),
+            Image = image,
+            // rm does not follow symlinks the agent may have left; the path comes from the GUID only.
+            Entrypoint = ["rm", "-rf", "--", $"/runs/{runId:D}"],
+            Cmd = [],
+            User = "0:0",
+            Labels = Labels(runId, SandboxRole.Cleanup),
+            HostConfig = new HostConfig
+            {
+                Mounts = [new Mount { Type = "volume", Source = _options.RunsVolume, Target = "/runs" }],
+                ReadonlyRootfs = true,
+                CapDrop = ["ALL"],
+                // The agent's directories may be read-only for root without it (it can chmod its own files).
+                CapAdd = ["DAC_OVERRIDE"],
+                SecurityOpt = ["no-new-privileges"],
+                Privileged = false,
+                Memory = _options.MemoryBytes,
+                PidsLimit = _options.PidsLimit,
+                NetworkMode = "none",
+                LogConfig = new LogConfig { Type = "json-file", Config = new Dictionary<string, string>() },
             },
         }, cancellationToken);
         return response.ID;

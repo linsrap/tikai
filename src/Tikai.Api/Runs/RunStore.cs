@@ -142,11 +142,26 @@ internal sealed class RunStore(
         var latestRound = await db.ReviewRounds.AsNoTracking()
             .Where(r => db.ChangeSets.Any(c => c.Id == r.ChangeSetId && c.RunId == runId))
             .OrderByDescending(r => r.RoundNo)
-            .Select(r => new { r.RoundNo, r.Verdict })
+            .Select(r => new { r.RoundNo, r.Verdict, r.RebaseRequested })
             .FirstOrDefaultAsync(cancellationToken);
-        var changes = latestRound is { Verdict: ReviewVerdict.RequestChanges } ? new ReviewRequest(latestRound.RoundNo) : null;
+        var changes = latestRound is { Verdict: ReviewVerdict.RequestChanges }
+            ? new ReviewRequest(latestRound.RoundNo, latestRound.RebaseRequested ? await RebaseAsync(run, latestRound.RoundNo, cancellationToken) : null)
+            : null;
         return new ResumeInfo(
             run.State, canResume, run.CancelRequestedAt is not null, run.SessionId, toDeliver, [.. answered.Select(a => a.Answer)], approved, changes);
+    }
+
+    /// <summary>The rebase a fix round asks for: onto the repository's default branch, with the conflicting files.</summary>
+    private async Task<RebaseRequest> RebaseAsync(AgentRun run, int roundNo, CancellationToken cancellationToken)
+    {
+        var branch = await db.Repositories.Where(r => r.Id == run.RepositoryId).Select(r => r.DefaultBranch).SingleAsync(cancellationToken);
+        var conflicts = await db.AttentionItems.AsNoTracking()
+            .Where(i => i.RunId == run.Id && i.Kind == AttentionKind.Conflict)
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => i.Payload)
+            .ToListAsync(cancellationToken);
+        var files = conflicts.Select(AttentionJson.Deserialize<ConflictPayload>).FirstOrDefault(c => c.RoundNo == roundNo)?.Files ?? [];
+        return new RebaseRequest(branch, files);
     }
 
     public async Task<bool> MarkResumedAsync(Guid runId, string containerId, IReadOnlyList<Guid> deliveredItems, CancellationToken cancellationToken)
@@ -324,6 +339,41 @@ internal sealed class RunStore(
             .SingleOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<bool> NeedsCleanupAsync(Guid runId, CancellationToken cancellationToken) =>
+        await db.AgentRuns.AnyAsync(r => r.Id == runId && AgentRunStates.Ended.Contains(r.State) && r.CleanedAt == null, cancellationToken);
+
+    public async Task MarkCleanedAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        await db.AgentRuns.Where(r => r.Id == runId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.CleanedAt, now).SetProperty(r => r.UpdatedAt, now), cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> ListUncleanedAsync(CancellationToken cancellationToken)
+    {
+        var ended = AgentRunStates.Ended.Select(s => System.Text.Json.JsonNamingPolicy.SnakeCaseLower.ConvertName(s.ToString())).ToArray();
+        return await db.Database.SqlQuery<Guid>($"""
+            SELECT r.id AS "Value" FROM agent_runs r
+            WHERE r.state = ANY({ended}) AND r.cleaned_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.queue = {RunJob.Queue} AND j.dead_at IS NULL AND j.payload->>'run_id' = r.id::text)
+            ORDER BY r.ended_at NULLS FIRST
+            LIMIT 20
+            """).ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> RequestCleanupAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var run = await RunResumes.LockAsync(db, runId, cancellationToken);
+        if (run is null || !run.State.IsEnded() || run.CleanedAt is not null || await RunResumes.HasLiveJobAsync(db, runId, cancellationToken))
+        {
+            return false;
+        }
+        await RunCleanups.EnqueueAsync(jobs, runId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
     /// <summary>The body of <see cref="EndAsync"/>, inside its transaction with the run row locked.</summary>
     private async Task<bool> EndLockedAsync(AgentRun run, RunEnd outcome, CancellationToken cancellationToken)
     {
@@ -409,10 +459,21 @@ internal sealed class RunStore(
         {
             // No agent will ever get these answers: they leave the open list, and answering one is refused.
             await attention.DismissOpenBlockingAsync(runId, cancellationToken);
-            // A run that ends without a merge leaves its change set closed (the branch stays in the mirror).
-            if (next != AgentRunState.Merged)
+            // A merge conflict of an ended run has nothing left to rebase.
+            var conflicts = await db.AttentionItems.Where(i => i.RunId == runId && i.Kind == AttentionKind.Conflict && i.Status == AttentionStatus.Open)
+                .Select(i => i.Id).ToListAsync(cancellationToken);
+            await db.AttentionItems.Where(i => conflicts.Contains(i.Id))
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.Status, AttentionStatus.Dismissed).SetProperty(i => i.UpdatedAt, now), cancellationToken);
+            foreach (var conflict in conflicts)
             {
-                var closed = await db.ChangeSets.Where(c => c.RunId == runId && c.Status == ChangeSetStatus.Open)
+                await events.PublishAsync(AttentionItem.Topic, conflict, cancellationToken);
+            }
+            // Its directory goes; the work is in the mirror (the run branch and the round refs).
+            await RunCleanups.EnqueueAsync(jobs, runId, cancellationToken);
+            // A run that ends without a merge leaves its change set closed (the branch stays in the mirror).
+            if (next is not (AgentRunState.Merged or AgentRunState.Pushed))
+            {
+                var closed = await db.ChangeSets.Where(c => c.RunId == runId && (c.Status == ChangeSetStatus.Open || c.Status == ChangeSetStatus.Delivering))
                     .Select(c => c.Id).ToListAsync(cancellationToken);
                 await db.ChangeSets.Where(c => closed.Contains(c.Id))
                     .ExecuteUpdateAsync(s => s.SetProperty(c => c.Status, ChangeSetStatus.Closed).SetProperty(c => c.UpdatedAt, now), cancellationToken);

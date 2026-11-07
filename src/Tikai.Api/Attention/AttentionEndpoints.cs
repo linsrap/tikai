@@ -74,8 +74,9 @@ internal static class AttentionEndpoints
     }
 
     /// <summary>
-    /// Closes a failure or a submitted review without acting on it. Questions and plans are not dismissed: an agent
-    /// waits for them (cancel the run instead).
+    /// Closes a failure, a merge conflict or a submitted review without acting on it. Questions and plans are not
+    /// dismissed: an agent waits for them (cancel the run instead). A dismissed conflict leaves the change open for a
+    /// verdict on the review screen.
     /// </summary>
     private static async Task<Results<Ok<AttentionItemInfo>, ProblemHttpResult>> DismissAsync(
         Guid id, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, CancellationToken cancellationToken)
@@ -148,9 +149,12 @@ internal static class AttentionEndpoints
             .Where(r => runIds.Contains(r.Id))
             .Select(r => new { r.Id, Run = new ItemRun(r.State, r.Adapter, r.Model, r.ProgressStep, r.ProgressNote, r.Attempt) })
             .ToDictionaryAsync(r => r.Id, r => r.Run, cancellationToken);
-        var changeSets = await db.ChangeSets.AsNoTracking()
+        var changeSetRows = await db.ChangeSets.AsNoTracking()
             .Where(c => runIds.Contains(c.RunId))
-            .ToDictionaryAsync(c => c.RunId, c => c.Id, cancellationToken);
+            .Select(c => new { c.RunId, c.Id, c.Status, c.DeliveryError })
+            .ToListAsync(cancellationToken);
+        var changeSets = changeSetRows.ToDictionary(c => c.RunId, c => c.Id);
+        var deliveryErrors = changeSetRows.Where(c => c.Status == ChangeSetStatus.Open).ToDictionary(c => c.RunId, c => c.DeliveryError);
         var changeSetIds = changeSets.Values.ToList();
         var latest = await db.ReviewRounds.AsNoTracking()
             .Where(r => changeSetIds.Contains(r.ChangeSetId) && r.RoundNo == db.ReviewRounds.Where(o => o.ChangeSetId == r.ChangeSetId).Max(o => o.RoundNo))
@@ -203,11 +207,15 @@ internal static class AttentionEndpoints
                 await ExcerptAsync(db, item, cancellationToken),
                 item.CreatedAt,
                 item.AnsweredAt,
-                item.Kind == AttentionKind.Review && item.RunId is { } reviewed && changeSets.TryGetValue(reviewed, out var changeSetId) ? changeSetId : null,
+                item.Kind is AttentionKind.Review or AttentionKind.Conflict && item.RunId is { } reviewed && changeSets.TryGetValue(reviewed, out var changeSetId)
+                    ? changeSetId : null,
                 item.Kind == AttentionKind.Review && item.RunId is { } analysed && changeSets.TryGetValue(analysed, out var analysedSet)
                     ? latestRounds.GetValueOrDefault(analysedSet) : null,
                 item.Kind == AttentionKind.Review && item.RunId is { } rounded && changeSets.TryGetValue(rounded, out var roundedSet)
-                    ? roundBriefs.GetValueOrDefault(roundedSet) : null));
+                    ? roundBriefs.GetValueOrDefault(roundedSet) : null,
+                item.Kind == AttentionKind.Conflict ? AttentionJson.Deserialize<ConflictPayload>(item.Payload) : null,
+                item.Kind == AttentionKind.Review && item.Status == AttentionStatus.Open && item.RunId is { } delivered
+                    ? deliveryErrors.GetValueOrDefault(delivered) : null));
         }
         return [.. result.OrderByDescending(i => i.Blocking).ThenByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id)];
     }

@@ -604,6 +604,95 @@
         }
       }
     },
+    "/api/projects/{slug}/repositories/{id}/remote": {
+      "put": {
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectRemoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectRemoteInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{slug}/repositories/{id}/bundle": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/projects/{slug}/repositories/{id}/fetch": {
       "post": {
         "tags": [
@@ -1873,6 +1962,46 @@
         }
       }
     },
+    "/api/change-sets/{id}/rebase": {
+      "post": {
+        "tags": [
+          "Reviews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/change-sets/{id}/rounds/{roundNo}/analysis": {
       "post": {
         "tags": [
@@ -2105,6 +2234,7 @@
           "in_review",
           "changes_requested",
           "merged",
+          "pushed",
           "failed",
           "cancelled"
         ]
@@ -2458,6 +2588,22 @@
                 "$ref": "#/components/schemas/RoundBrief"
               }
             ]
+          },
+          "conflict": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConflictPayload"
+              }
+            ]
+          },
+          "deliveryError": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2535,7 +2681,8 @@
           "defaultBranch",
           "criteria",
           "rounds",
-          "createdAt"
+          "createdAt",
+          "delivery"
         ],
         "type": "object",
         "properties": {
@@ -2596,13 +2743,18 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/DeliveryInfo"
           }
         }
       },
       "ChangeSetStatus": {
         "enum": [
           "open",
+          "delivering",
           "merged",
+          "pushed",
           "closed"
         ]
       },
@@ -2651,6 +2803,84 @@
           },
           "action": {
             "$ref": "#/components/schemas/CommentAction"
+          }
+        }
+      },
+      "ConflictInfo": {
+        "required": [
+          "itemId",
+          "files"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ConflictPayload": {
+        "required": [
+          "roundNo",
+          "defaultBranch",
+          "files"
+        ],
+        "type": "object",
+        "properties": {
+          "roundNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "defaultBranch": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ConnectRemoteInfo": {
+        "required": [
+          "repository",
+          "pushed"
+        ],
+        "type": "object",
+        "properties": {
+          "repository": {
+            "$ref": "#/components/schemas/RepositoryInfo"
+          },
+          "pushed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ConnectRemoteRequest": {
+        "required": [
+          "remoteUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "remoteUrl": {
+            "type": "string"
+          },
+          "credential": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CredentialInput"
+              }
+            ]
           }
         }
       },
@@ -2932,6 +3162,82 @@
           },
           "isAdmin": {
             "type": "boolean"
+          }
+        }
+      },
+      "DeliveryInfo": {
+        "required": [
+          "mode",
+          "mergeStyle",
+          "hasRemote",
+          "sha",
+          "error",
+          "conflict"
+        ],
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/DeliveryMode"
+          },
+          "mergeStyle": {
+            "$ref": "#/components/schemas/MergeStyle"
+          },
+          "hasRemote": {
+            "type": "boolean"
+          },
+          "sha": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "conflict": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConflictInfo"
+              }
+            ]
+          }
+        }
+      },
+      "DeliveryMode": {
+        "enum": [
+          "merge",
+          "push_branch",
+          null
+        ]
+      },
+      "DeliverySettings": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeliveryMode"
+              }
+            ]
+          },
+          "mergeStyle": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MergeStyle"
+              }
+            ]
           }
         }
       },
@@ -3240,6 +3546,13 @@
           }
         }
       },
+      "MergeStyle": {
+        "enum": [
+          "squash",
+          "merge_commit",
+          null
+        ]
+      },
       "PlanDecision": {
         "enum": [
           "approve",
@@ -3307,7 +3620,8 @@
       "ProjectSettingsInfo": {
         "required": [
           "analysisModels",
-          "defaultAnalysisModels"
+          "defaultAnalysisModels",
+          "delivery"
         ],
         "type": "object",
         "properties": {
@@ -3316,6 +3630,9 @@
           },
           "defaultAnalysisModels": {
             "$ref": "#/components/schemas/ReviewModels"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/DeliverySettings"
           }
         }
       },
@@ -4519,6 +4836,16 @@
         "properties": {
           "analysisModels": {
             "$ref": "#/components/schemas/ReviewModels"
+          },
+          "delivery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeliverySettings"
+              }
+            ]
           }
         }
       },

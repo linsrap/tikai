@@ -92,8 +92,9 @@ internal static class ProjectEndpoints
     }
 
     /// <summary>
-    /// The model per review analysis tier. Ids are checked for form only: the provider (maybe a gateway) decides which
-    /// exist, and a wrong one shows as a failed analysis with the provider's message.
+    /// The model per review analysis tier, and what Approve does (merge or push the branch, squash or merge commit). Ids
+    /// are checked for form only: the provider (maybe a gateway) decides which exist, and a wrong one shows as a failed
+    /// analysis with the provider's message.
     /// </summary>
     private static async Task<Results<Ok<ProjectSettingsInfo>, ValidationProblem, ProblemHttpResult>> UpdateSettingsAsync(
         string slug, UpdateProjectSettingsRequest request, TikaiDbContext db, TimeProvider timeProvider, CancellationToken cancellationToken)
@@ -111,7 +112,11 @@ internal static class ProjectEndpoints
             return NotFound();
         }
         var settings = ProjectSettings.Parse(project.Settings);
-        var json = (settings with { Review = (settings.Review ?? new ReviewSettings()) with { Models = models } }).ToJson();
+        var json = (settings with
+        {
+            Review = (settings.Review ?? new ReviewSettings()) with { Models = models },
+            Delivery = request.Delivery ?? settings.Delivery,
+        }).ToJson();
         // Not a tracked save, for the same reason as a rename (the ticket counter shares the row).
         await db.Projects.Where(p => p.Id == project.Id).ExecuteUpdateAsync(
             set => set.SetProperty(p => p.Settings, json).SetProperty(p => p.UpdatedAt, timeProvider.GetUtcNow()), cancellationToken);

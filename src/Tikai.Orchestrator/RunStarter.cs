@@ -31,6 +31,9 @@ public enum RunJobKind
 
     /// <summary>A fresh session with a summary, after a resumed session failed.</summary>
     Summary,
+
+    /// <summary>Remove an ended run's containers and directory.</summary>
+    Cleanup,
 }
 
 internal static class RunJobJson
@@ -55,6 +58,7 @@ public sealed partial class RunStarter(
     IGitService git,
     IAgentAdapter adapter,
     RunMonitor monitor,
+    RunCleanup cleanup,
     IOptions<OrchestratorOptions> options,
     TimeProvider timeProvider,
     ILogger<RunStarter> logger) : IJobHandler
@@ -67,6 +71,12 @@ public sealed partial class RunStarter(
     {
         var payload = RunJob.FromJson(job.Payload);
         var runId = payload.RunId;
+        if (payload.Kind == RunJobKind.Cleanup)
+        {
+            // Not guarded: a failed cleanup is retried by the queue and later by the reconciler; the run has ended anyway.
+            await cleanup.RunAsync(runId, cancellationToken);
+            return;
+        }
         if (payload.Kind != RunJobKind.Start)
         {
             await GuardAsync(runId, () => ResumeAsync(runId, payload.Kind, cancellationToken), cancellationToken);
@@ -115,7 +125,7 @@ public sealed partial class RunStarter(
         var bundle = Path.Combine(Path.GetTempPath(), $"tikai-run-{runId:N}.bundle");
         try
         {
-            var baseSha = await git.CreateBundleAsync(info.MirrorPath, info.DefaultBranch, bundle, cancellationToken);
+            var baseSha = await git.CreateBundleAsync(info.MirrorPath, info.DefaultBranch, bundle, cancellationToken: cancellationToken);
             // Where the run starts: the submitted work is bundled from here.
             await store.SetBaseShaAsync(runId, baseSha, cancellationToken);
 
@@ -174,9 +184,25 @@ public sealed partial class RunStarter(
         var context = Context(info, token);
 
         // 1. The new token in a new MCP config (root-owned, so the agent cannot change it); the old token stops working.
-        await UploadIntoRunsAsync(runId,
-            adapter.RunFiles(context).Where(f => f is { AgentOwned: false, Content: not null }).Select(f => (ArchiveEntry)f),
-            cancellationToken);
+        //    For a rebase, the current default branch as a bundle next to the one the clone was made from.
+        var files = adapter.RunFiles(context).Where(f => f is { AgentOwned: false, Content: not null }).Select(f => (ArchiveEntry)f).ToList();
+        var defaultBundle = resume.Changes?.Rebase is null ? null : Path.Combine(Path.GetTempPath(), $"tikai-default-{runId:N}.bundle");
+        try
+        {
+            if (defaultBundle is not null)
+            {
+                await git.CreateBundleAsync(info.MirrorPath, info.DefaultBranch, defaultBundle, cancellationToken: cancellationToken);
+                files.Add(new ArchiveEntry(new RunFile(RunPrep.DefaultBundleFile, null, AgentOwned: false, RunFile.Modes.ReadOnly), defaultBundle));
+            }
+            await UploadIntoRunsAsync(runId, files, cancellationToken);
+        }
+        finally
+        {
+            if (defaultBundle is not null)
+            {
+                File.Delete(defaultBundle);
+            }
+        }
 
         // 2. What is in the run clone now, and whether the session can be resumed.
         var session = resume.SessionId is { } id && SessionIdShape().IsMatch(id) ? id : null;
@@ -212,6 +238,7 @@ public sealed partial class RunStarter(
             ["model"] = info.Llm.Model,
             ["answers"] = resume.ToDeliver.Count,
             ["changes_requested_on_round"] = resume.Changes?.RoundNo,
+            ["rebase_onto"] = resume.Changes?.Rebase?.DefaultBranch,
             ["reason"] = attempt == RunAttemptKind.Resume ? null
                 : kind == RunJobKind.Summary ? "the resumed session failed"
                 : session is null ? "no session was recorded"

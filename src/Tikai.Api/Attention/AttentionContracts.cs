@@ -7,8 +7,8 @@ namespace Tikai.Api.Attention;
 
 /// <summary>
 /// An inbox item with what a person needs to act on it without opening anything else. Exactly one of
-/// <see cref="Question"/>, <see cref="Plan"/>, <see cref="Review"/> and <see cref="Failure"/> is set, matching
-/// <see cref="Kind"/>.
+/// <see cref="Question"/>, <see cref="Plan"/>, <see cref="Review"/>, <see cref="Failure"/> and <see cref="Conflict"/>
+/// is set, matching <see cref="Kind"/>.
 /// </summary>
 /// <param name="TicketKey">E.g. "HUB-42".</param>
 /// <param name="Blocking">An agent waits for it (an open question or plan); these sort first in the inbox.</param>
@@ -18,6 +18,8 @@ namespace Tikai.Api.Attention;
 /// <param name="ChangeSetId">For a review: the submitted work, opened on the review screen (null for reviews from before change sets).</param>
 /// <param name="Analysis">For a review: where the analysis of the change set's latest round stands.</param>
 /// <param name="Round">For a review: the change set's latest round and how the agent answered the comments sent to it.</param>
+/// <param name="Conflict">For a conflict: the approved round, the default branch and the files that conflict.</param>
+/// <param name="DeliveryError">For a review: why an earlier approval did not get through (it came back to the inbox).</param>
 public sealed record AttentionItemInfo(
     Guid Id,
     AttentionKind Kind,
@@ -40,7 +42,9 @@ public sealed record AttentionItemInfo(
     DateTimeOffset? AnsweredAt,
     Guid? ChangeSetId,
     AnalysisBrief? Analysis,
-    RoundBrief? Round = null);
+    RoundBrief? Round = null,
+    ConflictPayload? Conflict = null,
+    string? DeliveryError = null);
 
 /// <param name="Answered">Threads with comments sent to the agent that it replied to after the last one.</param>
 /// <param name="Unanswered">Such threads without a reply since.</param>

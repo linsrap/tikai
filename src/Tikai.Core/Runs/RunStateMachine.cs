@@ -27,13 +27,16 @@ public enum RunTrigger
     /// <summary>The work was merged.</summary>
     Merge,
 
+    /// <summary>The run branch was pushed for people to merge on the remote.</summary>
+    Push,
+
     Fail,
     Cancel,
 }
 
 /// <summary>
 /// The run lifecycle: queued → preparing → running ⇄ blocked → in_review → (changes_requested → running) →
-/// merged | failed | cancelled. Fail and cancel work from every state that has not ended.
+/// merged | pushed | failed | cancelled. Fail and cancel work from every state that has not ended.
 /// </summary>
 public static class RunStateMachine
 {
@@ -51,6 +54,7 @@ public static class RunStateMachine
         (AgentRunState.InReview, RunTrigger.RequestChanges) => AgentRunState.ChangesRequested,
         (AgentRunState.ChangesRequested, RunTrigger.Resume) => AgentRunState.Running,
         (AgentRunState.InReview, RunTrigger.Merge) => AgentRunState.Merged,
+        (AgentRunState.InReview, RunTrigger.Push) => AgentRunState.Pushed,
         _ => null,
     };
 

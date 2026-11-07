@@ -34,6 +34,9 @@ public interface IGitService
     /// <summary>The commit id a revision points to, or null when it does not exist.</summary>
     Task<string?> ResolveCommitAsync(string path, string revision, CancellationToken cancellationToken = default);
 
+    /// <summary>The tree id of a commit, or null when there is no such commit.</summary>
+    Task<string?> ResolveTreeAsync(string path, string commitSha, CancellationToken cancellationToken = default);
+
     /// <summary>The blob id of a file at a commit, or null when there is no such file (or it is a directory).</summary>
     Task<string?> BlobIdAsync(string path, string commitSha, string filePath, CancellationToken cancellationToken = default);
 
@@ -44,7 +47,8 @@ public interface IGitService
     /// Writes a git bundle with only <paramref name="branch"/> (refs/heads) and its history, e.g. for a run clone:
     /// the run gets that branch and nothing else of the repository. Returns the commit the bundle holds.
     /// </summary>
-    Task<string> CreateBundleAsync(string path, string branch, string outputFile, CancellationToken cancellationToken = default);
+    /// <param name="withHead">Also HEAD (when it points at the branch), so a plain "git clone" of the bundle checks it out.</param>
+    Task<string> CreateBundleAsync(string path, string branch, string outputFile, bool withHead = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Takes work from an untrusted bundle (made from a run clone): checks that the mirror has its prerequisites, fetches
@@ -72,7 +76,62 @@ public interface IGitService
 
     /// <summary>Deletes a repository directory, including git's read-only object files on Windows.</summary>
     Task DeleteRepositoryAsync(string path, CancellationToken cancellationToken = default);
+
+    /// <summary>Whether <paramref name="ancestor"/> is <paramref name="descendant"/> or one of its ancestors.</summary>
+    Task<bool> IsAncestorAsync(string path, string ancestor, string descendant, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Merges two commits without a worktree (<c>git merge-tree --write-tree</c>): the merged tree, or the paths that
+    /// conflict. Merge drivers named in .gitattributes do not run (no config defines them).
+    /// </summary>
+    Task<MergeTreeResult> MergeTreeAsync(string path, string target, string head, CancellationToken cancellationToken = default);
+
+    /// <summary>A new commit of <paramref name="tree"/> with the given parents, message and identities; returns its id.</summary>
+    Task<string> CommitTreeAsync(
+        string path, string tree, IReadOnlyList<string> parents, string message, GitIdentity author, GitIdentity committer,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Points <paramref name="refName"/> at <paramref name="newSha"/>, only while it is at <paramref name="expectedSha"/>
+    /// (null: whatever it is; "": it must not exist yet).
+    /// </summary>
+    Task UpdateRefAsync(string path, string refName, string newSha, string? expectedSha, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes a ref if it exists.</summary>
+    Task DeleteRefAsync(string path, string refName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pushes one commit to one ref of the remote, without force. <see cref="PushResult.Rejected"/> when the remote
+    /// has moved (not a fast-forward); other failures (login, a protected branch, the network) throw.
+    /// </summary>
+    Task<PushResult> PushAsync(
+        string path, GitRemoteUrl remote, GitCredential? credential, string sha, string targetRef, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Makes <paramref name="remote"/> the repository's remote: fetches from it and pushes the default branch when the
+    /// remote is empty or behind. Throws (and leaves the repository's remote as it was) when the remote has a history
+    /// the hub's default branch does not continue, or when it cannot be reached.
+    /// </summary>
+    Task<ConnectResult> ConnectRemoteAsync(
+        string path, GitRemoteUrl remote, GitCredential? credential, string defaultBranch, CancellationToken cancellationToken = default);
 }
+
+/// <param name="Conflicts">The paths that conflict; empty for a clean merge.</param>
+public sealed record MergeTreeResult(string Tree, IReadOnlyList<string> Conflicts)
+{
+    public bool Clean => Conflicts.Count == 0;
+}
+
+public enum PushResult
+{
+    Pushed,
+
+    /// <summary>The remote ref moved meanwhile (not a fast-forward): fetch and try again.</summary>
+    Rejected,
+}
+
+/// <param name="Pushed">The hub's default branch was pushed (the remote was empty or behind).</param>
+public sealed record ConnectResult(bool Pushed);
 
 /// <param name="Truncated">There were more files than asked for.</param>
 public sealed record GitDiff(IReadOnlyList<GitDiffEntry> Files, bool Truncated);

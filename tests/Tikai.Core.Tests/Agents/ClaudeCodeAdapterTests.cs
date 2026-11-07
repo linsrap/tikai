@@ -219,6 +219,28 @@ public class ClaudeCodeAdapterTests
     }
 
     [Fact]
+    public void A_rebase_round_names_the_conflicting_files_and_how_to_fetch_the_default_branch()
+    {
+        var rebase = new ReviewRequest(2, new RebaseRequest("main", ["src/a.cs", "README.md"]));
+
+        var message = _adapter.BuildResumeContainer(Context(), new ResumeSession("s", [], rebase)).Command[1];
+
+        Assert.StartsWith("A human approved round 2 of your work, but it does not merge: main has moved", message, StringComparison.Ordinal);
+        Assert.Contains("these files conflict:\n- src/a.cs\n- README.md\n", message, StringComparison.Ordinal);
+        Assert.Contains("git fetch --quiet /run/prep/default.bundle \"+refs/heads/main:refs/remotes/tikai/main\"", message, StringComparison.Ordinal);
+        Assert.Contains("git rebase tikai/main", message, StringComparison.Ordinal);
+        Assert.Contains("tikai/HUB-42-4e5f6071", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("{{", message, StringComparison.Ordinal);
+
+        var fresh = _adapter.BuildResumeContainer(Context(), new FreshSession(null, [], "", "", new ReviewRequest(1, new RebaseRequest("trunk", [])))).Command[1];
+        Assert.StartsWith("You are continuing work on the Tikai ticket HUB-42", fresh, StringComparison.Ordinal);
+        Assert.Contains("A human approved round 1, but it does not merge: trunk has moved", fresh, StringComparison.Ordinal);
+        Assert.Contains("(the hub did not list them; git rebase shows them)", fresh, StringComparison.Ordinal);
+        Assert.Contains("git rebase tikai/trunk", fresh, StringComparison.Ordinal);
+        Assert.DoesNotContain("{{", fresh, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_session_file_is_where_claude_code_keeps_sessions_for_the_work_directory()
     {
         Assert.Equal("claude/projects/-run-work/abc.jsonl", _adapter.SessionFile("abc"));

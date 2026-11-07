@@ -131,6 +131,10 @@ internal static class RunEndpoints
         {
             return NotFound();
         }
+        if (await db.ChangeSets.AnyAsync(c => c.RunId == id && c.Status == Core.Reviews.ChangeSetStatus.Delivering, cancellationToken))
+        {
+            return Conflict("The change is being delivered", "It was approved and is being merged or pushed; the run ends when that is done.");
+        }
         if (!await control.CancelAsync(id, cancellationToken))
         {
             return Conflict("Run has ended", "This run has already ended.");

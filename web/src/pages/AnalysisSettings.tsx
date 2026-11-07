@@ -32,9 +32,11 @@ function AnalysisSettingsForm({ slug, settings }: { slug: string; settings: Proj
   const submit = (e: FormEvent) => {
     e.preventDefault()
     save.mutate({
-      light: models.light?.trim() || null,
-      normal: models.normal?.trim() || null,
-      strict: models.strict?.trim() || null,
+      analysisModels: {
+        light: models.light?.trim() || null,
+        normal: models.normal?.trim() || null,
+        strict: models.strict?.trim() || null,
+      },
     })
   }
 

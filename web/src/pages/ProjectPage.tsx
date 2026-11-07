@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import {
   branchesQuery,
+  bundleUrl,
   emptyRepositoryForm,
   projectQuery,
   repositoriesQuery,
@@ -10,6 +11,7 @@ import {
   toCredentialInput,
   useCreateRepository,
   useDeleteProject,
+  useConnectRemote,
   useDeleteRepository,
   useFetchRepository,
   useSetCredential,
@@ -18,6 +20,7 @@ import {
 } from '../projects/projects'
 import { AnalysisSettings } from './AnalysisSettings'
 import { AppShell } from './AppShell'
+import { DeliverySettingsForm } from './DeliverySettings'
 import { ProvidersSection } from './ProvidersSection'
 
 export function ProjectPage({ slug }: { slug: string }) {
@@ -61,6 +64,8 @@ export function ProjectPage({ slug }: { slug: string }) {
         Settings.
       </p>
       <ProvidersSection owner={{ kind: 'project', slug }} />
+      <h2>Approving a change</h2>
+      <DeliverySettingsForm slug={slug} />
       <h2>Review analysis</h2>
       <AnalysisSettings slug={slug} />
       {repositories.data?.length === 0 && (
@@ -128,6 +133,16 @@ function RepositoryCard({ slug, repository: r }: { slug: string; repository: Rep
             {r.status === 'failed' ? 'Retry clone' : 'Fetch now'}
           </button>
         )}
+        {r.status === 'ready' && (
+          <a
+            className="button"
+            href={bundleUrl(slug, r.id)}
+            download
+            title={`git clone ${r.name}.bundle, later git pull ${r.name}.bundle ${r.defaultBranch}`}
+          >
+            Download as bundle
+          </a>
+        )}
         <button
           type="button"
           className="danger"
@@ -143,6 +158,7 @@ function RepositoryCard({ slug, repository: r }: { slug: string; repository: Rep
       </div>
       {showBranches && <BranchList slug={slug} id={r.id} />}
       {r.remoteUrl && <CredentialForm slug={slug} repository={r} />}
+      {r.status === 'ready' && <RemoteForm slug={slug} repository={r} />}
     </section>
   )
 }
@@ -194,6 +210,81 @@ function CredentialForm({ slug, repository }: { slug: string; repository: Reposi
   )
 }
 
+/**
+ * A local repository gets its first remote, a remote one a new URL. The hub pushes its default branch when the remote
+ * is empty or behind, and refuses a remote with a history of its own.
+ */
+function RemoteForm({ slug, repository }: { slug: string; repository: RepositoryInfo }) {
+  const connect = useConnectRemote(slug)
+  const local = !repository.remoteUrl
+  const [form, setForm] = useState<RepositoryForm>({
+    ...emptyRepositoryForm,
+    remoteUrl: repository.remoteUrl ?? '',
+    credentialKind: local ? 'none' : repository.credentialKind,
+  })
+  const [keepCredential, setKeepCredential] = useState(!local)
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    connect.mutate(
+      {
+        id: repository.id,
+        remoteUrl: form.remoteUrl.trim(),
+        credential: keepCredential ? null : (toCredentialInput(form) ?? null),
+      },
+      { onSuccess: () => setForm({ ...form, token: '', privateKey: '' }) },
+    )
+  }
+
+  return (
+    <details>
+      <summary>{local ? 'Connect a remote' : 'Change remote'}</summary>
+      <form
+        onSubmit={submit}
+        className="stack"
+        aria-label={local ? 'Connect a remote' : 'Change remote'}
+      >
+        <p className="muted">
+          {local
+            ? `Use an empty repository (no README or license). The hub pushes ${repository.defaultBranch} to it, and approved changes from then on.`
+            : `The new remote must have ${repository.defaultBranch} with the hub's history, or be empty.`}
+        </p>
+        <label className="field">
+          <span>Remote URL</span>
+          <input
+            required
+            value={form.remoteUrl}
+            placeholder="https://github.com/you/app.git"
+            spellCheck={false}
+            onChange={(e) => setForm({ ...form, remoteUrl: e.target.value })}
+          />
+        </label>
+        {!local && (
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={keepCredential}
+              onChange={(e) => setKeepCredential(e.target.checked)}
+            />
+            Keep the current credential
+          </label>
+        )}
+        {!keepCredential && <CredentialFields form={form} onChange={setForm} />}
+        {connect.error && <p className="error">{connect.error.message}</p>}
+        {connect.data && (
+          <p className="success">
+            Connected.
+            {connect.data.pushed && ` The hub pushed ${repository.defaultBranch} to it.`}
+          </p>
+        )}
+        <button type="submit" disabled={connect.isPending}>
+          {connect.isPending ? 'Connecting…' : local ? 'Connect' : 'Change remote'}
+        </button>
+      </form>
+    </details>
+  )
+}
+
 const credentialLabel: Record<RepositoryInfo['credentialKind'], string> = {
   none: 'none',
   https_token: 'access token',
@@ -237,7 +328,7 @@ function CredentialFields({
             />
           </label>
           <label className="field">
-            <span>Access token (read access is enough until merges are pushed)</span>
+            <span>Access token (with write access: approved changes are pushed)</span>
             <input
               type="password"
               required

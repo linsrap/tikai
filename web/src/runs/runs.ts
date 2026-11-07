@@ -17,12 +17,14 @@ export const runStateLabel: Record<RunState, string> = {
   in_review: 'In review',
   changes_requested: 'Changes requested',
   merged: 'Merged',
+  pushed: 'Branch pushed',
   failed: 'Failed',
   cancelled: 'Cancelled',
 }
 
 /** States in which the run has not ended (it can be cancelled). */
-export const isActive = (state: RunState) => !['merged', 'failed', 'cancelled'].includes(state)
+export const isActive = (state: RunState) =>
+  !['merged', 'pushed', 'failed', 'cancelled'].includes(state)
 
 /** "1:05:09" or "4:02": how long the run has been going, or went (ended runs). */
 export function elapsed(

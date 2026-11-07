@@ -1,5 +1,6 @@
 using System.Text;
 using Tikai.Core.Agents;
+using Tikai.Core.Git;
 
 namespace Tikai.Orchestrator;
 
@@ -10,12 +11,15 @@ namespace Tikai.Orchestrator;
 internal static class RunPrep
 {
     public const string BundleFile = "prep/source.bundle";
+
+    /// <summary>The current default branch for a rebase round (<see cref="RunLayout.DefaultBundle"/> in the container).</summary>
+    public const string DefaultBundleFile = "prep/default.bundle";
     public const string HookFile = "prep/commit-msg";
     public const string TicketDirectory = ".tikai";
     public const string TicketFile = ".tikai/ticket.md";
 
-    public const string AuthorName = "Claude Code (Tikai)";
-    public const string AuthorEmail = "claude-code@agents.tikai.invalid";
+    public static string AuthorName => GitIdentity.Agent.Name;
+    public static string AuthorEmail => GitIdentity.Agent.Email;
 
     // Arguments come as positional parameters, never inside the script text.
     private const string Script = """

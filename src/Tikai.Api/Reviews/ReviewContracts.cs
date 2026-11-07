@@ -2,6 +2,7 @@ using Tikai.Api.Attention;
 using Tikai.Api.Tickets;
 using Tikai.Core.Attention;
 using Tikai.Core.Git;
+using Tikai.Core.Projects;
 using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Review;
@@ -25,7 +26,19 @@ public sealed record ChangeSetInfo(
     string DefaultBranch,
     IReadOnlyList<CriterionInfo> Criteria,
     IReadOnlyList<ReviewRoundInfo> Rounds,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    DeliveryInfo Delivery);
+
+/// <summary>What Approve does for this change set, and how its delivery went.</summary>
+/// <param name="Mode">The project's setting; a repository without a remote always merges in the hub.</param>
+/// <param name="HasRemote">Whether the repository has a remote to push to.</param>
+/// <param name="Sha">The merge (or squash) commit, or the pushed head, once delivered.</param>
+/// <param name="Error">Why the last attempt did not get through (a conflict, a failed push); kept while it is retried.</param>
+/// <param name="Conflict">The open conflict item and its files, when the approved round did not merge.</param>
+public sealed record DeliveryInfo(
+    DeliveryMode Mode, MergeStyle MergeStyle, bool HasRemote, string? Sha, string? Error, ConflictInfo? Conflict);
+
+public sealed record ConflictInfo(Guid ItemId, IReadOnlyList<string> Files);
 
 /// <param name="Coverage">The agent's coverage per criterion, with the criterion's current text.</param>
 /// <param name="Uncommitted">git status lines of files the agent left uncommitted; they are not part of the round.</param>

@@ -4,7 +4,9 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { useWatch } from '../live/live'
 import {
   anchorFor,
+  approveAction,
   changeSetQuery,
+  deliveryLine,
   fileOrder,
   fileThreads,
   groupFiles,
@@ -27,6 +29,7 @@ import {
   storyFiles,
   threadsQuery,
   unsentForAgent,
+  useRebase,
   useThreads,
   useVerdict,
   useViewed,
@@ -208,10 +211,28 @@ function VerdictBar({
   threads: readonly ReviewThread[]
 }) {
   const verdict = useVerdict(changeSet.id)
+  const rebase = useRebase(changeSet.id)
   const [requesting, setRequesting] = useState(false)
   const [message, setMessage] = useState('')
   const latest = round.roundNo === changeSet.rounds.at(-1)?.roundNo
   const unsent = unsentForAgent(threads)
+  const delivered = deliveryLine(changeSet)
+  if (delivered && latest) {
+    return (
+      <div className="card" data-testid="verdict" role="status">
+        <p>
+          Round {round.roundNo}: <strong>approved</strong>
+          {round.verdictAt && (
+            <span className="muted"> on {new Date(round.verdictAt).toLocaleString()}</span>
+          )}
+          . {delivered}
+        </p>
+        {changeSet.status === 'delivering' && changeSet.delivery.error && (
+          <p className="error">{changeSet.delivery.error}</p>
+        )}
+      </div>
+    )
+  }
   if (round.verdict) {
     const working = latest && round.verdict === 'request_changes' && changeSet.status === 'open'
     return (
@@ -238,10 +259,53 @@ function VerdictBar({
       </p>
     )
   }
+  const { conflict, error } = changeSet.delivery
   return (
     <div className="card row verdicts" aria-label="Verdict">
-      <button type="button" disabled title="Merging comes in a later version">
-        Approve
+      {conflict ? (
+        <div className="conflict" role="alert">
+          <p>
+            <strong>Not merged:</strong> {changeSet.defaultBranch} moved since the agent started,
+            and {conflict.files.length === 1 ? 'this file conflicts' : 'these files conflict'}:
+          </p>
+          <ul className="paths">
+            {conflict.files.map((file) => (
+              <li key={file}>
+                <code>{file}</code>
+              </li>
+            ))}
+          </ul>
+          <div className="row">
+            <button
+              type="button"
+              className="primary"
+              disabled={rebase.isPending}
+              onClick={() => rebase.mutate()}
+            >
+              Ask the agent to rebase
+            </button>
+            <span className="muted">
+              It gets the current {changeSet.defaultBranch}, resolves the conflicts and submits a
+              new round.
+            </span>
+          </div>
+          {rebase.error && <span className="error">{rebase.error.message}</span>}
+        </div>
+      ) : (
+        error && (
+          <p className="error" role="alert">
+            The last approval did not get through: {error} Approve again to retry.
+          </p>
+        )
+      )}
+      <button
+        type="button"
+        className="primary"
+        disabled={verdict.isPending || !!conflict}
+        title={conflict ? 'Resolve the conflict first' : undefined}
+        onClick={() => verdict.mutate({ verdict: 'approve' })}
+      >
+        {approveAction(changeSet)}
       </button>
       <button type="button" disabled={verdict.isPending} onClick={() => setRequesting((r) => !r)}>
         Request changes…
@@ -265,8 +329,7 @@ function VerdictBar({
       <span className="muted">
         {unsent === 0
           ? 'No comments for the agent yet.'
-          : `${unsent} comment${unsent === 1 ? '' : 's'} will be sent to the agent.`}{' '}
-        Approve comes in a later version.
+          : `${unsent} comment${unsent === 1 ? '' : 's'} will be sent to the agent.`}
       </span>
       {requesting && (
         <form

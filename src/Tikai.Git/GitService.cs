@@ -157,6 +157,13 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         return result.ExitCode == 0 ? result.OutputText.Trim() : null;
     }
 
+    public async Task<string?> ResolveTreeAsync(string path, string commitSha, CancellationToken cancellationToken = default)
+    {
+        CheckObjectId(commitSha);
+        var result = await RunAsync(path, ["rev-parse", "--verify", "--quiet", commitSha + "^{tree}"], cancellationToken, check: false);
+        return result.ExitCode == 0 ? result.OutputText.Trim() : null;
+    }
+
     public async Task<string?> BlobIdAsync(string path, string commitSha, string filePath, CancellationToken cancellationToken = default)
     {
         CheckFileName(commitSha, filePath);
@@ -182,7 +189,8 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         return output.AsSpan(headerEnd + 1, size).ToArray();
     }
 
-    public async Task<string> CreateBundleAsync(string path, string branch, string outputFile, CancellationToken cancellationToken = default)
+    public async Task<string> CreateBundleAsync(
+        string path, string branch, string outputFile, bool withHead = false, CancellationToken cancellationToken = default)
     {
         CheckBranch(branch);
         if (await ResolveCommitAsync(path, LocalRefs + branch, cancellationToken) is null)
@@ -190,7 +198,9 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
             throw new GitException($"The branch \"{branch}\" has no commits yet.");
         }
         var bundle = Path.GetFullPath(outputFile);
-        await RunAsync(path, ["bundle", "create", "--quiet", bundle, LocalRefs + branch], cancellationToken);
+        var head = withHead && (await RunAsync(path, ["symbolic-ref", "--quiet", "HEAD"], cancellationToken, check: false)).OutputText.Trim() == LocalRefs + branch;
+        string[] refs = head ? ["HEAD", LocalRefs + branch] : [LocalRefs + branch];
+        await RunAsync(path, ["bundle", "create", "--quiet", bundle, .. refs], cancellationToken);
         // From the bundle itself: the branch may have moved since (a fetch fast-forwarded it).
         var heads = await RunAsync(path, ["bundle", "list-heads", bundle, LocalRefs + branch], cancellationToken);
         return heads.OutputText.Split(' ', 2)[0].Trim();
@@ -325,6 +335,161 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
             Directory.Delete(path, recursive: true);
         }, cancellationToken);
 
+    public async Task<MergeTreeResult> MergeTreeAsync(string path, string target, string head, CancellationToken cancellationToken = default)
+    {
+        CheckObjectId(target);
+        CheckObjectId(head);
+        // -z: "<tree>\0<path>\0<path>\0…", one path per conflicted file (--name-only); exit 1 means conflicts.
+        var result = await RunAsync(path, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", target, head], cancellationToken, check: false);
+        if (result.ExitCode is not (0 or 1))
+        {
+            throw Failure(["merge-tree"], result);
+        }
+        var parts = result.OutputText.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0 || !ObjectId().IsMatch(parts[0]))
+        {
+            throw new GitException("git merge-tree wrote no tree.");
+        }
+        return new MergeTreeResult(parts[0], result.ExitCode == 0 ? [] : [.. parts.Skip(1).Distinct(StringComparer.Ordinal)]);
+    }
+
+    public async Task<string> CommitTreeAsync(
+        string path, string tree, IReadOnlyList<string> parents, string message, GitIdentity author, GitIdentity committer,
+        CancellationToken cancellationToken = default)
+    {
+        CheckObjectId(tree);
+        foreach (var parent in parents)
+        {
+            CheckObjectId(parent);
+        }
+        var (a, c) = (author.Clean(), committer.Clean());
+        var identity = new Dictionary<string, string?>
+        {
+            ["GIT_AUTHOR_NAME"] = a.Name,
+            ["GIT_AUTHOR_EMAIL"] = a.Email,
+            ["GIT_COMMITTER_NAME"] = c.Name,
+            ["GIT_COMMITTER_EMAIL"] = c.Email,
+        };
+        // The message comes through stdin, never as an argument.
+        var result = await RunAsync(path, ["commit-tree", tree, .. parents.SelectMany(p => new[] { "-p", p })], cancellationToken,
+            input: Encoding.UTF8.GetBytes(message), environment: identity);
+        return result.OutputText.Trim();
+    }
+
+    public async Task UpdateRefAsync(string path, string refName, string newSha, string? expectedSha, CancellationToken cancellationToken = default)
+    {
+        CheckRef(refName);
+        CheckObjectId(newSha);
+        if (expectedSha is { Length: > 0 })
+        {
+            CheckObjectId(expectedSha);
+        }
+        await RunAsync(path, expectedSha is null ? ["update-ref", refName, newSha] : ["update-ref", refName, newSha, expectedSha], cancellationToken);
+    }
+
+    public async Task DeleteRefAsync(string path, string refName, CancellationToken cancellationToken = default)
+    {
+        CheckRef(refName);
+        if (await ResolveCommitAsync(path, refName, cancellationToken) is not null)
+        {
+            await RunAsync(path, ["update-ref", "-d", refName], cancellationToken);
+        }
+    }
+
+    public async Task<PushResult> PushAsync(
+        string path, GitRemoteUrl remote, GitCredential? credential, string sha, string targetRef, CancellationToken cancellationToken = default)
+    {
+        CheckObjectId(sha);
+        CheckRef(targetRef);
+        var access = new RemoteAccess(remote, credential, Path.Combine(path, KnownHostsFile));
+        // --porcelain: one "<flag>\t<from>:<to>\t<summary>" line per ref; "!" with "[rejected]" means the remote moved.
+        var result = await RunAsync(path, ["push", "--porcelain", "--no-follow-tags", Origin, $"{sha}:{targetRef}"], cancellationToken, access, check: false);
+        var line = result.OutputText.Split('\n').FirstOrDefault(l => l.Contains($":{targetRef}\t", StringComparison.Ordinal));
+        if (result.ExitCode == 0 && line is not null && !line.StartsWith('!'))
+        {
+            return PushResult.Pushed;
+        }
+        if (line is not null && line.StartsWith('!') && line.Contains("[rejected]", StringComparison.Ordinal))
+        {
+            return PushResult.Rejected;
+        }
+        var failure = Failure(["push"], result);
+        var text = line + "\n" + result.StandardError;
+        if (text.Contains(" 403", StringComparison.Ordinal) || text.Contains("Permission to", StringComparison.Ordinal)
+            || text.Contains("write access", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new GitException("The remote refused the push: the credential needs write access to this repository. " + failure.Message);
+        }
+        throw line is not null && line.StartsWith('!')
+            ? new GitException($"The remote refused the push ({line.Split('\t')[^1].Trim()}). {failure.Message}")
+            : failure;
+    }
+
+    public async Task<ConnectResult> ConnectRemoteAsync(
+        string path, GitRemoteUrl remote, GitCredential? credential, string defaultBranch, CancellationToken cancellationToken = default)
+    {
+        CheckBranch(defaultBranch);
+        var previous = await RunAsync(path, ["config", "--get", $"remote.{Origin}.url"], cancellationToken, check: false);
+        var previousUrl = previous.ExitCode == 0 ? previous.OutputText.Trim() : null;
+        await RunAsync(path, ["config", $"remote.{Origin}.url", remote.Value], cancellationToken);
+        await RunAsync(path, ["config", "--replace-all", $"remote.{Origin}.fetch", $"+{LocalRefs}*:{RemoteRefs}*"], cancellationToken);
+        try
+        {
+            var fetched = await FetchAsync(path, remote, credential, defaultBranch, cancellationToken);
+            switch (fetched.DefaultBranch)
+            {
+                case DefaultBranchSync.Diverged:
+                    throw new GitException(
+                        $"The remote's \"{defaultBranch}\" has commits the hub's does not have. Connect an empty repository (no README, no license), or one whose \"{defaultBranch}\" the hub's continues.");
+                case DefaultBranchSync.MissingOnRemote when (await ListBranchesAsync(path, cancellationToken)).Any(b => b.IsRemote):
+                    throw new GitException(
+                        $"The remote has branches, but no \"{defaultBranch}\". Connect an empty repository, or one with this default branch.");
+                case DefaultBranchSync.MissingOnRemote or DefaultBranchSync.LocalAhead:
+                    var head = await ResolveCommitAsync(path, LocalRefs + defaultBranch, cancellationToken)
+                        ?? throw new GitException($"The hub's \"{defaultBranch}\" has no commits.");
+                    if (await PushAsync(path, remote, credential, head, LocalRefs + defaultBranch, cancellationToken) == PushResult.Rejected)
+                    {
+                        throw new GitException($"Someone pushed to the remote's \"{defaultBranch}\" meanwhile. Try again.");
+                    }
+                    await UpdateRefAsync(path, RemoteRefs + defaultBranch, head, null, cancellationToken);
+                    return new ConnectResult(Pushed: true);
+                default:
+                    return new ConnectResult(Pushed: false);
+            }
+        }
+        catch
+        {
+            await RestoreRemoteAsync(path, previousUrl);
+            throw;
+        }
+    }
+
+    /// <summary>Back to the remote the repository had (or none), without the refs fetched from the new one.</summary>
+    private async Task RestoreRemoteAsync(string path, string? previousUrl)
+    {
+        try
+        {
+            if (previousUrl is not null)
+            {
+                await RunAsync(path, ["config", $"remote.{Origin}.url", previousUrl], CancellationToken.None);
+                return;
+            }
+            await RunAsync(path, ["config", "--remove-section", $"remote.{Origin}"], CancellationToken.None, check: false);
+            var stale = await RunAsync(path, ["for-each-ref", "--format=%(refname)", RemoteRefs], CancellationToken.None);
+            var deletes = string.Concat(stale.OutputText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(r => $"delete {r}\n"));
+            if (deletes.Length > 0)
+            {
+                // --no-deref: origin/HEAD is a symbolic ref to another ref deleted here too.
+                await RunAsync(path, ["update-ref", "--no-deref", "--stdin"], CancellationToken.None, input: Encoding.UTF8.GetBytes(deletes));
+            }
+        }
+        catch (GitException ex)
+        {
+            // The caller's error is the one people need; this only leaves stale refs behind.
+            LogRestoreFailed(ex.Message);
+        }
+    }
+
     private async Task<string?> DetectDefaultBranchAsync(string gitDir, RemoteAccess access, CancellationToken cancellationToken)
     {
         // "ref: refs/heads/main<TAB>HEAD"; also reported for an empty remote (unborn HEAD) by current git servers.
@@ -333,8 +498,10 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         return match.Success && BranchName.ValidationError(match.Groups["branch"].Value) is null ? match.Groups["branch"].Value : null;
     }
 
-    private async Task<bool> IsAncestorAsync(string path, string ancestor, string descendant, CancellationToken cancellationToken)
+    public async Task<bool> IsAncestorAsync(string path, string ancestor, string descendant, CancellationToken cancellationToken = default)
     {
+        CheckRevision(ancestor);
+        CheckRevision(descendant);
         var result = await RunAsync(path, ["merge-base", "--is-ancestor", ancestor, descendant], cancellationToken, check: false);
         return result.ExitCode switch
         {
@@ -550,6 +717,9 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "git {Arguments}")]
     private partial void LogCommand(string[] arguments);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Restoring the remote after a failed connect failed: {Error}")]
+    private partial void LogRestoreFailed(string error);
 
     private sealed record RemoteAccess(GitRemoteUrl Url, GitCredential? Credential, string KnownHostsPath);
 }

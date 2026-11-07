@@ -93,6 +93,9 @@ public class AgentRun : Entity
     public DateTimeOffset? StartedAt { get; set; }
 
     public DateTimeOffset? EndedAt { get; set; }
+
+    /// <summary>When the run's directory was removed after it ended (null while it may still be there).</summary>
+    public DateTimeOffset? CleanedAt { get; set; }
 }
 
 /// <summary>Run states; <see cref="RunStateMachine"/> says which follow which.</summary>
@@ -105,6 +108,9 @@ public enum AgentRunState
     InReview,
     ChangesRequested,
     Merged,
+
+    /// <summary>Approved, and the run branch was pushed to the remote for people to merge there.</summary>
+    Pushed,
     Failed,
     Cancelled,
 }
@@ -126,7 +132,7 @@ public static class AgentRunStates
 {
     /// <summary>An ended run's token no longer works.</summary>
     public static bool IsEnded(this AgentRunState state) =>
-        state is AgentRunState.Merged or AgentRunState.Failed or AgentRunState.Cancelled;
+        state is AgentRunState.Merged or AgentRunState.Pushed or AgentRunState.Failed or AgentRunState.Cancelled;
 
     /// <summary>The states <see cref="IsEnded"/> is true for, e.g. for a query.</summary>
     public static IReadOnlyList<AgentRunState> Ended { get; } =

@@ -531,6 +531,16 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("DeliveredSha")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("delivered_sha");
+
+                    b.Property<string>("DeliveryError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("delivery_error");
+
                     b.Property<string>("HeadSha")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -580,7 +590,9 @@ namespace Tikai.Data.Migrations
 
                     b.ToTable("change_sets", null, t =>
                         {
-                            t.HasCheckConstraint("ck_change_sets_status", "status IN ('open', 'merged', 'closed')");
+                            t.HasCheckConstraint("ck_change_sets_delivered", "(status IN ('merged', 'pushed')) = (delivered_sha IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_change_sets_status", "status IN ('open', 'delivering', 'merged', 'pushed', 'closed')");
                         });
                 });
 
@@ -753,6 +765,10 @@ namespace Tikai.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("head_sha");
+
+                    b.Property<bool>("RebaseRequested")
+                        .HasColumnType("boolean")
+                        .HasColumnName("rebase_requested");
 
                     b.Property<int>("RoundNo")
                         .HasColumnType("integer")
@@ -943,6 +959,10 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("cancel_requested_at");
 
+                    b.Property<DateTimeOffset?>("CleanedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cleaned_at");
+
                     b.Property<string>("ContainerId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
@@ -1074,18 +1094,18 @@ namespace Tikai.Data.Migrations
                     b.HasIndex(new[] { "RepositoryId" }, "ux_agent_runs_active_repository")
                         .IsUnique()
                         .HasDatabaseName("ux_agent_runs_active_repository")
-                        .HasFilter("state NOT IN ('merged', 'failed', 'cancelled')");
+                        .HasFilter("state NOT IN ('merged', 'pushed', 'failed', 'cancelled')");
 
                     b.HasIndex(new[] { "TicketId" }, "ux_agent_runs_active_ticket")
                         .IsUnique()
                         .HasDatabaseName("ux_agent_runs_active_ticket")
-                        .HasFilter("state NOT IN ('merged', 'failed', 'cancelled')");
+                        .HasFilter("state NOT IN ('merged', 'pushed', 'failed', 'cancelled')");
 
                     b.ToTable("agent_runs", null, t =>
                         {
                             t.HasCheckConstraint("ck_agent_runs_attempt_kind", "attempt_kind IN ('start', 'resume', 'summary')");
 
-                            t.HasCheckConstraint("ck_agent_runs_state", "state IN ('queued', 'preparing', 'running', 'blocked', 'in_review', 'changes_requested', 'merged', 'failed', 'cancelled')");
+                            t.HasCheckConstraint("ck_agent_runs_state", "state IN ('queued', 'preparing', 'running', 'blocked', 'in_review', 'changes_requested', 'merged', 'pushed', 'failed', 'cancelled')");
 
                             t.HasCheckConstraint("ck_agent_runs_token_hash", "octet_length(token_hash) = 32");
                         });

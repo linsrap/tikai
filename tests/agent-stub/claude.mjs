@@ -24,6 +24,8 @@
 //                   changes it reads get_review_comments, changes fix.txt, replies to every thread, commits, submits
 //   fix-rebase      like fix, but stays after its first submission until it is stopped, and the fix round first moves
 //                   its commits onto the default branch's parent (a new base)
+// Any scenario resumed (or taken over) to rebase after a merge conflict fetches the default branch from the bundle the
+// prompt names, rebases onto it with its own side winning conflicts, replies to every thread and submits again.
 // Like Claude Code it keeps a session file in $CLAUDE_CONFIG_DIR/projects/-run-work/<session>.jsonl, continues it with
 // --resume <session> (the answer comes in the -p message; a missing file is "No conversation found", exit 1), and
 // takes over from a summary prompt in a fresh session. It reports what it sees from the inside (uid, branch, hook,
@@ -327,6 +329,9 @@ async function resume() {
   }
   const entries = session.read();
   const scenario = entries.find((e) => e.scenario)?.scenario;
+  if (prompt.includes("does not merge")) {
+    return rebaseRound();
+  }
   if (prompt.includes("requested changes")) {
     return fixRound(scenario);
   }
@@ -401,7 +406,44 @@ async function fixRound(scenario) {
   return 0;
 }
 
+/** After a merge conflict: rebase onto the bundled default branch (the stub's side wins), reply, submit. */
+async function rebaseRound() {
+  session.add({ step: "rebase" });
+  init(await connect());
+  const ticket = JSON.parse(await tool("get_ticket", {}));
+  const { threads } = JSON.parse(await tool("get_review_comments", {}));
+  const named = /git fetch --quiet (\S+) "\+refs\/heads\/([^:]+):refs\/remotes\/tikai\/[^"]+"/.exec(prompt);
+  const [bundle, branch] = [named?.[1] ?? "/run/prep/default.bundle", named?.[2] ?? "main"];
+  const rebased = bash(
+    `git fetch --quiet ${bundle} "+refs/heads/${branch}:refs/remotes/tikai/${branch}" && git rebase --quiet -X theirs tikai/${branch} && git log --format=%s`,
+  );
+  for (const thread of threads) {
+    await tool("reply_to_thread", { thread_id: thread.thread_id, body: `Rebased onto the current ${branch}.` });
+  }
+  say(
+    "STUB_REBASE " +
+      JSON.stringify({
+        mode,
+        round: /approved round (\d+)/.exec(prompt)?.[1] ?? null,
+        files: /these files conflict:\n([\s\S]*?)\n\n/.exec(prompt)?.[1] ?? null,
+        bundle,
+        log: rebased,
+        threads: threads.length,
+      }),
+  );
+  await tool("submit_for_review", {
+    summary: "Rebased onto the current default branch.",
+    criteria_mapping: ticket.criteria.map((c) => ({ criterion_id: c.id, status: "covered", note: "rebased" })),
+    open_concerns: [],
+  });
+  result({ result: "Done.", total_cost_usd: 0.003 });
+  return 0;
+}
+
 async function fromSummary() {
+  if (prompt.includes("does not merge")) {
+    return rebaseRound();
+  }
   if (prompt.includes("requested changes")) {
     return fixRound(/stub:([a-z-]+)/.exec(sh("cat .tikai/ticket.md") ?? "")?.[1] ?? "fix");
   }
