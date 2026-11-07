@@ -155,4 +155,28 @@ docker compose up -d --build
 
 A run that is working during the update keeps running and is picked up again by the new hub; an agent waiting for an answer during the update asks again or is resumed later (see Agent runs).
 
-Database migrations run automatically when the hub starts.
+Database migrations run automatically when the hub starts. The first start of a version with merge on approval removes the directories of all runs that ended before.
+
+## Backup and restore
+
+A backup is the database, the `tikai_data` volume and your `.env` (without `TIKAI_SECRET` the rest cannot be read). Stop the hub so both are from the same moment. The commands work in PowerShell and bash, from the folder with `compose.yml`:
+
+```powershell
+docker compose stop hub
+docker compose exec db pg_dump -U tikai -Fc -f /tmp/tikai.dump tikai
+docker compose cp db:/tmp/tikai.dump ./tikai.dump
+docker run --rm -v tikai_data:/data -v ${PWD}:/backup alpine tar czf /backup/tikai-data.tgz -C /data .
+docker compose start hub
+```
+
+Restore (same or new machine, `.env` in place, the agent images built):
+
+```powershell
+docker compose up -d db
+docker compose cp ./tikai.dump db:/tmp/tikai.dump
+docker compose exec db pg_restore -U tikai -d tikai --clean --if-exists /tmp/tikai.dump
+docker run --rm -v tikai_data:/data -v ${PWD}:/backup alpine sh -c "rm -rf /data/* && tar xzf /backup/tikai-data.tgz -C /data"
+docker compose up -d
+```
+
+Runs that were active at backup time cannot continue after a restore on a new machine: the hub marks them failed, and you start them again.
