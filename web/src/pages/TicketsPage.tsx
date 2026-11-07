@@ -11,8 +11,19 @@ import {
   toCreateTicketRequest,
   useCreateTicket,
   type TicketFilter,
+  type TicketPriority,
 } from '../tickets/tickets'
+import { ticketStatusTone } from '../tickets/tones'
+import { Button } from '../ui/Button'
+import { cx } from '../ui/cx'
+import { ErrorText } from '../ui/form'
+import { PlusIcon } from '../ui/icons'
+import { CrumbSep, EmptyState, Loading, PageBody, PageHeader } from '../ui/layout'
+import { table } from '../ui/table'
+import { Segmented } from '../ui/Segmented'
+import { Dot } from '../ui/Tag'
 import { AppShell } from './AppShell'
+import { ProjectHeader } from './ProjectHeader'
 import { TicketFormView } from './TicketForm'
 
 const filterLabel: Record<TicketFilter, string> = {
@@ -23,72 +34,129 @@ const filterLabel: Record<TicketFilter, string> = {
 }
 
 export function TicketsPage({ slug }: { slug: string }) {
-  const project = useQuery(projectQuery(slug))
   const tickets = useQuery(ticketsQuery(slug))
   const [filter, setFilter] = useState<TicketFilter>('active')
-  const shown = tickets.data?.filter((t) => (ticketFilters[filter] as string[]).includes(t.status))
+  const inFilter = (f: TicketFilter) =>
+    tickets.data?.filter((t) => (ticketFilters[f] as string[]).includes(t.status))
+  const shown = inFilter(filter)
 
   return (
     <AppShell>
-      <p className="muted">
-        <Link to="/projects/$slug" params={{ slug }}>
-          {project.data?.name ?? slug}
-        </Link>
-      </p>
-      <div className="row spread">
-        <h1>Tickets</h1>
-        <Link to="/projects/$slug/tickets/new" params={{ slug }}>
-          New ticket
-        </Link>
-      </div>
-      <div className="row" role="group" aria-label="Filter">
-        {(Object.keys(filterLabel) as TicketFilter[]).map((f) => (
-          <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
-            {filterLabel[f]}
-          </button>
-        ))}
-      </div>
-      {tickets.isPending && <p>Loading…</p>}
-      {(tickets.error ?? project.error) && (
-        <p role="alert" className="error">
-          {(tickets.error ?? project.error)?.message}
-        </p>
-      )}
-      {shown?.length === 0 && <p>No tickets here.</p>}
-      {shown && shown.length > 0 && (
-        <table className="tickets">
-          <tbody>
-            {shown.map((t) => (
-              <tr key={t.id}>
-                <td className="mono">
-                  <Link
-                    to="/projects/$slug/tickets/$number"
-                    params={{ slug, number: String(t.number) }}
-                  >
-                    {t.key}
-                  </Link>
-                </td>
-                <td>
-                  <Link
-                    to="/projects/$slug/tickets/$number"
-                    params={{ slug, number: String(t.number) }}
-                  >
-                    {t.title}
-                  </Link>
-                </td>
-                <td>
-                  <span className={`badge ${t.status}`}>{statusLabel[t.status]}</span>
-                </td>
-                <td className="muted">{priorityLabel[t.priority]}</td>
-                <td className="muted">
-                  {t.criteriaCount} {t.criteriaCount === 1 ? 'criterion' : 'criteria'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <ProjectHeader
+        slug={slug}
+        actions={
+          <Button variant="primary" asChild>
+            <Link to="/projects/$slug/tickets/new" params={{ slug }}>
+              <PlusIcon size={14} strokeWidth={1.8} />
+              New ticket
+            </Link>
+          </Button>
+        }
+      />
+      <PageBody>
+        <div className="mb-3">
+          <Segmented
+            label="Filter"
+            value={filter}
+            onChange={setFilter}
+            options={(Object.keys(filterLabel) as TicketFilter[]).map((f) => ({
+              value: f,
+              label: filterLabel[f],
+              count: inFilter(f)?.length,
+            }))}
+          />
+        </div>
+        {tickets.isPending && <Loading />}
+        {tickets.error && <ErrorText>{tickets.error.message}</ErrorText>}
+        {shown?.length === 0 && (
+          <EmptyState title="No tickets here">
+            {filter === 'active' ? 'Create one with “New ticket”.' : 'Try another filter.'}
+          </EmptyState>
+        )}
+        {shown && shown.length > 0 && (
+          <div className={table.wrap}>
+            <table className={cx(table.table, 'min-w-[40rem]')}>
+              <thead>
+                <tr>
+                  <th className={cx(table.th, 'w-24')}>Key</th>
+                  <th className={table.th}>Title</th>
+                  <th className={cx(table.th, 'w-36')}>Status</th>
+                  <th className={cx(table.th, 'w-28')}>Priority</th>
+                  <th className={cx(table.th, 'w-28')}>Criteria</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((t) => (
+                  <tr key={t.id} className={table.tr}>
+                    <td className={cx(table.td, 'font-mono text-mono text-fg-muted')}>
+                      <Link
+                        to="/projects/$slug/tickets/$number"
+                        params={{ slug, number: String(t.number) }}
+                        className="text-fg-muted"
+                        tabIndex={-1}
+                      >
+                        {t.key}
+                      </Link>
+                    </td>
+                    <td className={table.td}>
+                      <Link
+                        to="/projects/$slug/tickets/$number"
+                        params={{ slug, number: String(t.number) }}
+                        className="font-medium text-fg"
+                      >
+                        {t.title}
+                      </Link>
+                    </td>
+                    <td className={cx(table.td, 'whitespace-nowrap')}>
+                      <span className="inline-flex items-center gap-2 text-sm">
+                        <Dot tone={ticketStatusTone[t.status]} />
+                        {statusLabel[t.status]}
+                      </span>
+                    </td>
+                    <td className={cx(table.td, 'whitespace-nowrap')}>
+                      <Priority priority={t.priority} />
+                    </td>
+                    <td className={cx(table.td, 'text-sm whitespace-nowrap text-fg-subtle')}>
+                      {t.criteriaCount === 0
+                        ? 'No criteria'
+                        : `${t.criteriaCount} ${t.criteriaCount === 1 ? 'criterion' : 'criteria'}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </PageBody>
     </AppShell>
+  )
+}
+
+const priorityBars: Record<TicketPriority, number> = { low: 1, normal: 2, high: 3, urgent: 3 }
+
+/** Priority as three bars and the word; urgent in red. */
+export function Priority({ priority }: { priority: TicketPriority }) {
+  const filled = priorityBars[priority]
+  return (
+    <span className="inline-flex items-center gap-2 text-sm text-fg-muted">
+      <span aria-hidden="true" className="inline-flex h-3 items-end gap-0.5">
+        {[5, 8, 11].map((height, i) => (
+          <span
+            key={height}
+            style={{ height }}
+            className={cx(
+              'w-[3px] rounded-[1px]',
+              i >= filled
+                ? 'bg-line-strong'
+                : priority === 'urgent'
+                  ? 'bg-bad-solid'
+                  : 'bg-fg-muted',
+            )}
+          />
+        ))}
+      </span>
+      {priorityLabel[priority]}
+    </span>
   )
 }
 
@@ -99,30 +167,38 @@ export function NewTicketPage({ slug }: { slug: string }) {
 
   return (
     <AppShell>
-      <p className="muted">
-        <Link to="/projects/$slug/tickets" params={{ slug }}>
-          {project.data?.name ?? slug} tickets
-        </Link>
-      </p>
-      <h1>New ticket</h1>
-      <TicketFormView
-        slug={slug}
-        initial={emptyTicketForm()}
-        withStatus={false}
-        submitLabel="Create ticket"
-        pending={create.isPending}
-        error={create.error}
-        onSubmit={(form) =>
-          create.mutate(toCreateTicketRequest(form), {
-            onSuccess: (t) =>
-              navigate({
-                to: '/projects/$slug/tickets/$number',
-                params: { slug, number: String(t.number) },
-              }),
-          })
+      <PageHeader
+        crumbs={
+          <>
+            <Link to="/projects/$slug/tickets" params={{ slug }}>
+              {project.data?.name ?? slug}
+            </Link>
+            <CrumbSep />
+            <span>New ticket</span>
+          </>
         }
-        onCancel={() => navigate({ to: '/projects/$slug/tickets', params: { slug } })}
+        title="New ticket"
       />
+      <PageBody>
+        <TicketFormView
+          slug={slug}
+          initial={emptyTicketForm()}
+          withStatus={false}
+          submitLabel="Create ticket"
+          pending={create.isPending}
+          error={create.error}
+          onSubmit={(form) =>
+            create.mutate(toCreateTicketRequest(form), {
+              onSuccess: (t) =>
+                navigate({
+                  to: '/projects/$slug/tickets/$number',
+                  params: { slug, number: String(t.number) },
+                }),
+            })
+          }
+          onCancel={() => navigate({ to: '/projects/$slug/tickets', params: { slug } })}
+        />
+      </PageBody>
     </AppShell>
   )
 }

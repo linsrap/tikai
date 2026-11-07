@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { useWatch } from '../live/live'
 import {
   anchorFor,
@@ -34,6 +34,7 @@ import {
   useVerdict,
   useViewed,
   viewLabel,
+  type ChangeKind,
   type ChangeSet,
   type CodeRef,
   type DiffMode,
@@ -51,6 +52,15 @@ import { SelfReport } from '../review/SelfReport'
 import { GeneralComments, NewThreadForm, ThreadView } from '../review/Threads'
 import type { DiffZone, LineSelection } from '../review/DiffView'
 import { runStateLabel } from '../runs/runs'
+import { runStateTone } from '../runs/tones'
+import { Button } from '../ui/Button'
+import { cx } from '../ui/cx'
+import { ErrorText, Field, Hint, Textarea } from '../ui/form'
+import { ChevronRightIcon, CheckIcon, CommentIcon } from '../ui/icons'
+import { CrumbSep, Kbd, Loading } from '../ui/layout'
+import { ConfirmDialog } from '../ui/overlay'
+import { Segmented } from '../ui/Segmented'
+import { Tag } from '../ui/Tag'
 import { AppShell } from './AppShell'
 
 // Monaco is large: it loads with the first diff, not with the app.
@@ -72,18 +82,23 @@ export function ReviewPage({ id }: { id: string }) {
   const round = data?.rounds.find((r) => r.roundNo === roundNo) ?? data?.rounds.at(-1)
   const analysis = round?.analysis?.result ?? null
   const threadList = threads.data ?? []
+  const general = threadList.filter((t) => t.path === null)
   const locked = data?.status !== 'open'
 
   return (
-    <AppShell wide>
+    <AppShell rail>
       {changeSet.error && (
-        <p role="alert" className="error">
-          {changeSet.error.message}
-        </p>
+        <div className="p-6">
+          <ErrorText>{changeSet.error.message}</ErrorText>
+        </div>
       )}
-      {!data && !changeSet.error && <p>Loading…</p>}
+      {!data && !changeSet.error && (
+        <div className="p-6">
+          <Loading />
+        </div>
+      )}
       {data && round && (
-        <article className="stack review">
+        <article className="flex flex-col">
           <Header
             changeSet={data}
             round={round}
@@ -94,50 +109,85 @@ export function ReviewPage({ id }: { id: string }) {
             }}
             onFull={setFull}
           />
-          <AnalysisPanel
-            changeSet={data}
-            round={round}
-            onReveal={(ref) => setReveal((r) => ({ ...ref, n: (r?.n ?? 0) + 1 }))}
-          />
-          <details open className="card">
-            <summary>
-              <strong>The agent&apos;s report</strong>
-            </summary>
-            <SelfReport
-              summary={round.selfReport.summary}
-              // With an analysis, the agent's claims are in its coverage table.
-              coverage={analysis ? [] : round.coverage}
-              openConcerns={round.selfReport.openConcerns}
-              uncommitted={round.uncommitted}
-            />
-          </details>
-          <details open className="card">
-            <summary>
-              <strong>Comments on the whole change</strong>{' '}
-              <span className="muted">({threadList.filter((t) => t.path === null).length})</span>
-            </summary>
-            <GeneralComments
-              roundNo={round.roundNo}
-              list={threadList.filter((t) => t.path === null)}
-              threads={mutations}
+          <VerdictBar changeSet={data} round={round} threads={threadList} />
+          <div className="flex flex-col gap-5 px-4 pt-5 pb-12 sm:px-6">
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+              <div className="flex min-w-0 flex-col gap-5">
+                <AnalysisPanel
+                  changeSet={data}
+                  round={round}
+                  onReveal={(ref) => setReveal((r) => ({ ...ref, n: (r?.n ?? 0) + 1 }))}
+                />
+                {!round.analysis && <AgentReport round={round} analysis={analysis} />}
+              </div>
+              <div className="flex min-w-0 flex-col gap-5">
+                {round.analysis && <AgentReport round={round} analysis={analysis} />}
+                <Collapsible title="Comments on the whole change" count={general.length}>
+                  <GeneralComments
+                    roundNo={round.roundNo}
+                    list={general}
+                    threads={mutations}
+                    locked={locked}
+                  />
+                  {threads.error && <ErrorText>{threads.error.message}</ErrorText>}
+                </Collapsible>
+              </div>
+            </div>
+            <Files
+              key={`${round.roundNo}-${full}`}
+              id={id}
+              round={round}
+              full={full}
+              analysis={analysis}
+              reveal={reveal}
+              threads={threadList}
               locked={locked}
             />
-            {threads.error && <p className="error">{threads.error.message}</p>}
-          </details>
-          <VerdictBar changeSet={data} round={round} threads={threadList} />
-          <Files
-            key={`${round.roundNo}-${full}`}
-            id={id}
-            round={round}
-            full={full}
-            analysis={analysis}
-            reveal={reveal}
-            threads={threadList}
-            locked={locked}
-          />
+          </div>
         </article>
       )}
     </AppShell>
+  )
+}
+
+/** A panel that opens and closes by its title row. */
+function Collapsible({
+  title,
+  count,
+  children,
+  defaultOpen = true,
+}: {
+  title: string
+  count?: number
+  children: ReactNode
+  defaultOpen?: boolean
+}) {
+  return (
+    <details open={defaultOpen} className="group rounded-lg border border-line bg-surface">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 select-none [&::-webkit-details-marker]:hidden">
+        <ChevronRightIcon
+          size={14}
+          className="shrink-0 text-fg-subtle transition-transform group-open:rotate-90"
+        />
+        <span className="text-sm font-semibold">{title}</span>
+        {count != null && <span className="text-sm text-fg-subtle tabular-nums">{count}</span>}
+      </summary>
+      <div className="border-t border-line-soft px-4 py-3">{children}</div>
+    </details>
+  )
+}
+
+function AgentReport({ round, analysis }: { round: ReviewRound; analysis: ReviewAnalysis | null }) {
+  return (
+    <Collapsible title="The agent’s report">
+      <SelfReport
+        summary={round.selfReport.summary}
+        // With an analysis, the agent's claims are in its coverage table.
+        coverage={analysis ? [] : round.coverage}
+        openConcerns={round.selfReport.openConcerns}
+        uncommitted={round.uncommitted}
+      />
+    </Collapsible>
   )
 }
 
@@ -155,51 +205,80 @@ function Header({
   onFull: (full: boolean) => void
 }) {
   return (
-    <header className="stack">
-      <h1>
-        <Link
-          to="/projects/$slug/tickets/$number"
-          params={{ slug: changeSet.projectSlug, number: String(changeSet.ticketNumber) }}
-        >
-          <span className="muted mono">{changeSet.ticketKey}</span>
-        </Link>{' '}
-        {changeSet.ticketTitle}
-      </h1>
-      <p className="row">
-        <span className={`badge ${changeSet.runState}`}>{runStateLabel[changeSet.runState]}</span>
-        <span className="mono">{changeSet.branch}</span>
-        <span className="muted">
-          Claude Code · {changeSet.model} · {changeSet.repositoryName} ·{' '}
-          <span className="mono">
-            {changeSet.defaultBranch} {shortSha(round.baseSha)}..{shortSha(round.headSha)}
-          </span>
+    <header className="border-b border-line bg-surface px-4 pt-3.5 pb-3 sm:px-6">
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+        <div className="min-w-0">
+          <nav
+            aria-label="Breadcrumb"
+            className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm text-fg-subtle [&_a]:text-fg-muted"
+          >
+            <Link to="/projects/$slug/tickets" params={{ slug: changeSet.projectSlug }}>
+              {changeSet.projectSlug}
+            </Link>
+            <CrumbSep />
+            <Link
+              to="/projects/$slug/tickets/$number"
+              params={{ slug: changeSet.projectSlug, number: String(changeSet.ticketNumber) }}
+              className="font-mono text-mono"
+            >
+              {changeSet.ticketKey}
+            </Link>
+          </nav>
+          <h1 className="m-0 text-lg font-semibold tracking-[-0.01em]">{changeSet.ticketTitle}</h1>
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {changeSet.rounds.length > 1 && (
+            <Segmented
+              label="Round"
+              size="sm"
+              value={String(round.roundNo)}
+              onChange={(v) => onRound(Number(v))}
+              options={changeSet.rounds.map((r) => ({
+                value: String(r.roundNo),
+                label: `Round ${r.roundNo}`,
+              }))}
+            />
+          )}
+          {round.roundNo > 1 && (
+            <Segmented
+              label="What to show"
+              size="sm"
+              value={full ? 'full' : 'since'}
+              onChange={(v) => onFull(v === 'full')}
+              options={[
+                { value: 'since', label: `Changes since round ${round.roundNo - 1}` },
+                { value: 'full', label: 'Full change' },
+              ]}
+            />
+          )}
+        </div>
+      </div>
+      <p className="m-0 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
+        <Tag tone={runStateTone[changeSet.runState]}>{runStateLabel[changeSet.runState]}</Tag>
+        <span className="font-mono text-mono">{changeSet.branch}</span>
+        <span aria-hidden="true" className="text-fg-faint">
+          →
         </span>
-        {changeSet.rounds.length > 1 && (
-          <label className="row">
-            <span className="muted">Round</span>
-            <select value={round.roundNo} onChange={(e) => onRound(Number(e.target.value))}>
-              {changeSet.rounds.map((r) => (
-                <option key={r.roundNo} value={r.roundNo}>
-                  {r.roundNo} ({new Date(r.createdAt).toLocaleString()})
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {round.roundNo > 1 && (
-          <span className="row" role="group" aria-label="What to show">
-            <button type="button" aria-pressed={!full} onClick={() => onFull(false)}>
-              Changes since round {round.roundNo - 1}
-            </button>
-            <button type="button" aria-pressed={full} onClick={() => onFull(true)}>
-              Full change
-            </button>
-          </span>
-        )}
+        <span className="font-mono text-mono">{changeSet.defaultBranch}</span>
+        <span aria-hidden="true" className="text-fg-faint">
+          ·
+        </span>
+        <span>
+          Claude Code · {changeSet.model} · {changeSet.repositoryName}
+        </span>
+        <span aria-hidden="true" className="text-fg-faint">
+          ·
+        </span>
+        <span className="font-mono text-mono" title="Base and head of this round">
+          {shortSha(round.baseSha)}..{shortSha(round.headSha)}
+        </span>
       </p>
     </header>
   )
 }
+
+const verdictStrip =
+  'flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-bg px-4 py-2.5 sm:px-6'
 
 function VerdictBar({
   changeSet,
@@ -218,17 +297,28 @@ function VerdictBar({
   const unsent = unsentForAgent(threads)
   const delivered = deliveryLine(changeSet)
   if (delivered && latest) {
+    const done = changeSet.status === 'merged' || changeSet.status === 'pushed'
     return (
-      <div className="card" data-testid="verdict" role="status">
-        <p>
-          Round {round.roundNo}: <strong>approved</strong>
-          {round.verdictAt && (
-            <span className="muted"> on {new Date(round.verdictAt).toLocaleString()}</span>
+      <div className={verdictStrip} data-testid="verdict" role="status">
+        <p className="m-0 flex flex-wrap items-center gap-x-2">
+          {done ? (
+            <CheckIcon size={15} strokeWidth={2} className="text-ok" />
+          ) : (
+            <span className="size-2 animate-pulse rounded-full bg-run-solid" aria-hidden="true" />
           )}
-          . {delivered}
+          <span>
+            Round {round.roundNo}: <strong className="font-semibold">approved</strong>
+            {round.verdictAt && (
+              <span className="text-fg-subtle">
+                {' '}
+                on {new Date(round.verdictAt).toLocaleString()}
+              </span>
+            )}
+            . {delivered}
+          </span>
         </p>
         {changeSet.status === 'delivering' && changeSet.delivery.error && (
-          <p className="error">{changeSet.delivery.error}</p>
+          <p className="m-0 basis-full text-sm text-bad">{changeSet.delivery.error}</p>
         )}
       </div>
     )
@@ -236,23 +326,27 @@ function VerdictBar({
   if (round.verdict) {
     const working = latest && round.verdict === 'request_changes' && changeSet.status === 'open'
     return (
-      <p className="card" data-testid="verdict">
-        Round {round.roundNo}:{' '}
-        <strong>{round.verdict === 'reject' ? 'rejected' : 'changes requested'}</strong>
-        {round.verdictAt && (
-          <span className="muted"> on {new Date(round.verdictAt).toLocaleString()}</span>
-        )}
-        {working && (
-          <span className="muted">
-            . The agent is working on them; its next round shows up here.
-          </span>
-        )}
+      <p className={cx(verdictStrip, 'm-0')} data-testid="verdict">
+        <span>
+          Round {round.roundNo}:{' '}
+          <strong className={cx('font-semibold', round.verdict === 'reject' && 'text-bad')}>
+            {round.verdict === 'reject' ? 'rejected' : 'changes requested'}
+          </strong>
+          {round.verdictAt && (
+            <span className="text-fg-subtle"> on {new Date(round.verdictAt).toLocaleString()}</span>
+          )}
+          {working && (
+            <span className="text-fg-muted">
+              . The agent is working on them; its next round shows up here.
+            </span>
+          )}
+        </span>
       </p>
     )
   }
   if (changeSet.status !== 'open' || changeSet.runState !== 'in_review' || !latest) {
     return (
-      <p className="card muted">
+      <p className={cx(verdictStrip, 'm-0 text-fg-muted')}>
         {changeSet.status === 'closed'
           ? 'This change was closed: its run ended.'
           : 'No verdict on this round.'}
@@ -261,111 +355,116 @@ function VerdictBar({
   }
   const { conflict, error } = changeSet.delivery
   return (
-    <div className="card row verdicts" aria-label="Verdict">
+    <div className={cx(verdictStrip, 'sticky top-0 z-10')} aria-label="Verdict" role="group">
       {conflict ? (
-        <div className="conflict" role="alert">
-          <p>
-            <strong>Not merged:</strong> {changeSet.defaultBranch} moved since the agent started,
-            and {conflict.files.length === 1 ? 'this file conflicts' : 'these files conflict'}:
+        <div
+          className="flex basis-full flex-col gap-2 rounded-md border border-wait-bg bg-wait-bg px-3 py-2.5"
+          role="alert"
+        >
+          <p className="m-0">
+            <strong className="font-semibold text-wait">Not merged:</strong>{' '}
+            <code className="font-mono text-mono">{changeSet.defaultBranch}</code> moved since the
+            agent started, and{' '}
+            {conflict.files.length === 1 ? 'this file conflicts' : 'these files conflict'}:
           </p>
-          <ul className="paths">
+          <ul className="m-0 list-none space-y-0.5 p-0 font-mono text-mono">
             {conflict.files.map((file) => (
-              <li key={file}>
-                <code>{file}</code>
-              </li>
+              <li key={file}>{file}</li>
             ))}
           </ul>
-          <div className="row">
-            <button
-              type="button"
-              className="primary"
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="primary"
+              size="sm"
               disabled={rebase.isPending}
               onClick={() => rebase.mutate()}
             >
               Ask the agent to rebase
-            </button>
-            <span className="muted">
+            </Button>
+            <Hint>
               It gets the current {changeSet.defaultBranch}, resolves the conflicts and submits a
               new round.
-            </span>
+            </Hint>
           </div>
-          {rebase.error && <span className="error">{rebase.error.message}</span>}
+          {rebase.error && <ErrorText>{rebase.error.message}</ErrorText>}
         </div>
       ) : (
         error && (
-          <p className="error" role="alert">
+          <p
+            className="m-0 basis-full rounded-md bg-bad-bg px-3 py-2 text-sm text-bad"
+            role="alert"
+          >
             The last approval did not get through: {error} Approve again to retry.
           </p>
         )
       )}
-      <button
-        type="button"
-        className="primary"
-        disabled={verdict.isPending || !!conflict}
-        title={conflict ? 'Resolve the conflict first' : undefined}
-        onClick={() => verdict.mutate({ verdict: 'approve' })}
-      >
-        {approveAction(changeSet)}
-      </button>
-      <button type="button" disabled={verdict.isPending} onClick={() => setRequesting((r) => !r)}>
-        Request changes…
-      </button>
-      <button
-        type="button"
-        className="danger"
-        disabled={verdict.isPending}
-        onClick={() => {
-          if (
-            window.confirm(
-              'Reject this change? The run is closed and the ticket goes back to open. The branch stays on the hub.',
-            )
-          ) {
-            verdict.mutate({ verdict: 'reject' })
-          }
-        }}
-      >
-        Reject
-      </button>
-      <span className="muted">
+      <span className="flex items-center gap-1.5 text-sm text-fg-muted">
+        <CommentIcon size={14} className="text-fg-subtle" />
         {unsent === 0
           ? 'No comments for the agent yet.'
           : `${unsent} comment${unsent === 1 ? '' : 's'} will be sent to the agent.`}
       </span>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <ConfirmDialog
+          trigger={
+            <Button variant="ghost" disabled={verdict.isPending}>
+              Reject
+            </Button>
+          }
+          title="Reject this change?"
+          description="The run is closed and the ticket goes back to open. The branch stays on the hub."
+          confirmLabel="Reject change"
+          danger
+          onConfirm={() => verdict.mutate({ verdict: 'reject' })}
+        />
+        <Button
+          disabled={verdict.isPending}
+          aria-expanded={requesting}
+          onClick={() => setRequesting((r) => !r)}
+        >
+          Request changes…
+        </Button>
+        <Button
+          variant="primary"
+          disabled={verdict.isPending || !!conflict}
+          title={conflict ? 'Resolve the conflict first' : undefined}
+          onClick={() => verdict.mutate({ verdict: 'approve' })}
+        >
+          <CheckIcon size={14} strokeWidth={1.8} />
+          {approveAction(changeSet)}
+        </Button>
+      </div>
       {requesting && (
         <form
-          className="stack request-changes"
+          className="flex basis-full flex-col gap-3 rounded-md border border-line bg-surface p-3"
           onSubmit={(e) => {
             e.preventDefault()
             verdict.mutate({ verdict: 'request_changes', message })
           }}
         >
-          <label className="field">
-            <span>
-              A message for the agent (optional
-              {unsent === 0 ? ', but without line comments it is all the agent gets' : ''})
-            </span>
-            <textarea
+          <Field
+            label={`A message for the agent (optional${unsent === 0 ? ', but without line comments it is all the agent gets' : ''})`}
+          >
+            <Textarea
               rows={3}
               value={message}
               maxLength={10000}
               onChange={(e) => setMessage(e.target.value)}
             />
-          </label>
-          <div className="row">
-            <button
+          </Field>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
               type="submit"
-              className="primary"
+              variant="primary"
               disabled={verdict.isPending || (unsent === 0 && message.trim() === '')}
             >
               Send to the agent
-            </button>
-            <span className="muted">
-              The agent continues with your comments and submits a new round.
-            </span>
+            </Button>
+            <Hint>The agent continues with your comments and submits a new round.</Hint>
           </div>
         </form>
       )}
-      {verdict.error && <span className="error">{verdict.error.message}</span>}
+      {verdict.error && <ErrorText className="basis-full">{verdict.error.message}</ErrorText>}
     </div>
   )
 }
@@ -437,70 +536,93 @@ function Files({
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  if (files.error) return <p className="error">{files.error.message}</p>
-  if (!files.data || !list) return <p>Loading the files…</p>
+  if (files.error) return <ErrorText>{files.error.message}</ErrorText>
+  if (!files.data || !list) return <Loading label="Loading the files…" />
   const viewedCount = list.filter((f) => f.viewed).length
   const shown = files.data
 
   return (
-    <div className="stack">
+    <div className="flex flex-col gap-4">
       {shown.interdiff === 'per_file' && (
-        <p className="card notice" role="note">
+        <p
+          className="m-0 rounded-lg border border-wait-bg bg-wait-bg px-4 py-2.5 text-sm text-fg-2"
+          role="note"
+        >
           The base changed since round {shown.previousRound} (
-          {shortSha(shown.previousBaseSha ?? '')} → {shortSha(shown.baseSha)}): the agent rebased.
-          Showing the files whose change differs from round {shown.previousRound}, each with its
-          whole change.
+          <span className="font-mono text-mono">
+            {shortSha(shown.previousBaseSha ?? '')} → {shortSha(shown.baseSha)}
+          </span>
+          ): the agent rebased. Showing the files whose change differs from round{' '}
+          {shown.previousRound}, each with its whole change.
           {shown.dropped.length > 0 && (
             <>
               {' '}
-              No longer changed: <span className="mono">{shown.dropped.join(', ')}</span>.
+              No longer changed:{' '}
+              <span className="font-mono text-mono">{shown.dropped.join(', ')}</span>.
             </>
           )}
         </p>
       )}
-      <div className="review-layout">
-        <nav className="file-tree card" aria-label="Changed files">
-          <p className="row spread">
-            <strong>
-              {viewedCount} of {list.length} files viewed
-            </strong>
-            {shown.previousRound !== null && <span className="muted">{viewLabel(shown)}</span>}
-            <span className="muted" title="j / k: next or previous file, v: viewed">
-              j k v
-            </span>
-          </p>
-          {analysis && (
-            <p className="row" role="group" aria-label="File order">
-              {(['story', 'path'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  aria-pressed={orderMode === m}
-                  onClick={() => {
-                    setOrderMode(m)
-                    saveOrderMode(m)
-                  }}
-                >
-                  {m === 'story' ? 'Story order' : 'Path order'}
-                </button>
-              ))}
-            </p>
-          )}
-          {files.data.truncated && (
-            <p className="muted">Only the first {list.length} files are listed.</p>
-          )}
-          <FileTree
-            files={list}
-            story={story}
-            risks={analysis}
-            comments={openThreadCounts(threads)}
-            current={current?.path ?? null}
-            onSelect={setSelected}
-            onToggle={toggleViewed}
-          />
-          {viewed.error && <p className="error">{viewed.error.message}</p>}
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(14rem,17rem)_minmax(0,1fr)]">
+        <nav
+          className="flex max-h-[calc(100vh-5rem)] flex-col overflow-hidden rounded-lg border border-line bg-surface lg:sticky lg:top-16"
+          aria-label="Changed files"
+        >
+          <div className="flex flex-col gap-2 border-b border-line-soft px-3 pt-2.5 pb-3">
+            <div className="flex items-center gap-2 text-xs">
+              <strong className="font-semibold text-fg-2">
+                {viewedCount} of {list.length} files viewed
+              </strong>
+              <span
+                className="ml-auto flex items-center gap-1 text-fg-subtle"
+                title="j / k: next or previous file, v: viewed"
+              >
+                <Kbd>j</Kbd>
+                <Kbd>k</Kbd>
+                <Kbd>v</Kbd>
+              </span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-line-soft" aria-hidden="true">
+              <div
+                className="h-full rounded-full bg-ok-solid transition-[width]"
+                style={{ width: `${list.length ? (viewedCount / list.length) * 100 : 0}%` }}
+              />
+            </div>
+            {shown.previousRound !== null && (
+              <span className="text-xs text-fg-muted">{viewLabel(shown)}</span>
+            )}
+            {analysis && (
+              <Segmented
+                label="File order"
+                size="sm"
+                className="self-start"
+                value={orderMode}
+                onChange={(m) => {
+                  setOrderMode(m)
+                  saveOrderMode(m)
+                }}
+                options={[
+                  { value: 'story', label: 'Story order' },
+                  { value: 'path', label: 'Path order' },
+                ]}
+              />
+            )}
+            {files.data.truncated && <Hint>Only the first {list.length} files are listed.</Hint>}
+          </div>
+          <div className="min-h-0 overflow-y-auto px-1.5 py-2">
+            <FileTree
+              files={list}
+              story={story}
+              risks={analysis}
+              comments={openThreadCounts(threads)}
+              current={current?.path ?? null}
+              onSelect={setSelected}
+              onToggle={toggleViewed}
+            />
+          </div>
+          {viewed.error && <ErrorText className="px-3 pb-2">{viewed.error.message}</ErrorText>}
         </nav>
-        <section className="diff-pane" aria-label="Diff">
+        <section className="min-w-0" aria-label="Diff">
           {current ? (
             <FilePane
               key={current.path}
@@ -519,7 +641,7 @@ function Files({
               onToggleViewed={() => toggleViewed(current)}
             />
           ) : (
-            <p className="muted">
+            <p className="m-0 rounded-lg border border-dashed border-line-strong px-6 py-10 text-center text-fg-muted">
               {shown.previousRound !== null && !full
                 ? `No files changed since round ${shown.previousRound}.`
                 : 'No files changed.'}
@@ -528,6 +650,27 @@ function Files({
         </section>
       </div>
     </div>
+  )
+}
+
+const kindColor: Record<ChangeKind, string> = {
+  added: 'text-ok',
+  modified: 'text-wait',
+  deleted: 'text-bad',
+  renamed: 'text-run',
+  type_changed: 'text-wait',
+}
+
+function KindLetter({ kind }: { kind: ChangeKind }) {
+  return (
+    <span
+      className={cx(
+        'w-3.5 shrink-0 text-center font-mono text-[11px] font-semibold',
+        kindColor[kind],
+      )}
+    >
+      {kindLetter[kind]}
+    </span>
   )
 }
 
@@ -552,59 +695,93 @@ function FileTree({
   const { groups, skimmed } = groupFiles(files)
   const row = (file: ReviewFile, name: string) => {
     const risk = riskOf(risks, file.path)
+    const open = comments.get(file.path) ?? 0
+    const isCurrent = file.path === current
     return (
       <li
         key={file.path}
-        className={`file-row${file.viewed ? ' viewed' : ''}`}
+        className={cx(
+          'flex items-center gap-1.5 rounded-md pl-1.5 text-sm',
+          isCurrent ? 'bg-selected shadow-[inset_2px_0_0_var(--c-run-solid)]' : 'hover:bg-hover',
+        )}
         data-path={file.path}
         data-viewed={file.viewed}
       >
         <input
           type="checkbox"
+          className="size-3.5 shrink-0 cursor-pointer accent-(--c-ok-solid)"
           checked={file.viewed}
           aria-label={`Viewed ${file.path}`}
           onChange={() => onToggle(file)}
         />
         <button
           type="button"
-          className="file-name"
-          aria-current={file.path === current ? 'true' : undefined}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 text-left"
+          aria-current={isCurrent ? 'true' : undefined}
           title={`${kindLabel[file.kind]}: ${file.oldPath ? `${file.oldPath} → ` : ''}${file.path}`}
           onClick={() => onSelect(file.path)}
         >
-          <span className={`kind ${file.kind}`}>{kindLetter[file.kind]}</span>{' '}
-          <span className="mono">{name}</span>
+          <KindLetter kind={file.kind} />
+          <span
+            className={cx(
+              'min-w-0 flex-1 truncate font-mono text-mono',
+              file.viewed ? 'text-fg-faint' : 'text-fg',
+            )}
+            style={{ direction: 'rtl', textAlign: 'left' }}
+          >
+            {/* rtl keeps the end of a long path (the file name) visible when it is cut. */}
+            <bdi>{name}</bdi>
+          </span>
         </button>
         {risk && (
-          <span className={`badge risk ${risk.risk}`} title={risk.reason}>
+          <Tag
+            tone={risk.risk === 'high' ? 'bad' : risk.risk === 'medium' ? 'wait' : 'neutral'}
+            className="h-[18px] px-1.5 text-[11px]"
+            title={risk.reason}
+          >
             {risk.risk}
+          </Tag>
+        )}
+        {open > 0 && (
+          <span
+            className="flex shrink-0 items-center gap-0.5 text-xs text-fg-muted"
+            title="Open comment threads"
+            aria-label={`${open} open comment thread${open === 1 ? '' : 's'}`}
+            role="img"
+          >
+            <CommentIcon size={12} />
+            {open}
           </span>
         )}
-        {(comments.get(file.path) ?? 0) > 0 && (
-          <span className="badge comments" title="Open comment threads">
-            {comments.get(file.path)} 💬
-          </span>
-        )}
-        <span className="muted counts">{lineCounts(file)}</span>
+        <span className="shrink-0 pr-2 font-mono text-[11px] text-fg-subtle">
+          {lineCounts(file)}
+        </span>
       </li>
     )
   }
+  const list = (items: readonly ReviewFile[], name: (f: ReviewFile) => string) => (
+    <ul className="m-0 flex list-none flex-col gap-px p-0">{items.map((f) => row(f, name(f)))}</ul>
+  )
   const skimmedGroup = skimmed.length > 0 && (
-    <details>
-      <summary className="muted">Generated and lock files ({skimmed.length})</summary>
-      <ul className="files">{skimmed.map((f) => row(f, f.path))}</ul>
+    <details className="group mt-3">
+      <summary className="flex cursor-pointer list-none items-center gap-1 px-1.5 py-1 text-xs font-medium text-fg-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronRightIcon size={12} className="transition-transform group-open:rotate-90" />
+        Generated and lock files ({skimmed.length})
+      </summary>
+      {list(skimmed, (f) => f.path)}
     </details>
   )
   if (story) {
     return (
-      <div className="stack tree">
+      <div className="flex flex-col gap-3">
         {storyFiles(files, story).groups.map((group) => (
-          <div key={group.title} className="story-group">
-            <p className="group-title">
-              <strong>{group.title}</strong> <span className="muted">{group.layer}</span>
+          <div key={group.title}>
+            <p className="m-0 flex items-baseline gap-2 px-1.5 pt-1">
+              <span className="text-xs font-semibold text-fg-2">{group.title}</span>
+              <span className="text-[11px] text-fg-subtle">{group.layer}</span>
             </p>
-            {group.note && <p className="muted small">{group.note}</p>}
-            <ul className="files">{group.files.map((f) => row(f, f.path))}</ul>
+            {group.note && <p className="m-0 mb-1 px-1.5 text-xs text-fg-subtle">{group.note}</p>}
+            {list(group.files, (f) => f.path)}
           </div>
         ))}
         {skimmedGroup}
@@ -612,15 +789,15 @@ function FileTree({
     )
   }
   return (
-    <div className="stack tree">
+    <div className="flex flex-col gap-2.5">
       {groups.map((group) => (
         <div key={group.directory}>
-          {group.directory && <p className="mono muted directory">{group.directory}/</p>}
-          <ul className="files">
-            {group.files.map((f) =>
-              row(f, f.path.slice(group.directory ? group.directory.length + 1 : 0)),
-            )}
-          </ul>
+          {group.directory && (
+            <p className="m-0 truncate px-1.5 pt-1 pb-0.5 font-mono text-[11px] text-fg-subtle">
+              {group.directory}/
+            </p>
+          )}
+          {list(group.files, (f) => f.path.slice(group.directory ? group.directory.length + 1 : 0))}
         </div>
       ))}
       {skimmedGroup}
@@ -703,53 +880,63 @@ function FilePane({
   ].filter(Boolean)
 
   return (
-    <div className="stack">
-      <header className="row spread file-header">
-        <span className="row">
-          <strong className="mono">
+    <div className="flex flex-col">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-t-lg border border-line bg-surface px-3 py-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <KindLetter kind={file.kind} />
+          <strong className="min-w-0 font-mono text-mono font-medium [overflow-wrap:anywhere]">
             {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
           </strong>
-          <span className="muted">
+          <span className="shrink-0 text-xs whitespace-nowrap text-fg-subtle">
             {kindLabel[file.kind]} · {lineCounts(file)}
           </span>
           {flags.map((flag) => (
-            <span key={String(flag)} className="badge">
+            <Tag key={String(flag)} className="h-[18px] px-1.5 text-[11px]">
               {flag}
-            </span>
+            </Tag>
           ))}
         </span>
-        <span className="row">
+        <span className="ml-auto flex flex-wrap items-center gap-2">
           {!locked && expanded && (
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="ghost"
               disabled={!selection || draft !== null}
               title="Click a line (or select lines) in the diff first"
               onClick={() => setDraft(selection)}
             >
+              <CommentIcon size={13} />
               {selection ? `Comment on ${lines(selection)}` : 'Comment on a line'}
-            </button>
+            </Button>
           )}
-          <label className="row">
-            <input type="checkbox" checked={file.viewed} onChange={onToggleViewed} /> Viewed
+          <label className="flex cursor-pointer items-center gap-1.5 text-sm text-fg-2">
+            <input
+              type="checkbox"
+              className="size-3.5 cursor-pointer accent-(--c-ok-solid)"
+              checked={file.viewed}
+              onChange={onToggleViewed}
+            />
+            Viewed
           </label>
-          <button
-            type="button"
-            aria-pressed={mode === 'side-by-side'}
-            onClick={() => onMode('side-by-side')}
-          >
-            Side by side
-          </button>
-          <button type="button" aria-pressed={mode === 'inline'} onClick={() => onMode('inline')}>
-            Inline
-          </button>
+          <Segmented
+            label="Diff layout"
+            size="sm"
+            value={mode}
+            onChange={onMode}
+            options={[
+              { value: 'side-by-side', label: 'Side by side' },
+              { value: 'inline', label: 'Inline' },
+            ]}
+          />
         </span>
       </header>
       {listed.length > 0 && (
-        <details className="card">
-          <summary className="small">
+        <details className="group border-x border-line bg-bg">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-fg-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+            <ChevronRightIcon size={12} className="transition-transform group-open:rotate-90" />
             {listed.length} thread{listed.length === 1 ? '' : 's'} on other versions of this file
           </summary>
-          <div className="stack">
+          <div className="flex flex-col gap-2 px-3 pb-3">
             {listed.map((t) => (
               <ThreadView key={t.id} thread={t} threads={mutations} locked={locked} showPlace />
             ))}
@@ -757,8 +944,8 @@ function FilePane({
         </details>
       )}
       {!expanded ? (
-        <div className="card stack">
-          <p className="muted">
+        <PaneNote>
+          <p className="m-0">
             {file.binary
               ? 'A binary file.'
               : file.large
@@ -766,15 +953,19 @@ function FilePane({
                 : 'A generated or lock file; it is not shown by default.'}
           </p>
           <div>
-            <button type="button" onClick={() => setExpanded(true)}>
+            <Button size="sm" onClick={() => setExpanded(true)}>
               Show diff
-            </button>
+            </Button>
           </div>
-        </div>
+        </PaneNote>
       ) : contents.error ? (
-        <p className="error">{contents.error.message}</p>
+        <PaneNote>
+          <ErrorText>{contents.error.message}</ErrorText>
+        </PaneNote>
       ) : !contents.data ? (
-        <p className="muted">Loading the file…</p>
+        <PaneNote>
+          <Loading label="Loading the file…" />
+        </PaneNote>
       ) : (
         <Contents
           old={contents.data.old}
@@ -786,6 +977,15 @@ function FilePane({
           onSelection={setSelection}
         />
       )}
+    </div>
+  )
+}
+
+/** Text in place of the diff, under the file header. */
+function PaneNote({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-b-lg border border-t-0 border-line bg-surface px-4 py-6 text-sm text-fg-muted">
+      {children}
     </div>
   )
 }
@@ -810,17 +1010,29 @@ function Contents({
   const sides = [old, next].filter((s): s is FileSide => s !== null)
   const sizes = `${old ? sizeText(old.size) : 'none'} → ${next ? sizeText(next.size) : 'deleted'}`
   if (sides.some((s) => s.binary)) {
-    return <p className="card muted">Binary file ({sizes}); it cannot be shown as text.</p>
+    return (
+      <PaneNote>
+        <p className="m-0">Binary file ({sizes}); it cannot be shown as text.</p>
+      </PaneNote>
+    )
   }
   if (sides.some((s) => s.tooLarge)) {
     return (
-      <p className="card muted">
-        Too large to show here ({sizes}). Fetch the run branch from the hub to read it.
-      </p>
+      <PaneNote>
+        <p className="m-0">
+          Too large to show here ({sizes}). Fetch the run branch from the hub to read it.
+        </p>
+      </PaneNote>
     )
   }
   return (
-    <Suspense fallback={<p className="muted">Loading the diff…</p>}>
+    <Suspense
+      fallback={
+        <PaneNote>
+          <Loading label="Loading the diff…" />
+        </PaneNote>
+      }
+    >
       <DiffView
         original={old?.text ?? ''}
         modified={next?.text ?? ''}

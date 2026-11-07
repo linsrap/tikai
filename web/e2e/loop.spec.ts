@@ -80,7 +80,7 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
   await page.getByRole('button', { name: 'Assign to agent (Claude Code)' }).click()
 
   // The plan arrives in the inbox without a reload.
-  const nav = page.getByRole('navigation')
+  const nav = page.getByRole('navigation', { name: 'Main' })
   await nav.getByRole('link', { name: /^Inbox/ }).click()
   const plan = page.getByRole('article', { name: 'Plan to approve: E2E-1' })
   await expect(plan.getByText('Write before.txt')).toBeVisible()
@@ -259,8 +259,8 @@ test('the review screen flags files, warns about uncommitted work, and rejects',
   // The Approve button says what it does (the third test approves); reject closes the run.
   const verdicts = page.getByLabel('Verdict')
   await expect(verdicts.getByRole('button', { name: 'Approve and squash into main' })).toBeEnabled()
-  page.once('dialog', (dialog) => void dialog.accept())
   await verdicts.getByRole('button', { name: 'Reject' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Reject change' }).click()
   await expect(page.getByText('rejected', { exact: true })).toBeVisible()
   await expect(page.getByText('Cancelled', { exact: true })).toBeVisible()
 })
@@ -303,7 +303,7 @@ test('a comment sent to the agent comes back answered, and the next round shows 
   await pane.getByRole('button', { name: 'Send to agent' }).click()
   const thread = pane.getByTestId('thread')
   await expect(thread.getByText('for the agent, not sent yet')).toBeVisible()
-  await expect(tree.getByText('1 💬')).toBeVisible()
+  await expect(tree.getByRole('img', { name: '1 open comment thread' })).toBeVisible()
 
   // Request changes: the comment goes to the agent, which resumes, replies and submits round 2.
   const verdicts = page.getByLabel('Verdict')

@@ -4,6 +4,7 @@ const bundled = { editor: {}, languages: {} }
 vi.mock('@monaco-editor/react', () => ({ loader: { config } }))
 vi.mock('monaco-editor/editor/editor.api', () => bundled)
 vi.mock('monaco-editor/basic-languages/monaco.contribution', () => ({}))
+vi.mock('monaco-editor/features/codicon/register', () => ({}))
 vi.mock('monaco-editor/editor/editor.worker?worker', () => ({ default: vi.fn() }))
 
 describe('monaco', () => {

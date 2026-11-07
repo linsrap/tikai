@@ -113,7 +113,7 @@ const ticketRoute = createRoute({
     return /^[1-9][0-9]{0,9}$/.test(number) ? (
       <TicketPage key={number} slug={slug} number={Number(number)} />
     ) : (
-      <p className="shell">No ticket {number}.</p>
+      <p className="m-0 p-10 text-fg-muted">No ticket {number}.</p>
     )
   },
 })
@@ -127,7 +127,7 @@ const reviewRoute = createRoute({
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? (
       <ReviewPage key={id} id={id} />
     ) : (
-      <p className="shell">No review {id}.</p>
+      <p className="m-0 p-10 text-fg-muted">No review {id}.</p>
     )
   },
 })

@@ -4,6 +4,8 @@
 import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/editor/editor.api'
 import 'monaco-editor/basic-languages/monaco.contribution'
+// The icon font (diff markers, fold controls); editor.api alone does not load it.
+import 'monaco-editor/features/codicon/register'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() }

@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { configDefaults, defineConfig } from 'vitest/config'
 
@@ -5,7 +6,7 @@ import { configDefaults, defineConfig } from 'vitest/config'
 const api = 'http://localhost:5080'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     // Monaco (the review diff) is one lazy chunk of about 2.7 MB; everything else stays far below.
     chunkSizeWarningLimit: 3000,

@@ -6,6 +6,9 @@ import {
   type ProjectSettings,
   type ReviewModels,
 } from '../projects/projects'
+import { Button } from '../ui/Button'
+import { ErrorText, Field, Input } from '../ui/form'
+import { FormPanel, Loading } from '../ui/layout'
 
 const tiers = [
   { key: 'light', label: 'Light', hint: 'small changes to docs and tests' },
@@ -20,8 +23,8 @@ const tiers = [
 /** The model per review analysis tier; empty fields use the defaults. */
 export function AnalysisSettings({ slug }: { slug: string }) {
   const settings = useQuery(projectSettingsQuery(slug))
-  if (settings.error) return <p className="error">{settings.error.message}</p>
-  if (!settings.data) return <p className="muted">Loading…</p>
+  if (settings.error) return <ErrorText>{settings.error.message}</ErrorText>
+  if (!settings.data) return <Loading />
   return <AnalysisSettingsForm slug={slug} settings={settings.data} />
 }
 
@@ -41,31 +44,30 @@ function AnalysisSettingsForm({ slug, settings }: { slug: string; settings: Proj
   }
 
   return (
-    <form className="card stack" onSubmit={submit} aria-label="Review analysis models">
-      <p className="muted">
-        Every submitted change is analysed with the run&apos;s provider before you read it. The tier
-        depends on the change; each tier uses its own model.
-      </p>
+    <FormPanel
+      onSubmit={submit}
+      aria-label="Review analysis models"
+      footer={
+        <>
+          <Button type="submit" variant="primary" disabled={save.isPending}>
+            {save.isPending ? 'Saving…' : 'Save models'}
+          </Button>
+          {save.isSuccess && !save.isPending && <span className="text-sm text-ok">Saved.</span>}
+          {save.error && <ErrorText>{save.error.message}</ErrorText>}
+        </>
+      }
+    >
       {tiers.map((tier) => (
-        <label key={tier.key} className="stack">
-          <span>
-            {tier.label} <span className="muted">({tier.hint})</span>
-          </span>
-          <input
+        <Field key={tier.key} label={tier.label} hint={`Used for ${tier.hint}.`}>
+          <Input
+            className="font-mono text-mono"
             value={models[tier.key] ?? ''}
             placeholder={settings.defaultAnalysisModels[tier.key] ?? ''}
             onChange={(e) => setModels({ ...models, [tier.key]: e.target.value })}
             spellCheck={false}
           />
-        </label>
+        </Field>
       ))}
-      <div className="row">
-        <button type="submit" className="primary" disabled={save.isPending}>
-          {save.isPending ? 'Saving…' : 'Save models'}
-        </button>
-        {save.isSuccess && !save.isPending && <span className="success">Saved.</span>}
-        {save.error && <span className="error">{save.error.message}</span>}
-      </div>
-    </form>
+    </FormPanel>
   )
 }

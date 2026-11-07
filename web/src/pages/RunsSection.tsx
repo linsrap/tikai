@@ -19,7 +19,13 @@ import {
   waitingText,
   type RunInfo,
 } from '../runs/runs'
+import { runStateTone } from '../runs/tones'
 import type { TicketStatus } from '../tickets/tickets'
+import { Button } from '../ui/Button'
+import { ErrorText, Hint, Select } from '../ui/form'
+import { TerminalIcon } from '../ui/icons'
+import { ConfirmDialog } from '../ui/overlay'
+import { Tag } from '../ui/Tag'
 
 /** "Assign to agent" and the ticket's runs, live (the page watches its project). */
 export function RunsSection({
@@ -36,16 +42,20 @@ export function RunsSection({
   const active = runs.data?.find((r) => isActive(r.state))
 
   return (
-    <section className="stack" aria-label="Agent runs">
-      <h2>Agent</h2>
+    <section className="flex flex-col gap-3" aria-label="Agent runs">
+      <h2 className="m-0 text-sm font-semibold">Agent</h2>
       {!active && (status === 'open' || status === 'in_progress') && (
         <AssignBox slug={slug} number={number} />
       )}
-      {runs.error && <p className="error">{runs.error.message}</p>}
-      {runs.data?.length === 0 && <p className="muted">No runs yet.</p>}
-      {runs.data?.map((run) => (
-        <RunCard key={run.id} slug={slug} run={run} />
-      ))}
+      {runs.error && <ErrorText>{runs.error.message}</ErrorText>}
+      {runs.data?.length === 0 && <Hint>No runs yet.</Hint>}
+      {runs.data && runs.data.length > 0 && (
+        <div className="rounded-lg border border-line bg-surface">
+          {runs.data.map((run) => (
+            <RunCard key={run.id} slug={slug} run={run} />
+          ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -66,7 +76,7 @@ function AssignBox({ slug, number }: { slug: string; number: number }) {
   const repos = repositories.data ?? []
   if (repos.length === 0 || providers.length === 0) {
     return (
-      <p className="muted">
+      <p className="m-0 rounded-lg border border-dashed border-line-strong px-4 py-3 text-sm text-fg-muted">
         To assign this ticket to an agent, add{' '}
         {repos.length === 0 ? 'a repository' : 'an LLM provider (the agent uses its API key)'} to
         the{' '}
@@ -85,19 +95,19 @@ function AssignBox({ slug, number }: { slug: string; number: number }) {
   }
 
   return (
-    <div className="card stack">
-      <div className="row">
-        <button
-          type="button"
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          variant="primary"
           disabled={start.isPending || (repos.length > 1 && !repositoryId)}
           onClick={() => start.mutate(toStartRunRequest(repositoryId, providerId))}
         >
           {start.isPending ? 'Assigning…' : 'Assign to agent (Claude Code)'}
-        </button>
+        </Button>
         {repos.length > 1 && (
-          <label className="row">
-            <span className="muted">in</span>
-            <select
+          <label className="flex items-center gap-2 text-sm text-fg-muted">
+            <span>in</span>
+            <Select
               value={repositoryId ?? ''}
               onChange={(e) => setRepositoryId(e.target.value || null)}
             >
@@ -107,13 +117,13 @@ function AssignBox({ slug, number }: { slug: string; number: number }) {
                   {r.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
         {providers.length > 1 && (
-          <label className="row">
-            <span className="muted">using</span>
-            <select
+          <label className="flex items-center gap-2 text-sm text-fg-muted">
+            <span>using</span>
+            <Select
               value={providerId ?? ''}
               onChange={(e) => setProviderId(e.target.value || null)}
             >
@@ -123,15 +133,15 @@ function AssignBox({ slug, number }: { slug: string; number: number }) {
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
       </div>
-      <p className="muted">
+      <Hint>
         The agent proposes a plan first and waits until it is approved here or in the{' '}
         <Link to="/">inbox</Link>. Its API usage is billed to the provider&apos;s key.
-      </p>
-      {start.error && <p className="error">{start.error.message}</p>}
+      </Hint>
+      {start.error && <ErrorText>{start.error.message}</ErrorText>}
     </div>
   )
 }
@@ -141,18 +151,24 @@ const time = (iso: string) => new Date(iso).toLocaleString()
 /** What a blocked run waits for, answered right here (or in the inbox). */
 function Waiting({ run }: { run: RunInfo }) {
   return (
-    <div className="stack">
-      {run.blockedSince && <p>Waiting for an answer since {time(run.blockedSince)}</p>}
+    <div className="flex flex-col gap-3 rounded-md border border-wait-bg bg-bg p-3">
+      {run.blockedSince && (
+        <p className="m-0 text-sm font-medium text-wait">
+          Waiting for an answer since {time(run.blockedSince)}
+        </p>
+      )}
       {run.waiting.map((item) =>
         item.plan ? (
           <PlanAnswer key={item.id} id={item.id} plan={item.plan} />
         ) : item.question ? (
           <QuestionAnswer key={item.id} id={item.id} question={item.question} />
         ) : (
-          <p key={item.id}>{waitingText(item)}</p>
+          <p key={item.id} className="m-0">
+            {waitingText(item)}
+          </p>
         ),
       )}
-      {blockedNote(run, time) && <p className="muted">{blockedNote(run, time)}</p>}
+      {blockedNote(run, time) && <Hint>{blockedNote(run, time)}</Hint>}
     </div>
   )
 }
@@ -160,55 +176,63 @@ function Waiting({ run }: { run: RunInfo }) {
 function RunCard({ slug, run }: { slug: string; run: RunInfo }) {
   const cancel = useCancelRun(slug)
   const [showEvents, setShowEvents] = useState(false)
+  const resume = resumeLabel(run)
 
   return (
-    <article className="card stack">
-      <p className="row">
-        <span className={`badge ${run.state}`}>{runStateLabel[run.state]}</span>
-        <span className="mono">{run.branch}</span>
-        <span className="muted">
+    <article className="flex flex-col gap-3 border-t border-line-soft px-4 py-3.5 first:border-t-0">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Tag tone={runStateTone[run.state]} dot={isActive(run.state)}>
+          {runStateLabel[run.state]}
+        </Tag>
+        <span className="font-mono text-mono text-fg-muted">{run.branch}</span>
+        <span className="text-sm text-fg-subtle">
           {run.model} · {run.repositoryName} · started {new Date(run.createdAt).toLocaleString()}
         </span>
-      </p>
+      </div>
       {run.state === 'blocked' && <Waiting run={run} />}
-      {resumeLabel(run) && <p className="muted">{resumeLabel(run)}</p>}
+      {resume && <Hint>{resume}</Hint>}
       {run.progressStep && (
-        <p>
+        <p className="m-0">
           {run.progressStep}
-          {run.progressNote && <span className="muted"> ({run.progressNote})</span>}
+          {run.progressNote && <span className="text-fg-subtle"> ({run.progressNote})</span>}
         </p>
       )}
-      {run.failureReason && <p className="error">{run.failureReason}</p>}
-      <p className="muted">Cost: {costText(run)}</p>
-      <div className="row">
+      {run.failureReason && <p className="m-0 text-bad">{run.failureReason}</p>}
+      <div className="flex flex-wrap items-center gap-2">
         {run.changeSetId && (
-          <Link to="/reviews/$id" params={{ id: run.changeSetId }} className="button primary">
-            Review
-          </Link>
+          <Button variant="primary" size="sm" asChild>
+            <Link to="/reviews/$id" params={{ id: run.changeSetId }}>
+              Review
+            </Link>
+          </Button>
         )}
-        <button type="button" onClick={() => setShowEvents(!showEvents)} aria-pressed={showEvents}>
+        <Button
+          size="sm"
+          variant={showEvents ? 'secondary' : 'ghost'}
+          onClick={() => setShowEvents(!showEvents)}
+          aria-pressed={showEvents}
+        >
+          <TerminalIcon size={14} />
           Transcript
-        </button>
+        </Button>
         {isActive(run.state) && (
-          <button
-            type="button"
-            className="danger"
-            disabled={cancel.isPending || run.cancelRequested}
-            onClick={() => {
-              if (
-                window.confirm(
-                  'Stop the agent and cancel this run? Its commits stay in the run directory.',
-                )
-              ) {
-                cancel.mutate(run.id)
-              }
-            }}
-          >
-            {run.cancelRequested ? 'Cancelling…' : 'Cancel run'}
-          </button>
+          <ConfirmDialog
+            trigger={
+              <Button size="sm" variant="danger" disabled={cancel.isPending || run.cancelRequested}>
+                {run.cancelRequested ? 'Cancelling…' : 'Cancel run'}
+              </Button>
+            }
+            title="Stop the agent and cancel this run?"
+            description="Its commits stay in the run directory."
+            confirmLabel="Cancel run"
+            cancelLabel="Keep running"
+            danger
+            onConfirm={() => cancel.mutate(run.id)}
+          />
         )}
-        {cancel.error && <span className="error">{cancel.error.message}</span>}
+        <span className="ml-auto text-sm text-fg-subtle tabular-nums">Cost: {costText(run)}</span>
       </div>
+      {cancel.error && <ErrorText>{cancel.error.message}</ErrorText>}
       {showEvents && <RunLog runId={run.id} />}
     </article>
   )

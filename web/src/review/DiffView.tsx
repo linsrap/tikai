@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { defineMonacoThemes, monacoFont, monacoTheme } from './monacoTheme'
 import type { DiffMode, Pane } from './review'
 
 const darkScheme = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
@@ -85,16 +86,24 @@ export default function DiffView({
   }, [reveal])
 
   return (
-    <div className="diff-editor" data-testid="diff-editor">
+    <div
+      className="overflow-hidden rounded-b-lg border border-t-0 border-line"
+      data-testid="diff-editor"
+    >
       <DiffEditor
         height="70vh"
         original={original}
         modified={modified}
         language={language}
-        theme={dark ? 'vs-dark' : 'vs'}
-        loading={<p className="muted">Loading the diff…</p>}
-        onMount={(mounted) => {
+        theme={dark ? monacoTheme.dark : monacoTheme.light}
+        loading={<p className="m-0 p-4 text-sm text-fg-subtle">Loading the diff…</p>}
+        beforeMount={defineMonacoThemes}
+        onMount={(mounted, monaco) => {
           editor.current = mounted
+          // Monaco measures the font when it mounts; measure again once the bundled mono font is loaded.
+          void document.fonts
+            ?.load(`${monacoFont.fontSize}px ${monacoFont.fontFamily}`)
+            .then(() => monaco.editor.remeasureFonts())
           const both = {
             original: mounted.getOriginalEditor(),
             modified: mounted.getModifiedEditor(),
@@ -128,13 +137,17 @@ export default function DiffView({
           readOnly: true,
           originalEditable: false,
           renderSideBySide: mode === 'side-by-side',
-          // Below this width Monaco switches to inline by itself.
+          // Below this width Monaco switches to inline by itself (its default, 900 px, is too wide next to the
+          // file tree on a laptop screen).
           useInlineViewWhenSpaceIsLimited: true,
+          renderSideBySideInlineBreakpoint: 700,
           automaticLayout: true,
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           hideUnchangedRegions: { enabled: !reveal && zones.length === 0 },
           renderOverviewRuler: false,
+          ...monacoFont,
+          padding: { top: 8 },
         }}
       />
       {panes &&
@@ -156,7 +169,7 @@ class ZoneHost {
   readonly node = document.createElement('div')
 
   constructor() {
-    this.node.className = 'diff-zone'
+    this.node.className = 'diff-zone z-[5] font-sans text-sm leading-5'
     this.node.style.position = 'absolute'
   }
 
