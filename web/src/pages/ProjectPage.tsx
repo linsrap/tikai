@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import {
   branchesQuery,
   bundleUrl,
@@ -21,8 +21,8 @@ import {
 import { Button } from '../ui/Button'
 import { buttonClass } from '../ui/buttonClass'
 import { Check, ErrorText, Field, Hint, Input, Select, Textarea } from '../ui/form'
-import { ChevronRightIcon, DownloadIcon } from '../ui/icons'
-import { FormPanel, PageBody, SettingsSection } from '../ui/layout'
+import { DownloadIcon } from '../ui/icons'
+import { Disclosure, FormPanel, PageBody, SettingsSection } from '../ui/layout'
 import { ConfirmDialog } from '../ui/overlay'
 import { Tag, type Tone } from '../ui/Tag'
 import { AnalysisSettings } from './AnalysisSettings'
@@ -126,19 +126,6 @@ const statusTone: Record<RepositoryInfo['status'], Tone> = {
   cloning: 'run',
   ready: 'ok',
   failed: 'bad',
-}
-
-/** A disclosure inside a repository row (branches, credential, remote). */
-function Disclosure({ summary, children }: { summary: string; children: ReactNode }) {
-  return (
-    <details className="group">
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-sm font-medium text-fg-muted hover:text-fg [&::-webkit-details-marker]:hidden">
-        <ChevronRightIcon size={14} className="transition-transform group-open:rotate-90" />
-        {summary}
-      </summary>
-      <div className="mt-3 ml-[18px]">{children}</div>
-    </details>
-  )
 }
 
 function RepositoryCard({ slug, repository: r }: { slug: string; repository: RepositoryInfo }) {

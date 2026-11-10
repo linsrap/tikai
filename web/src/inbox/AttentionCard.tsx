@@ -249,7 +249,12 @@ function ReviewReport({
           Approved, but it did not get through: {deliveryError}
         </p>
       )}
-      <SelfReport summary={review.summary} coverage={coverage} openConcerns={review.openConcerns} />
+      <SelfReport
+        summary={review.summary}
+        coverage={coverage}
+        openConcerns={review.openConcerns}
+        collapsed
+      />
       {(roundText || analysis) && (
         <p className="m-0 flex flex-wrap gap-x-1.5 text-sm text-fg-muted">
           {roundText && <span className="round-line">{roundText}</span>}

@@ -1,5 +1,27 @@
 import type { FormHTMLAttributes, HTMLAttributes, ReactNode } from 'react'
 import { cx } from './cx'
+import { ChevronRightIcon } from './icons'
+
+/** Details on demand: a summary line with a chevron that opens what is under it (native details, keyboard included). */
+export function Disclosure({
+  summary,
+  children,
+  className,
+}: {
+  summary: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <details className={cx('group', className)}>
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-sm font-medium text-fg-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronRightIcon size={14} className="transition-transform group-open:rotate-90" />
+        {summary}
+      </summary>
+      <div className="mt-3 ml-[18px]">{children}</div>
+    </details>
+  )
+}
 
 /** The content column of a page under its header. */
 export function PageBody({
