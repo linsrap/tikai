@@ -2415,6 +2415,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/previews/{id}/entry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PreviewEntryInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/previews/{id}/log": {
         parameters: {
             query?: never;
@@ -2785,6 +2822,9 @@ export interface components {
             roundNo: number;
             found: boolean;
             errors: string[];
+        };
+        PreviewEntryInfo: {
+            url: string;
         };
         PreviewInfo: {
             /** Format: uuid */

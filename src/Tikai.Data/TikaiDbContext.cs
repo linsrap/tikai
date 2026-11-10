@@ -49,6 +49,8 @@ public class TikaiDbContext(DbContextOptions options)
 
     public DbSet<PreviewLogLine> PreviewLogLines => Set<PreviewLogLine>();
 
+    public DbSet<PreviewEntry> PreviewEntries => Set<PreviewEntry>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

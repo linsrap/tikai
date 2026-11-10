@@ -12,7 +12,7 @@ public sealed record ChangeSetPreviewInfo(bool Available, string? UnavailableRea
 /// <param name="Errors">Why the file cannot be used; empty when it can.</param>
 public sealed record PreviewDefinitionInfo(int RoundNo, bool Found, IReadOnlyList<string> Errors);
 
-/// <param name="Url">Where people open it, while it runs (an entry link that logs the browser in on the preview's host).</param>
+/// <param name="Url">The preview's own origin while it runs; people open it through an entry link (POST …/entry).</param>
 public sealed record PreviewInfo(
     Guid Id,
     Guid ChangeSetId,
@@ -27,5 +27,8 @@ public sealed record PreviewInfo(
     int IdleMinutes,
     long LastLogSeq,
     string? Url);
+
+/// <param name="Url">A one-time link that lets this browser into the preview's host.</param>
+public sealed record PreviewEntryInfo(string Url);
 
 public sealed record PreviewLogLineInfo(long Seq, string Source, string Text, DateTimeOffset At);

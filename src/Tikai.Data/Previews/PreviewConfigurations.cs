@@ -36,6 +36,20 @@ internal sealed class PreviewConfiguration : IEntityTypeConfiguration<Preview>
     }
 }
 
+internal sealed class PreviewEntryConfiguration : IEntityTypeConfiguration<PreviewEntry>
+{
+    public void Configure(EntityTypeBuilder<PreviewEntry> builder)
+    {
+        builder.ToTable("preview_entries");
+        builder.Property(e => e.TokenHash).HasMaxLength(64);
+        builder.HasOne<Preview>().WithMany().HasForeignKey(e => e.PreviewId).OnDelete(DeleteBehavior.Cascade);
+        // Who opened a preview stays as long as the preview.
+        builder.HasOne<TikaiUser>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(e => e.TokenHash).IsUnique();
+        builder.HasIndex(e => e.PreviewId);
+    }
+}
+
 internal sealed class PreviewLogLineConfiguration : IEntityTypeConfiguration<PreviewLogLine>
 {
     public void Configure(EntityTypeBuilder<PreviewLogLine> builder)

@@ -2344,6 +2344,36 @@
         }
       }
     },
+    "/api/previews/{id}/entry": {
+      "post": {
+        "tags": [
+          "Previews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewEntryInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/previews/{id}/log": {
       "get": {
         "tags": [
@@ -3814,6 +3844,17 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "PreviewEntryInfo": {
+        "required": [
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
           }
         }
       },

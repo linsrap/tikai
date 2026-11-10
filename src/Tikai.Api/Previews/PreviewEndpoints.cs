@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -28,11 +29,12 @@ internal static class PreviewEndpoints
 
         var previews = api.MapGroup("/previews").WithTags("Previews").RequireAuthorization();
         previews.MapPost("/{id:guid}/stop", StopAsync);
+        previews.MapPost("/{id:guid}/entry", EntryAsync);
         previews.MapGet("/{id:guid}/log", LogAsync);
     }
 
     private static async Task<Results<Ok<ChangeSetPreviewInfo>, ProblemHttpResult>> GetForChangeSetAsync(
-        Guid id, PreviewService previews, CancellationToken cancellationToken)
+        Guid id, HttpRequest request, PreviewService previews, CancellationToken cancellationToken)
     {
         var target = await previews.TargetAsync(id, cancellationToken);
         if (target is null)
@@ -40,15 +42,49 @@ internal static class PreviewEndpoints
             return ProjectEndpoints.NotFound("Change set");
         }
         var definition = await previews.ReadDefinitionAsync(target, cancellationToken);
-        var latest = await previews.LatestAsync(id, cancellationToken);
-        var unavailable = previews.Unavailable();
+        var latest = await previews.LatestAsync(id, request, cancellationToken);
+        var unavailable = previews.Unavailable(request);
         return TypedResults.Ok(new ChangeSetPreviewInfo(unavailable is null, unavailable,
             new PreviewDefinitionInfo(target.RoundNo, definition.Found, definition.Errors), latest));
     }
 
     private static async Task<Results<Ok<PreviewInfo>, ProblemHttpResult>> StartAsync(
-        Guid id, ClaimsPrincipal user, PreviewService previews, CancellationToken cancellationToken) =>
-        await previews.StartAsync(id, LlmProviderService.UserId(user), cancellationToken);
+        Guid id, HttpRequest request, ClaimsPrincipal user, PreviewService previews, CancellationToken cancellationToken) =>
+        await previews.StartAsync(id, LlmProviderService.UserId(user), request, cancellationToken);
+
+    /// <summary>
+    /// A one-time link into a running preview for this person's browser (valid for two minutes): the hub's login does
+    /// not reach the preview's host, so the review screen asks for one each time it opens the preview.
+    /// </summary>
+    private static async Task<Results<Ok<PreviewEntryInfo>, ProblemHttpResult>> EntryAsync(
+        Guid id, HttpRequest request, ClaimsPrincipal user, TikaiDbContext db, PreviewService previews, TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (previews.Unavailable(request) is { } reason)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Previews are off", detail: reason);
+        }
+        if (!await db.Previews.AnyAsync(p => p.Id == id, cancellationToken))
+        {
+            return ProjectEndpoints.NotFound("Preview");
+        }
+        if (!await db.Previews.AnyAsync(p => p.Id == id && p.State == PreviewState.Running, cancellationToken))
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Not running", detail: "The preview is not running.");
+        }
+        var token = "tikai_entry_" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var now = timeProvider.GetUtcNow();
+        db.PreviewEntries.Add(new PreviewEntry
+        {
+            Id = Guid.CreateVersion7(now),
+            PreviewId = id,
+            UserId = LlmProviderService.UserId(user),
+            TokenHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token))),
+            ExpiresAt = now + PreviewRules.EntryLifetime,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return TypedResults.Ok(new PreviewEntryInfo($"{previews.Origin(id, request)}{PreviewHosts.EntryPath}?t={token}"));
+    }
 
     private static async Task<Results<Ok<PreviewInfo>, ProblemHttpResult>> StopAsync(
         Guid id, ClaimsPrincipal user, TikaiDbContext db, IJobQueue jobs, IEventPublisher events, PreviewService previews,
@@ -62,7 +98,7 @@ internal static class PreviewEndpoints
                 await transaction.CommitAsync(cancellationToken);
             }
         }
-        return await previews.InfoAsync(id, cancellationToken) is { } info ? TypedResults.Ok(info) : ProjectEndpoints.NotFound("Preview");
+        return await previews.InfoAsync(id, null, cancellationToken) is { } info ? TypedResults.Ok(info) : ProjectEndpoints.NotFound("Preview");
     }
 
     private static async Task<Results<Ok<List<PreviewLogLineInfo>>, ProblemHttpResult>> LogAsync(
@@ -144,15 +180,27 @@ internal sealed class PreviewService(
         return new DefinitionRead(true, text, parsed.Errors, parsed.Definition);
     }
 
-    /// <summary>Why previews cannot run here; null when they can.</summary>
-    public string? Unavailable() =>
-        options.Value is { Upstream: PreviewUpstream.Network, HubContainer: null or "" }
-            ? "Previews need Tikai:Previews:HubContainer (the hub's own container), so the hub can reach them. See docs/self-hosting.md."
+    /// <summary>Why previews cannot run for a hub opened at this request's host; null when they can.</summary>
+    public string? Unavailable(HttpRequest request)
+    {
+        if (options.Value is { Upstream: PreviewUpstream.Network, HubContainer: null or "" })
+        {
+            return "Previews need Tikai:Previews:HubContainer (the hub's own container), so the hub can reach them. See docs/self-hosting.md.";
+        }
+        return PreviewHosts.Suffix(options.Value.Domain, request.Host.Host) is null
+            ? "Previews need their own host names: set TIKAI_PREVIEW_DOMAIN to a domain with wildcard DNS to this hub (see docs/self-hosting.md), or open Tikai on localhost."
+            : null;
+    }
+
+    /// <summary>The preview's origin as people open it, with the scheme and port they use for the hub.</summary>
+    public string? Origin(Guid previewId, HttpRequest request) =>
+        PreviewHosts.Suffix(options.Value.Domain, request.Host.Host) is { } suffix
+            ? PreviewHosts.Origin(previewId, suffix, request.Scheme, request.Host.Port)
             : null;
 
-    public async Task<Results<Ok<PreviewInfo>, ProblemHttpResult>> StartAsync(Guid changeSetId, Guid userId, CancellationToken cancellationToken)
+    public async Task<Results<Ok<PreviewInfo>, ProblemHttpResult>> StartAsync(Guid changeSetId, Guid userId, HttpRequest request, CancellationToken cancellationToken)
     {
-        if (Unavailable() is { } reason)
+        if (Unavailable(request) is { } reason)
         {
             return Problem(StatusCodes.Status409Conflict, "Previews are off", reason);
         }
@@ -205,22 +253,23 @@ internal sealed class PreviewService(
             await events.PublishAsync(Preview.Topic, previewId, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
-        return TypedResults.Ok((await InfoAsync(previewId, cancellationToken))!);
+        return TypedResults.Ok((await InfoAsync(previewId, request, cancellationToken))!);
     }
 
-    public async Task<PreviewInfo?> LatestAsync(Guid changeSetId, CancellationToken cancellationToken)
+    public async Task<PreviewInfo?> LatestAsync(Guid changeSetId, HttpRequest request, CancellationToken cancellationToken)
     {
         var id = await db.Previews.Where(p => p.ChangeSetId == changeSetId).OrderByDescending(p => p.CreatedAt)
             .Select(p => (Guid?)p.Id).FirstOrDefaultAsync(cancellationToken);
-        return id is null ? null : await InfoAsync(id.Value, cancellationToken);
+        return id is null ? null : await InfoAsync(id.Value, request, cancellationToken);
     }
 
-    public async Task<PreviewInfo?> InfoAsync(Guid previewId, CancellationToken cancellationToken)
+    /// <param name="request">For the preview's address while it runs; null leaves it out.</param>
+    public async Task<PreviewInfo?> InfoAsync(Guid previewId, HttpRequest? request, CancellationToken cancellationToken)
     {
         var p = await db.Previews.AsNoTracking().SingleOrDefaultAsync(p => p.Id == previewId, cancellationToken);
         return p is null ? null : new PreviewInfo(
             p.Id, p.ChangeSetId, p.RoundNo, p.HeadSha, p.State, p.Error, p.StopReason, p.CreatedAt, p.RunningAt, p.StoppedAt,
-            p.IdleMinutes, p.LastLogSeq, Url: null);
+            p.IdleMinutes, p.LastLogSeq, p.State == PreviewState.Running && request is not null ? Origin(p.Id, request) : null);
     }
 
     private static ProblemHttpResult Problem(int status, string title, string detail) =>

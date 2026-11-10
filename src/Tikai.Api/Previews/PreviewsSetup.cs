@@ -22,6 +22,7 @@ internal static class PreviewsSetup
         services.AddJobHandler<PreviewStarter>(PreviewJob.StartQueue);
         services.AddJobHandler<PreviewTeardown>(PreviewJob.TeardownQueue);
         services.AddHostedService<PreviewReconciler>();
+        services.AddHttpForwarder();
         return services;
     }
 }

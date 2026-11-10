@@ -32,9 +32,10 @@ public sealed class PreviewApiTests(PostgresFixture postgres, AgentHost agents) 
         var running = await WaitForAsync(hub, changeSetId, p => p.Id == first.Id && p.State == PreviewState.Running);
         Assert.NotNull(running.RunningAt);
 
+        // The note follows the state change.
+        await WaitForLogAsync(hub, first.Id, l => l.Source == "hub" && l.Text == "Preview running");
         var log = await LogAsync(hub, first.Id);
         Assert.Contains(log, l => l.Source == "hub" && l.Text.StartsWith("Setup step 1: mkdir", StringComparison.Ordinal));
-        Assert.Contains(log, l => l.Source == "hub" && l.Text == "Preview running");
         Assert.Equal(log.Select(l => l.Seq), Enumerable.Range(1, log.Count).Select(i => (long)i));
         // The app's own output follows, with the generated value removed.
         var appLine = await WaitForLogAsync(hub, first.Id, l => l.Source == "app");

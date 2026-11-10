@@ -487,6 +487,64 @@ namespace Tikai.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Tikai.Core.Previews.PreviewEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("PreviewId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("preview_id");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_preview_entries");
+
+                    b.HasIndex("PreviewId")
+                        .HasDatabaseName("ix_preview_entries_preview_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_preview_entries_token_hash");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_preview_entries_user_id");
+
+                    b.ToTable("preview_entries", (string)null);
+                });
+
             modelBuilder.Entity("Tikai.Core.Previews.PreviewLogLine", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1728,6 +1786,23 @@ namespace Tikai.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_previews_users_started_by_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Previews.PreviewEntry", b =>
+                {
+                    b.HasOne("Tikai.Core.Previews.Preview", null)
+                        .WithMany()
+                        .HasForeignKey("PreviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_preview_entries_previews_preview_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_preview_entries_users_user_id");
                 });
 
             modelBuilder.Entity("Tikai.Core.Previews.PreviewLogLine", b =>

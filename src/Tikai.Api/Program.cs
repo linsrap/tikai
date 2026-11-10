@@ -67,6 +67,8 @@ if (!BuildTimeTools.IsGeneratingOpenApiDocument)
 }
 
 app.UseExceptionHandler();
+// Preview hosts are served before anything of the hub (static files, login, API).
+app.UseMiddleware<PreviewProxy>();
 app.UseStatusCodePages();
 app.UseDefaultFiles();
 app.UseStaticFiles();

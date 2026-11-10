@@ -84,8 +84,29 @@ public class PreviewLogLine : Entity
     public required string Text { get; set; }
 }
 
+/// <summary>
+/// A one-time link that lets one person's browser into a preview's host: the hub's login cookie does not reach that
+/// host, so the review screen asks for an entry, and the preview host trades it for its own cookie.
+/// </summary>
+public class PreviewEntry : Entity
+{
+    public Guid PreviewId { get; set; }
+
+    public Guid UserId { get; set; }
+
+    /// <summary>SHA-256 of the token (hex); the token itself is only in the link.</summary>
+    public required string TokenHash { get; set; }
+
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    public DateTimeOffset? UsedAt { get; set; }
+}
+
 public static class PreviewRules
 {
+    /// <summary>How long an entry link works (once).</summary>
+    public static readonly TimeSpan EntryLifetime = TimeSpan.FromMinutes(2);
+
     public const int MaxErrorLength = 4_000;
     public const int MaxSourceLength = 40;
 
