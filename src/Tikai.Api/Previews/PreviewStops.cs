@@ -21,7 +21,7 @@ internal static class PreviewStops
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.State, PreviewState.Stopped)
                 .SetProperty(p => p.StopReason, reason)
-                .SetProperty(p => p.Upstream, (string?)null)
+                .SetProperty(p => p.Upstreams, (string?)null)
                 .SetProperty(p => p.StoppedAt, now)
                 .SetProperty(p => p.UpdatedAt, now), cancellationToken);
         if (changed == 0)

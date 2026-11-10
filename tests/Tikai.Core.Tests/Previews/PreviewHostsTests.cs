@@ -1,3 +1,4 @@
+using Tikai.Core.Previews;
 using Tikai.Orchestrator.Previews;
 
 namespace Tikai.Core.Tests.Previews;
@@ -79,5 +80,43 @@ public class PreviewHostsTests
     public void The_hub_s_cookies_never_reach_the_app(string header, string? expected)
     {
         Assert.Equal(expected, PreviewHosts.StripHubCookies(header));
+    }
+
+    private static readonly PreviewAppUpstream[] _apps =
+    [
+        new("web", "/", "http://web", "c-web"),
+        new("api", "/api", "http://api", "c-api"),
+        new("v2", "/api/v2", "http://v2", "c-v2"),
+    ];
+
+    [Theory]
+    [InlineData("/", "web")]
+    [InlineData("", "web")]
+    [InlineData("/index.html", "web")]
+    [InlineData("/api", "api")]
+    [InlineData("/api/", "api")]
+    [InlineData("/api/users/1", "api")]
+    [InlineData("/apix", "web")]
+    [InlineData("/API", "web")]
+    [InlineData("/api/v2", "v2")]
+    [InlineData("/api/v2/x", "v2")]
+    [InlineData("/api/v20", "api")]
+    [InlineData("/api%2Fv2", "web")]
+    public void The_longest_matching_prefix_serves_a_path(string path, string app)
+    {
+        Assert.Equal(app, PreviewHosts.Route(_apps, path)?.Name);
+    }
+
+    [Fact]
+    public void The_order_of_the_apps_does_not_matter()
+    {
+        Assert.Equal("v2", PreviewHosts.Route([.. _apps.Reverse()], "/api/v2/x")?.Name);
+    }
+
+    [Fact]
+    public void Without_an_app_on_the_root_other_paths_have_no_app()
+    {
+        Assert.Null(PreviewHosts.Route(_apps[1..], "/"));
+        Assert.Null(PreviewHosts.Route([], "/api"));
     }
 }

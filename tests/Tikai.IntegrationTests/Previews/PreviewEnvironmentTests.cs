@@ -12,7 +12,7 @@ namespace Tikai.IntegrationTests.Previews;
 
 /// <summary>
 /// The Docker side of a preview with real containers: a round cloned from a bundle, a setup step, a service with a
-/// health check and an app, all from the agent base image (node), then stop and cleanup.
+/// health check and an app, all from the agent base image (node), then stop and cleanup; and two apps on one preview.
 /// </summary>
 public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<AgentHost>, IAsyncDisposable
 {
@@ -33,6 +33,29 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
           }));
         }).listen(8000);
         console.log('listening on 8000 with ' + process.env.SECRET_X);
+        """;
+
+    // Two apps of one preview: web on /, api on /api; web calls api by its name, both hash the shared generated value.
+    private const string Web = """
+        const http = require('http'); const crypto = require('crypto');
+        const hash = (v) => crypto.createHash('sha256').update(v || '').digest('hex');
+        http.createServer(async (req, res) => {
+          if (req.url === '/health') { res.end('ok'); return; }
+          const api = await (await fetch('http://api:8001/api/hello')).json();
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ app: 'web', path: req.url, shared: hash(process.env.SHARED), api }));
+        }).listen(8000);
+        console.log('web listening with ' + process.env.SHARED);
+        """;
+
+    private const string Api = """
+        const http = require('http'); const crypto = require('crypto');
+        const hash = (v) => crypto.createHash('sha256').update(v || '').digest('hex');
+        http.createServer((req, res) => {
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ app: 'api', path: req.url, shared: hash(process.env.SHARED), own: (process.env.API_ONLY || '').length }));
+        }).listen(8001);
+        console.log('api listening with ' + process.env.SHARED);
         """;
 
     private readonly string _volume = "tikai-test-previews-" + Guid.NewGuid().ToString("N")[..12];
@@ -63,8 +86,8 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
             "mkdir -p /preview/out && echo 'hello from setup' > /preview/out/greeting.txt && echo setup-done"), Sink, ct);
         var definition = new PreviewDefinition(
             [],
-            new PreviewApp(AgentHost.BaseImage, "node server.js", 8000,
-                new Dictionary<string, string> { ["SERVICE_URL"] = "http://echo:9000" }, ["SECRET_X"], "/health"),
+            [new PreviewApp("app", "/", AgentHost.BaseImage, "node server.js", 8000,
+                new Dictionary<string, string> { ["SERVICE_URL"] = "http://echo:9000" }, ["SECRET_X"], "/health")],
             [new PreviewService("echo", AgentHost.BaseImage, new Dictionary<string, string>(),
                 ["node", "-e", "require('http').createServer((q, s) => s.end('from-service')).listen(9000)"],
                 "curl -fsS http://localhost:9000")],
@@ -75,7 +98,7 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
         if (NetworkOverride is null)
         {
             using var http = new HttpClient();
-            var seen = JsonDocument.Parse(await http.GetStringAsync(started.Upstream, ct)).RootElement;
+            var seen = JsonDocument.Parse(await http.GetStringAsync(Assert.Single(started.Apps).Url, ct)).RootElement;
             Assert.Equal("hello from setup", seen.GetProperty("greeting").GetString());
             Assert.Equal(1000, seen.GetProperty("uid").GetInt32());
             Assert.Equal("from-service", seen.GetProperty("service").GetString());
@@ -89,7 +112,7 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
         using (var follow = CancellationTokenSource.CreateLinkedTokenSource(ct))
         {
             follow.CancelAfter(TimeSpan.FromSeconds(2));
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => environment.FollowAppLogAsync(started.AppContainerId, started.Secrets, Sink, follow.Token));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => environment.FollowAppLogsAsync(started, Sink, follow.Token));
         }
         lock (log)
         {
@@ -120,6 +143,109 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
     }
 
     [Fact]
+    public async Task Several_apps_run_on_one_preview_with_their_prefixes_names_and_shared_generated_values()
+    {
+        var (environment, runtime) = Create();
+        var previewId = NewPreview();
+        var log = new List<PreviewLogEntry>();
+        Task Sink(IReadOnlyList<PreviewLogEntry> lines, CancellationToken _)
+        {
+            lock (log)
+            {
+                log.AddRange(lines);
+            }
+            return Task.CompletedTask;
+        }
+        var ct = TestContext.Current.CancellationToken;
+        await environment.WriteSourceAsync(previewId, await BundleAsync(), ct);
+        await environment.CloneAsync(previewId, RoundRef, Sink, ct);
+
+        var none = new Dictionary<string, string>();
+        var definition = new PreviewDefinition([],
+            [
+                new PreviewApp("web", "/", AgentHost.BaseImage, "node web.js", 8000, none, ["SHARED"], "/health"),
+                new PreviewApp("api", "/api", AgentHost.BaseImage, "node api.js", 8001, none, ["SHARED", "API_ONLY"], "/api/hello"),
+            ],
+            [], 30);
+        var started = await environment.StartAsync(previewId, definition, Sink, ct);
+
+        Assert.Equal([("web", "/"), ("api", "/api")], started.Apps.Select(a => (a.Name, a.Path)));
+        Assert.Equal(2, started.Secrets.Count);
+        var containers = (await runtime.ListPreviewsAsync(ct)).Where(r => r is { PreviewId: var id, Role: PreviewRole.App } && id == previewId).ToList();
+        Assert.Equal(started.Apps.Select(a => a.ContainerId).Order(), containers.Select(c => c.Id).Order());
+        foreach (var app in started.Apps)
+        {
+            var inspected = await agents.Docker.Containers.InspectContainerAsync(app.ContainerId, ct);
+            Assert.Equal($"/tikai-preview-app-{previewId:D}-{app.Name}", inspected.Name);
+            Assert.Equal("1000:1000", inspected.Config!.User);
+            Assert.True(inspected.HostConfig!.ReadonlyRootfs);
+            Assert.Contains(app.Name, inspected.NetworkSettings!.Networks[DockerContainerRuntime.PreviewNetwork(previewId)].Aliases);
+        }
+
+        if (NetworkOverride is null)
+        {
+            using var http = new HttpClient();
+            var web = JsonDocument.Parse(await http.GetStringAsync(new Uri(new Uri(started.Apps[0].Url), "/"), ct)).RootElement;
+            var api = JsonDocument.Parse(await http.GetStringAsync(new Uri(new Uri(started.Apps[1].Url), "/api/hello"), ct)).RootElement;
+            Assert.Equal("web", web.GetProperty("app").GetString());
+            // web reached api by its name on the preview network.
+            Assert.Equal("api", web.GetProperty("api").GetProperty("app").GetString());
+            Assert.Equal("api", api.GetProperty("app").GetString());
+            Assert.Equal("/api/hello", api.GetProperty("path").GetString());
+            // One value per name, the same in every app that lists it.
+            Assert.Equal(web.GetProperty("shared").GetString(), api.GetProperty("shared").GetString());
+            Assert.NotEqual(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData([])), api.GetProperty("shared").GetString());
+            Assert.Equal(64, api.GetProperty("own").GetInt32());
+        }
+
+        using (var follow = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            follow.CancelAfter(TimeSpan.FromSeconds(2));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => environment.FollowAppLogsAsync(started, Sink, follow.Token));
+        }
+        lock (log)
+        {
+            Assert.Contains(log, l => l.Source == "app web" && l.Text == "web listening with [redacted]");
+            Assert.Contains(log, l => l.Source == "app api" && l.Text == "api listening with [redacted]");
+            Assert.Contains(log, l => l.Source == "hub" && l.Text.StartsWith("The app api started on /api", StringComparison.Ordinal));
+            Assert.DoesNotContain(log, l => started.Secrets.Any(s => l.Text.Contains(s, StringComparison.Ordinal)));
+        }
+
+        await environment.StopAsync(previewId, ct);
+        Assert.DoesNotContain(await runtime.ListPreviewsAsync(ct), r => r.PreviewId == previewId);
+    }
+
+    [Fact]
+    public async Task One_app_of_several_that_exits_fails_the_start_with_its_name()
+    {
+        var (environment, _) = Create();
+        var previewId = NewPreview();
+        var log = new List<PreviewLogEntry>();
+        var ct = TestContext.Current.CancellationToken;
+        await environment.WriteSourceAsync(previewId, await BundleAsync(), ct);
+        await environment.CloneAsync(previewId, RoundRef, (_, _) => Task.CompletedTask, ct);
+
+        var none = new Dictionary<string, string>();
+        var definition = new PreviewDefinition([],
+            [
+                new PreviewApp("web", "/", AgentHost.BaseImage, "node web.js", 8000, none, [], "/health"),
+                new PreviewApp("api", "/api", AgentHost.BaseImage, "echo no api; exit 4", 8001, none, [], null),
+            ],
+            [], 30);
+        var error = await Assert.ThrowsAsync<PreviewStartException>(() => environment.StartAsync(previewId, definition, (lines, _) =>
+        {
+            lock (log)
+            {
+                log.AddRange(lines);
+            }
+            return Task.CompletedTask;
+        }, ct));
+
+        Assert.Equal("The app api stopped with exit code 4.", error.Message);
+        Assert.Contains(log, l => l.Source == "app api" && l.Text == "no api");
+    }
+
+    [Fact]
     public async Task A_failing_setup_step_stops_the_preview_with_its_exit_code()
     {
         var (environment, _) = Create();
@@ -145,7 +271,7 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
         await environment.CloneAsync(previewId, RoundRef, (_, _) => Task.CompletedTask, ct);
 
         var definition = new PreviewDefinition([],
-            new PreviewApp(AgentHost.BaseImage, "echo cannot start; exit 7", 8000, new Dictionary<string, string>(), [], null), [], 30);
+            [new PreviewApp("app", "/", AgentHost.BaseImage, "echo cannot start; exit 7", 8000, new Dictionary<string, string>(), [], null)], [], 30);
         var error = await Assert.ThrowsAsync<PreviewStartException>(() => environment.StartAsync(previewId, definition, (lines, _) =>
         {
             log.AddRange(lines);
@@ -188,7 +314,7 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
     private async Task<string> BundleAsync()
     {
         var mirror = await TestGit.InitBareAsync(Path.Combine(_temp, "mirror-" + Guid.NewGuid().ToString("N")[..6] + ".git"));
-        var head = await TestGit.CommitAsync(mirror, "tikai/1-abc", "Add the app", ("server.js", Server), ("README.md", "app"));
+        var head = await TestGit.CommitAsync(mirror, "tikai/1-abc", "Add the app", ("server.js", Server), ("web.js", Web), ("api.js", Api), ("README.md", "app"));
         await TestGit.RunAsync(mirror, "update-ref", RoundRef, head);
         var bundle = Path.Combine(_temp, Guid.NewGuid().ToString("N") + ".bundle");
         Assert.Equal(head, await TestGit.CreateService().CreateRefBundleAsync(mirror, RoundRef, bundle, TestContext.Current.CancellationToken));

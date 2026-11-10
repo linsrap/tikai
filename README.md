@@ -17,4 +17,5 @@ The most important things are:
 ## Important links
 - [Why Tikai](docs/why-tikai.md)
 - [Self-hosting](docs/self-hosting.md)
+- [Previews: tikai-preview.yml](docs/preview-file.md)
 - [Contributing](docs/contributing.md)

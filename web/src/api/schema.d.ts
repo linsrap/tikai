@@ -2817,6 +2817,11 @@ export interface components {
             risks: string[];
             filesExpected: string[];
         };
+        PreviewAppInfo: {
+            name: string;
+            path: string;
+            logSource: string;
+        };
         PreviewDefinitionInfo: {
             /** Format: int32 */
             roundNo: number;
@@ -2848,6 +2853,7 @@ export interface components {
             /** Format: int64 */
             lastLogSeq: number;
             url: null | string;
+            apps: components["schemas"]["PreviewAppInfo"][];
         };
         PreviewLogLineInfo: {
             /** Format: int64 */

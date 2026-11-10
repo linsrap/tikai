@@ -60,6 +60,28 @@ public sealed class PreviewApiTests(PostgresFixture postgres, AgentHost agents) 
     }
 
     [Fact]
+    public async Task A_preview_with_two_apps_runs_once_both_answer_and_fails_when_one_stops()
+    {
+        await using var hub = await agents.StartHubAsync(postgres);
+        var changeSetId = await SubmittedAsync(hub, "preview-apps");
+
+        var started = await StartAsync(hub, changeSetId);
+        Assert.Equal([("web", "/", "app web"), ("api", "/api", "app api")], started.Apps.Select(a => (a.Name, a.Path, a.LogSource)));
+        await WaitForAsync(hub, changeSetId, p => p.Id == started.Id && p.State == PreviewState.Running);
+        var row = await PreviewRowAsync(hub, started.Id);
+        var apps = PreviewUpstreams.FromJson(row.Upstreams);
+        Assert.Equal([("web", "/"), ("api", "/api")], apps.Select(a => (a.Name, a.Path)));
+        await WaitForLogAsync(hub, started.Id, l => l.Source == "hub" && l.Text.StartsWith("The app api started on /api", StringComparison.Ordinal));
+
+        // One app stops: the whole preview fails and is torn down.
+        await agents.Docker.Containers.KillContainerAsync(apps[1].ContainerId, new Docker.DotNet.Models.ContainerKillParameters(), TestContext.Current.CancellationToken);
+        var failed = await WaitForStateAsync(hub, started.Id, PreviewState.Failed);
+        Assert.Equal("The app api stopped.", failed.Error);
+        await WaitForCleanedAsync(hub, started.Id);
+        Assert.DoesNotContain(await RuntimeAsync(hub), r => r.PreviewId == started.Id);
+    }
+
+    [Fact]
     public async Task A_round_without_a_definition_says_so_and_cannot_be_started()
     {
         await using var hub = await agents.StartHubAsync(postgres);
@@ -150,6 +172,21 @@ public sealed class PreviewApiTests(PostgresFixture postgres, AgentHost agents) 
                 return line;
             }
             Assert.True(DateTime.UtcNow < deadline, "Log:\n" + string.Join("\n", log.Select(l => $"[{l.Source}] {l.Text}")));
+            await Task.Delay(250, TestContext.Current.CancellationToken);
+        }
+    }
+
+    private static async Task<Preview> WaitForStateAsync(AgentHub hub, Guid previewId, PreviewState state)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (true)
+        {
+            var row = await PreviewRowAsync(hub, previewId);
+            if (row.State == state)
+            {
+                return row;
+            }
+            Assert.True(DateTime.UtcNow < deadline, $"Preview is {row.State} ({row.Error})");
             await Task.Delay(250, TestContext.Current.CancellationToken);
         }
     }

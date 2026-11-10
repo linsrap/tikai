@@ -1,4 +1,4 @@
-# How Tikai starts a preview of a review round of this repository (see docs/self-hosting.md, "Previews").
+# How Tikai starts a preview of a review round of this repository (see docs/preview-file.md).
 # Stock images only; the hub decides limits and network. Agents are off in a preview: it has no Docker access.
 setup:
   - image: node:24-trixie-slim

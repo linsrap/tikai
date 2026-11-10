@@ -13,6 +13,7 @@ public sealed record ChangeSetPreviewInfo(bool Available, string? UnavailableRea
 public sealed record PreviewDefinitionInfo(int RoundNo, bool Found, IReadOnlyList<string> Errors);
 
 /// <param name="Url">The preview's own origin while it runs; people open it through an entry link (POST …/entry).</param>
+/// <param name="Apps">The app processes of its definition with the path prefix each serves on that origin.</param>
 public sealed record PreviewInfo(
     Guid Id,
     Guid ChangeSetId,
@@ -26,7 +27,12 @@ public sealed record PreviewInfo(
     DateTimeOffset? StoppedAt,
     int IdleMinutes,
     long LastLogSeq,
-    string? Url);
+    string? Url,
+    IReadOnlyList<PreviewAppInfo> Apps);
+
+/// <param name="Path">The path prefix it serves; the longest match wins.</param>
+/// <param name="LogSource">The source of its lines in the preview log (<c>app</c> for a single app, else <c>app &lt;name&gt;</c>).</param>
+public sealed record PreviewAppInfo(string Name, string Path, string LogSource);
 
 /// <param name="Url">A one-time link that lets this browser into the preview's host.</param>
 public sealed record PreviewEntryInfo(string Url);

@@ -16,20 +16,19 @@ namespace Tikai.Api.Previews;
 /// Serves preview hosts (<see cref="PreviewHosts"/>) before anything of the hub runs: a request for
 /// <c>&lt;id&gt;.&lt;suffix&gt;</c> never reaches the hub's API, login or web app. The entry path trades a one-time token
 /// from the review screen for a host-only session cookie; every other request needs that cookie and is forwarded (YARP,
-/// also WebSockets) to the preview's app, without any of the hub's cookies.
+/// also WebSockets) to the preview's app whose path prefix matches longest, path unchanged, without any of the hub's
+/// cookies.
 /// </summary>
 internal sealed partial class PreviewProxy(
     RequestDelegate next,
     IHttpForwarder forwarder,
     IDataProtectionProvider dataProtection,
+    PreviewUpstreamCache upstreamCache,
     IOptions<PreviewOptions> options,
     TimeProvider timeProvider,
     ILogger<PreviewProxy> logger)
 {
     private const string SessionPurpose = "Tikai.Previews.Session";
-
-    /// <summary>How long the upstream of a preview is taken from memory; a stop takes effect within this time.</summary>
-    private static readonly TimeSpan _upstreamCache = TimeSpan.FromSeconds(2);
 
     /// <summary>last_request_at is written at most this often per preview.</summary>
     private static readonly TimeSpan _touchInterval = TimeSpan.FromMinutes(1);
@@ -42,13 +41,13 @@ internal sealed partial class PreviewProxy(
         UseCookies = false,
         EnableMultipleHttp2Connections = true,
         ActivityHeadersPropagator = null,
-        ConnectTimeout = TimeSpan.FromSeconds(15),
+        // The apps are on a local network: a connect that takes longer goes to a container that is being removed.
+        ConnectTimeout = TimeSpan.FromSeconds(3),
     });
 
     private static readonly ForwarderRequestConfig _requestConfig = new() { ActivityTimeout = TimeSpan.FromMinutes(10) };
 
     private readonly ITimeLimitedDataProtector _sessions = dataProtection.CreateProtector(SessionPurpose).ToTimeLimitedDataProtector();
-    private readonly ConcurrentDictionary<Guid, (string? Upstream, DateTimeOffset Until)> _upstreams = new();
     private readonly ConcurrentDictionary<Guid, DateTimeOffset> _touched = new();
 
     /// <summary>The suffix preview hosts are matched against (also when this request's hub host has no previews).</summary>
@@ -75,9 +74,16 @@ internal sealed partial class PreviewProxy(
             await PageAsync(context, StatusCodes.Status403Forbidden, "Open this preview from its review screen in Tikai.");
             return;
         }
-        if (await UpstreamAsync(context, previewId) is not { } upstream)
+        var apps = await UpstreamsAsync(context, previewId);
+        if (apps.Count == 0)
         {
             await PageAsync(context, StatusCodes.Status503ServiceUnavailable, "This preview is not running. Start it again from its review screen.");
+            return;
+        }
+        // The longest matching prefix; the path goes to the app unchanged.
+        if (PreviewHosts.Route(apps, context.Request.Path.Value ?? "/") is not { } app)
+        {
+            await PageAsync(context, StatusCodes.Status404NotFound, "No app of this preview serves this path.");
             return;
         }
         await TouchAsync(context, previewId);
@@ -85,11 +91,11 @@ internal sealed partial class PreviewProxy(
         {
             context.Request.Headers.Cookie = PreviewHosts.StripHubCookies(cookies);
         }
-        var error = await forwarder.SendAsync(context, upstream, _client, _requestConfig, HttpTransformer.Default);
+        var error = await forwarder.SendAsync(context, app.Url, _client, _requestConfig, HttpTransformer.Default);
         if (error != ForwarderError.None && !context.Response.HasStarted)
         {
-            LogForwardFailed(previewId, error);
-            await PageAsync(context, StatusCodes.Status502BadGateway, "The preview's app did not answer.");
+            LogForwardFailed(previewId, app.Name, error);
+            await PageAsync(context, StatusCodes.Status502BadGateway, $"The preview's app {app.Name} did not answer.");
         }
     }
 
@@ -144,18 +150,20 @@ internal sealed partial class PreviewProxy(
         }
     }
 
-    private async Task<string?> UpstreamAsync(HttpContext context, Guid previewId)
+    /// <summary>The running preview's apps; empty when it does not run.</summary>
+    private async Task<IReadOnlyList<PreviewAppUpstream>> UpstreamsAsync(HttpContext context, Guid previewId)
     {
         var now = timeProvider.GetUtcNow();
-        if (!_upstreams.TryGetValue(previewId, out var cached) || cached.Until <= now)
+        if (upstreamCache.TryGet(previewId, now, out var apps))
         {
-            var db = context.RequestServices.GetRequiredService<TikaiDbContext>();
-            var upstream = await db.Previews.Where(p => p.Id == previewId && p.State == PreviewState.Running)
-                .Select(p => p.Upstream).SingleOrDefaultAsync(context.RequestAborted);
-            cached = (upstream, now + _upstreamCache);
-            _upstreams[previewId] = cached;
+            return apps;
         }
-        return cached.Upstream;
+        var db = context.RequestServices.GetRequiredService<TikaiDbContext>();
+        var upstreams = await db.Previews.Where(p => p.Id == previewId && p.State == PreviewState.Running)
+            .Select(p => p.Upstreams).SingleOrDefaultAsync(context.RequestAborted);
+        apps = PreviewUpstreams.FromJson(upstreams);
+        upstreamCache.Set(previewId, apps, now);
+        return apps;
     }
 
     private async Task TouchAsync(HttpContext context, Guid previewId)
@@ -179,6 +187,6 @@ internal sealed partial class PreviewProxy(
         await context.Response.WriteAsync(message, context.RequestAborted);
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Preview {PreviewId}: forwarding failed ({Error})")]
-    private partial void LogForwardFailed(Guid previewId, ForwarderError error);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Preview {PreviewId}: forwarding to {App} failed ({Error})")]
+    private partial void LogForwardFailed(Guid previewId, string app, ForwarderError error);
 }

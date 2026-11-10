@@ -101,12 +101,31 @@ public sealed class AgentHost : IAsyncLifetime
         }
         foreach (var volume in new[] { RunsVolume, PreviewsVolume })
         {
-            try
+            // A teardown of the last test (e.g. a preview's cleanup container) may still hold the volume.
+            for (var attempt = 1; ; attempt++)
             {
-                await Docker.Volumes.RemoveAsync(volume, force: true);
-            }
-            catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-            {
+                try
+                {
+                    await Docker.Volumes.RemoveAsync(volume, force: true);
+                    break;
+                }
+                catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                {
+                    break;
+                }
+                catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.Conflict && attempt < 5)
+                {
+                    var users = await Docker.Containers.ListContainersAsync(new ContainersListParameters
+                    {
+                        All = true,
+                        Filters = new Dictionary<string, IDictionary<string, bool>> { ["volume"] = new Dictionary<string, bool> { [volume] = true } },
+                    });
+                    foreach (var user in users)
+                    {
+                        await Docker.Containers.RemoveContainerAsync(user.ID, new ContainerRemoveParameters { Force = true });
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(1));
+                }
             }
         }
         Docker.Dispose();

@@ -22,8 +22,7 @@ internal sealed class PreviewConfiguration : IEntityTypeConfiguration<Preview>
         builder.Property(p => p.Environment).HasMaxLength(40);
         builder.Property(p => p.Error).HasMaxLength(PreviewRules.MaxErrorLength);
         builder.Property(p => p.StopReason).HasMaxLength(200);
-        builder.Property(p => p.Upstream).HasMaxLength(200);
-        builder.Property(p => p.AppContainerId).HasMaxLength(100);
+        builder.Property(p => p.Upstreams).HasColumnType("jsonb");
         builder.Ignore(p => p.IsActive);
 
         builder.HasOne<ChangeSet>().WithMany().HasForeignKey(p => p.ChangeSetId).OnDelete(DeleteBehavior.Restrict);

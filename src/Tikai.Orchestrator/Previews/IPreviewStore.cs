@@ -17,8 +17,8 @@ public interface IPreviewStore
     /// <summary>preparing → starting; false when it was stopped meanwhile.</summary>
     Task<bool> MarkStartingAsync(Guid previewId, CancellationToken cancellationToken);
 
-    /// <summary>starting → running with where the hub reaches the app; false when it was stopped meanwhile.</summary>
-    Task<bool> MarkRunningAsync(Guid previewId, Uri upstream, string appContainerId, CancellationToken cancellationToken);
+    /// <summary>starting → running with where the hub reaches each app; false when it was stopped meanwhile.</summary>
+    Task<bool> MarkRunningAsync(Guid previewId, IReadOnlyList<PreviewAppUpstream> apps, CancellationToken cancellationToken);
 
     /// <summary>An active preview (in <paramref name="state"/> when given) → failed, and its teardown queued.</summary>
     Task<bool> FailAsync(Guid previewId, string reason, PreviewState? state, CancellationToken cancellationToken);
@@ -47,12 +47,13 @@ public sealed record PreviewStartInfo(Guid PreviewId, string MirrorPath, string 
 
 /// <param name="ChangeSetOpen">Open or being delivered; a preview of a merged, pushed or closed change set stops.</param>
 /// <param name="Age">Since the preview was started.</param>
+/// <param name="Apps">The apps and their containers while it runs; empty before.</param>
 /// <param name="IdleFor">Since the last proxied request (or since it runs); null before it runs.</param>
 public sealed record ActivePreview(
     Guid PreviewId,
     PreviewState State,
     bool ChangeSetOpen,
-    string? AppContainerId,
+    IReadOnlyList<PreviewAppUpstream> Apps,
     bool HasLiveStartJob,
     TimeSpan Age,
     TimeSpan? IdleFor,

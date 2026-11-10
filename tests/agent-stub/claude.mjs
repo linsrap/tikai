@@ -22,6 +22,9 @@
 //                   lines are retried for a minute (the browser test restarts the hub while they print)
 //   preview         commits a tiny node app (server.js) with a tikai-preview.yml on this stub's base image: one setup
 //                   step, the app on port 8000 with /health and /echo (the request's cookies and host), then submits
+//   preview-apps    like preview, but two apps: web (web.js, port 8000) on / and api (api.js, port 8001) on /api; each
+//                   answers with its name, the path it got and a hash of the generated SHARED value; web's /from-api
+//                   calls api by its name
 //   fix             commits fix.txt and keep.txt, submits; resumed (or taken over from a summary) for requested
 //                   changes it reads get_review_comments, changes fix.txt, replies to every thread, commits, submits
 //   fix-rebase      like fix, but stays after its first submission until it is stopped, and the fix round first moves
@@ -508,6 +511,9 @@ async function main() {
   if (scenario === "preview") {
     return previewApp(ticket);
   }
+  if (scenario === "preview-apps") {
+    return previewApps(ticket);
+  }
   if (scenario === "no-commit") {
     let first = "accepted";
     try {
@@ -611,6 +617,49 @@ async function previewApp(ticket) {
     ].join("\n"),
   );
   bash("git add server.js tikai-preview.yml && git commit --quiet -m 'Add a previewable app'");
+  await submit(ticket);
+  result({ result: "Done.", total_cost_usd: 0.001 });
+  return 0;
+}
+
+const PREVIEW_APP = (name, port) => `const http = require("http");
+const crypto = require("crypto");
+const shared = crypto.createHash("sha256").update(process.env.SHARED ?? "").digest("hex");
+http.createServer(async (req, res) => {
+  if (req.url === "/health" || req.url === "/api/health") return res.end("ok");
+  let fromApi = null;
+  if (req.url === "/from-api") fromApi = await (await fetch("http://api:8001/api/hello")).json();
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify({ app: "${name}", path: req.url, shared, fromApi }));
+}).listen(${port});
+console.log("${name} listening with " + process.env.SHARED);
+`;
+
+async function previewApps(ticket) {
+  const image = process.env.TIKAI_STUB_BASE_IMAGE;
+  fs.writeFileSync("web.js", PREVIEW_APP("web", 8000));
+  fs.writeFileSync("api.js", PREVIEW_APP("api", 8001));
+  fs.writeFileSync(
+    "tikai-preview.yml",
+    [
+      "apps:",
+      "  web:",
+      `    image: ${image}`,
+      "    command: node web.js",
+      "    port: 8000",
+      "    generate: [SHARED]",
+      "    healthcheck: { path: /health }",
+      "  api:",
+      "    path: /api",
+      `    image: ${image}`,
+      "    command: node api.js",
+      "    port: 8001",
+      "    generate: [SHARED]",
+      "    healthcheck: { path: /api/health }",
+      "",
+    ].join("\n"),
+  );
+  bash("git add web.js api.js tikai-preview.yml && git commit --quiet -m 'Add a previewable app with two processes'");
   await submit(ticket);
   result({ result: "Done.", total_cost_usd: 0.001 });
   return 0;

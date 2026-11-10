@@ -1,14 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '../ui/Button'
 import { ErrorText, Hint } from '../ui/form'
 import { StopIcon, TerminalIcon } from '../ui/icons'
+import { Segmented } from '../ui/Segmented'
 import { Tag } from '../ui/Tag'
 import {
+  appsLine,
   canStart,
   changeSetPreviewQuery,
+  exampleApps,
   exampleDefinition,
+  filterLog,
   isActive,
+  logFilterOptions,
   previewLine,
   previewLogQuery,
   previewStateLabel,
@@ -56,6 +61,14 @@ export function PreviewPanel({
           </Hint>
           <pre className="m-0 overflow-x-auto rounded bg-surface px-3 py-2 font-mono text-mono">
             {exampleDefinition}
+          </pre>
+          <Hint>
+            Several processes, such as a frontend dev server and an API, go under{' '}
+            <code className="font-mono text-mono">apps</code>, each on its own path prefix of the
+            preview’s address (the longest prefix wins, the path reaches the app unchanged):
+          </Hint>
+          <pre className="m-0 overflow-x-auto rounded bg-surface px-3 py-2 font-mono text-mono">
+            {exampleApps}
           </pre>
           <div>
             <Button variant="ghost" size="sm" onClick={onTryLocally}>
@@ -122,17 +135,25 @@ export function PreviewPanel({
           </span>
         </div>
       )}
+      {preview && isActive(preview.state) && appsLine(preview.apps) && (
+        <span className="text-sm text-fg-muted">{appsLine(preview.apps)}</span>
+      )}
       {preview && preview.lastLogSeq > 0 && <PreviewLog preview={preview} />}
       {error && <ErrorText>{error.message}</ErrorText>}
     </section>
   )
 }
 
-/** The latest lines of the preview's log (clone, setup output, the app), following new lines while it is shown. */
+/**
+ * The latest lines of the preview's log (clone, setup output, the apps), following new lines while it is shown. With
+ * several apps, a filter shows one app's lines with the hub's notes.
+ */
 function PreviewLog({ preview }: { preview: Preview }) {
   const log = useQuery(previewLogQuery(preview))
   const box = useRef<HTMLDivElement>(null)
-  const lines = log.data ?? []
+  const [filter, setFilter] = useState('all')
+  const options = logFilterOptions(preview.apps)
+  const lines = filterLog(log.data ?? [], options.some((o) => o.value === filter) ? filter : 'all')
   const last = lines.at(-1)?.seq
   // Follows the end of the log unless the reader scrolled up.
   useEffect(() => {
@@ -144,6 +165,16 @@ function PreviewLog({ preview }: { preview: Preview }) {
   return (
     <details open={isActive(preview.state) || preview.state === 'failed'}>
       <summary className="cursor-pointer text-sm text-fg-muted select-none">Preview log</summary>
+      {options.length > 0 && (
+        <Segmented
+          label="Log of"
+          size="sm"
+          className="mt-1.5"
+          value={filter}
+          options={options}
+          onChange={setFilter}
+        />
+      )}
       <div
         ref={box}
         role="log"
@@ -152,7 +183,7 @@ function PreviewLog({ preview }: { preview: Preview }) {
       >
         {lines.map((line) => (
           <div key={line.seq} className="flex gap-2 whitespace-pre-wrap">
-            <span className="shrink-0 text-fg-subtle">{line.source}</span>
+            <span className="min-w-[8ch] shrink-0 text-fg-subtle">{line.source}</span>
             <span className="min-w-0 break-words">{line.text}</span>
           </div>
         ))}

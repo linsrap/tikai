@@ -104,6 +104,51 @@ public sealed class PreviewProxyTests(PostgresFixture postgres, AgentHost agents
         Assert.Equal(HttpStatusCode.Conflict, late.StatusCode);
     }
 
+    [Fact]
+    public async Task Paths_go_to_the_app_with_the_longest_matching_prefix_unchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var hub = await agents.StartHubAsync(postgres);
+        var ticket = await hub.CreateTicketAsync("preview-apps");
+        var changeSetId = (await hub.WaitForEndAsync((await hub.AssignAsync(ticket)).Id)).ChangeSetId!.Value;
+        var preview = await StartRunningAsync(hub, changeSetId);
+
+        var host = $"{preview.Id:N}.preview.localhost:{hub.Port}";
+        using var http = new HttpClient(new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false }) { BaseAddress = new Uri($"http://localhost:{hub.Port}") };
+        string session;
+        using (var entered = await SendAsync(http, host, new Uri(await EntryAsync(hub, preview.Id)).PathAndQuery, null))
+        {
+            Assert.Equal(HttpStatusCode.Redirect, entered.StatusCode);
+            session = Assert.Single(entered.Headers.GetValues("Set-Cookie")).Split(';')[0];
+        }
+
+        async Task<AppAnswer> GetAsync(string path)
+        {
+            using var response = await SendAsync(http, host, path, session);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<AppAnswer>(ct))!;
+        }
+
+        Assert.Equal(("web", "/"), (await GetAsync("/")).Pick());
+        Assert.Equal(("web", "/index.html?x=1"), (await GetAsync("/index.html?x=1")).Pick());
+        Assert.Equal(("api", "/api"), (await GetAsync("/api")).Pick());
+        // The prefix stays on the path.
+        Assert.Equal(("api", "/api/hello?q=2"), (await GetAsync("/api/hello?q=2")).Pick());
+        Assert.Equal(("web", "/apix"), (await GetAsync("/apix")).Pick());
+
+        // web reaches api by its name; both got the same generated value.
+        var web = await GetAsync("/from-api");
+        Assert.Equal("api", web.FromApi!.App);
+        Assert.Equal(web.Shared, web.FromApi.Shared);
+        Assert.Equal(web.Shared, (await GetAsync("/api/x")).Shared);
+
+        var log = await hub.Browser.GetJsonAsync<List<PreviewLogLineInfo>>($"/api/previews/{preview.Id}/log?limit=1000");
+        Assert.Contains(log, l => l.Source == "app web" && l.Text == "web listening with [redacted]");
+        Assert.Contains(log, l => l.Source == "app api" && l.Text == "api listening with [redacted]");
+
+        (await hub.Browser.PostAsync($"/api/previews/{preview.Id}/stop", new { })).EnsureSuccessStatusCode();
+    }
+
     private static async Task<HttpResponseMessage> SendAsync(HttpClient http, string host, string path, string? cookie)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
@@ -157,4 +202,9 @@ public sealed class PreviewProxyTests(PostgresFixture postgres, AgentHost agents
     }
 
     private sealed record EchoInfo(string? Cookie, string? Host, string? ForwardedHost);
+
+    private sealed record AppAnswer(string App, string Path, string Shared, AppAnswer? FromApi)
+    {
+        public (string, string) Pick() => (App, Path);
+    }
 }

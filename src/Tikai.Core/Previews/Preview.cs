@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Tikai.Core.Common;
 
 namespace Tikai.Core.Previews;
@@ -48,10 +49,8 @@ public class Preview : Entity
     /// <summary>Set once its containers, network and directory are gone.</summary>
     public DateTimeOffset? CleanedAt { get; set; }
 
-    /// <summary>Where the hub reaches the app (set while running).</summary>
-    public string? Upstream { get; set; }
-
-    public string? AppContainerId { get; set; }
+    /// <summary>JSON of the <see cref="PreviewAppUpstream"/> list: where the hub reaches each app (set while running).</summary>
+    public string? Upstreams { get; set; }
 
     /// <summary>The number of the last log line (counter for <see cref="PreviewLogLine.Seq"/>).</summary>
     public long LastLogSeq { get; set; }
@@ -112,4 +111,18 @@ public static class PreviewRules
 
     /// <summary>States in which a preview has (or is getting) containers.</summary>
     public static readonly IReadOnlyList<PreviewState> Active = [PreviewState.Preparing, PreviewState.Starting, PreviewState.Running];
+}
+
+/// <summary>One app of a running preview: the path prefix it serves, where the hub reaches it, and its container.</summary>
+public sealed record PreviewAppUpstream(string Name, string Path, string Url, string ContainerId);
+
+public static class PreviewUpstreams
+{
+    private static readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+
+    public static string ToJson(IReadOnlyList<PreviewAppUpstream> apps) => JsonSerializer.Serialize(apps, _json);
+
+    /// <summary>Empty for null (a preview that does not run).</summary>
+    public static IReadOnlyList<PreviewAppUpstream> FromJson(string? json) =>
+        string.IsNullOrEmpty(json) ? [] : JsonSerializer.Deserialize<List<PreviewAppUpstream>>(json, _json) ?? [];
 }

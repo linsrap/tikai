@@ -8,6 +8,7 @@ export type ChangeSetPreview = components['schemas']['ChangeSetPreviewInfo']
 export type Preview = components['schemas']['PreviewInfo']
 export type PreviewState = Preview['state']
 export type PreviewLogLine = components['schemas']['PreviewLogLineInfo']
+export type PreviewApp = components['schemas']['PreviewAppInfo']
 
 /** The log lines shown at most (the latest). */
 export const shownLogLines = 500
@@ -78,6 +79,33 @@ export function previewLine(preview: Preview): string {
   }
 }
 
+/** Which app serves which path, for a preview with several apps; null for a single app. */
+export function appsLine(apps: PreviewApp[]): string | null {
+  if (apps.length < 2) {
+    return null
+  }
+  return 'Apps: ' + apps.map((a) => `${a.name} on ${a.path}`).join(', ')
+}
+
+/** "all" or one app's log source. */
+export type LogFilter = string
+
+/** The log filter's options: everything, or one app's lines, for a preview with several apps. */
+export function logFilterOptions(apps: PreviewApp[]): { value: LogFilter; label: string }[] {
+  if (apps.length < 2) {
+    return []
+  }
+  return [
+    { value: 'all', label: 'All' },
+    ...apps.map((a) => ({ value: a.logSource, label: a.name })),
+  ]
+}
+
+/** The lines a filter shows; an app's filter keeps the hub's own notes, which say when it started or failed. */
+export function filterLog(lines: PreviewLogLine[], filter: LogFilter): PreviewLogLine[] {
+  return filter === 'all' ? lines : lines.filter((l) => l.source === filter || l.source === 'hub')
+}
+
 /** A start for the latest round, unless one runs for it already. */
 export function canStart(info: ChangeSetPreview, open: boolean): boolean {
   return (
@@ -93,7 +121,7 @@ export function canStart(info: ChangeSetPreview, open: boolean): boolean {
   )
 }
 
-/** What a tikai-preview.yml looks like, for rounds without one. */
+/** What a tikai-preview.yml looks like, for rounds without one (several processes: see exampleApps). */
 export const exampleDefinition = `setup:
   - image: node:24-trixie-slim
     run: npm ci && npm run build
@@ -107,6 +135,19 @@ services:
     image: postgres:17
     environment: { POSTGRES_PASSWORD: preview }
     healthcheck: { command: pg_isready -U postgres }`
+
+/** Several app processes on one origin, routed by path prefix (the longest wins, the path stays as it is). */
+export const exampleApps = `apps:
+  web:
+    image: node:24-trixie-slim
+    command: npm run dev -- --host 0.0.0.0
+    port: 5173
+  api:
+    path: /api
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    command: dotnet run --project src/Api --urls http://0.0.0.0:8080
+    port: 8080
+    healthcheck: { path: /api/health }`
 
 export function useStartPreview(changeSetId: string) {
   const queryClient = useQueryClient()

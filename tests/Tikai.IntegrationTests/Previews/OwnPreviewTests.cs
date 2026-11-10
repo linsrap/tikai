@@ -62,7 +62,7 @@ public sealed class OwnPreviewTests(AgentHost agents) : IClassFixture<AgentHost>
             }
             var started = await environment.StartAsync(_previewId, definition, Sink, ct);
 
-            using var http = new HttpClient { BaseAddress = started.Upstream };
+            using var http = new HttpClient { BaseAddress = new Uri(Assert.Single(started.Apps).Url) };
             Assert.Equal(HttpStatusCode.OK, (await http.GetAsync(new Uri("/health/ready", UriKind.Relative), ct)).StatusCode);
             Assert.Contains("<div id=\"root\">", await http.GetStringAsync(new Uri("/", UriKind.Relative), ct), StringComparison.Ordinal);
         }

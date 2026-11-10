@@ -39,12 +39,12 @@ public class PreviewDefinitionTests
 
         Assert.Equal(2, definition.Setup.Count);
         Assert.Equal(new PreviewSetupStep("node:24-trixie-slim", "npm ci --prefix web && npm run build --prefix web"), definition.Setup[0]);
-        Assert.Equal("mcr.microsoft.com/dotnet/sdk:10.0", definition.App.Image);
-        Assert.Equal("dotnet /preview/out/Tikai.Api.dll", definition.App.Command);
-        Assert.Equal(8080, definition.App.Port);
-        Assert.Equal("Host=db;Database=tikai;Username=tikai;Password=preview", definition.App.Environment["ConnectionStrings__Tikai"]);
-        Assert.Equal(["TIKAI_SECRET"], definition.App.Generate);
-        Assert.Equal("/health", definition.App.HealthcheckPath);
+        Assert.Equal("mcr.microsoft.com/dotnet/sdk:10.0", definition.Apps[0].Image);
+        Assert.Equal("dotnet /preview/out/Tikai.Api.dll", definition.Apps[0].Command);
+        Assert.Equal(8080, definition.Apps[0].Port);
+        Assert.Equal("Host=db;Database=tikai;Username=tikai;Password=preview", definition.Apps[0].Environment["ConnectionStrings__Tikai"]);
+        Assert.Equal(["TIKAI_SECRET"], definition.Apps[0].Generate);
+        Assert.Equal("/health", definition.Apps[0].HealthcheckPath);
         var db = Assert.Single(definition.Services);
         Assert.Equal("db", db.Name);
         Assert.Equal("postgres:17", db.Image);
@@ -61,9 +61,9 @@ public class PreviewDefinitionTests
 
         Assert.Empty(definition.Setup);
         Assert.Empty(definition.Services);
-        Assert.Empty(definition.App.Environment);
-        Assert.Empty(definition.App.Generate);
-        Assert.Null(definition.App.HealthcheckPath);
+        Assert.Empty(definition.Apps[0].Environment);
+        Assert.Empty(definition.Apps[0].Generate);
+        Assert.Null(definition.Apps[0].HealthcheckPath);
         Assert.Equal(PreviewDefinition.DefaultIdleMinutes, definition.IdleMinutes);
     }
 
@@ -86,8 +86,8 @@ public class PreviewDefinitionTests
     {
         var definition = Ok(Minimal + "\n  environment: { WORKERS: 4, DEBUG: true }");
 
-        Assert.Equal("4", definition.App.Environment["WORKERS"]);
-        Assert.Equal("true", definition.App.Environment["DEBUG"]);
+        Assert.Equal("4", definition.Apps[0].Environment["WORKERS"]);
+        Assert.Equal("true", definition.Apps[0].Environment["DEBUG"]);
     }
 
     // Everything the file could use to make Docker do more than the hub allows.
@@ -164,7 +164,7 @@ public class PreviewDefinitionTests
     [Fact]
     public void An_app_is_required()
     {
-        Assert.Contains("app: required", Errors("idle_minutes: 30"));
+        Assert.Contains("app or apps: required", Errors("idle_minutes: 30"));
     }
 
     [Fact]
@@ -351,9 +351,168 @@ public class PreviewDefinitionTests
         var definition = Ok(File.ReadAllText(Path.Combine(root.FullName, PreviewDefinition.FileName)));
 
         Assert.Equal(["db"], definition.Services.Select(s => s.Name));
-        Assert.Equal("false", definition.App.Environment["Tikai__Docker__Enabled"]);
-        Assert.Equal(["Tikai__EncryptionSecret"], definition.App.Generate);
-        Assert.Equal("/health/ready", definition.App.HealthcheckPath);
+        Assert.Equal("false", definition.Apps[0].Environment["Tikai__Docker__Enabled"]);
+        Assert.Equal(["Tikai__EncryptionSecret"], definition.Apps[0].Generate);
+        Assert.Equal("/health/ready", definition.Apps[0].HealthcheckPath);
+    }
+
+    private const string TwoApps = """
+        apps:
+          web:
+            image: node:24-trixie-slim
+            command: npm run dev --prefix web -- --host 0.0.0.0
+            port: 5173
+            generate: [SHARED]
+          api:
+            path: /api
+            image: mcr.microsoft.com/dotnet/sdk:10.0
+            command: dotnet run --project src/Api
+            port: 8080
+            generate: [SHARED, API_ONLY]
+            healthcheck: { path: /api/health }
+        services:
+          db:
+            image: postgres:17
+        """;
+
+    [Fact]
+    public void The_single_app_is_one_app_named_app_on_the_root_path()
+    {
+        var app = Assert.Single(Ok(Minimal).Apps);
+
+        Assert.Equal((PreviewApp.SingleName, "/", "app", "The app"), (app.Name, app.Path, app.LogSource, app.Label));
+    }
+
+    [Fact]
+    public void Apps_are_read_in_order_with_their_path_prefixes()
+    {
+        var definition = Ok(TwoApps);
+
+        Assert.Equal(["web", "api"], definition.Apps.Select(a => a.Name));
+        Assert.Equal(["/", "/api"], definition.Apps.Select(a => a.Path));
+        var api = definition.Apps[1];
+        Assert.Equal((8080, "/api/health", "app api", "The app api"), (api.Port, api.HealthcheckPath, api.LogSource, api.Label));
+        Assert.Equal(["SHARED", "API_ONLY"], api.Generate);
+        Assert.Equal(["SHARED"], definition.Apps[0].Generate);
+    }
+
+    [Fact]
+    public void Deeper_prefixes_are_accepted()
+    {
+        var definition = Ok("apps:\n  web: { image: a, command: b, port: 80 }\n  v2: { path: /api/v2.1, image: a, command: b, port: 81 }\n  docs: { path: /_docs~x, image: a, command: b, port: 82 }");
+
+        Assert.Equal(["/", "/api/v2.1", "/_docs~x"], definition.Apps.Select(a => a.Path));
+    }
+
+    [Fact]
+    public void A_file_has_app_or_apps_but_not_both()
+    {
+        Assert.Contains("app and apps: use one of them, not both (app is one app on /)",
+            Errors(Minimal + "\napps:\n  web: { image: a, command: b, port: 80 }"));
+    }
+
+    [Fact]
+    public void The_single_app_has_no_path()
+    {
+        Assert.Contains("app.path: not allowed; app is always on /, use apps for several path prefixes",
+            Errors(Minimal + "\n  path: /api"));
+    }
+
+    [Fact]
+    public void Apps_must_be_a_mapping_of_mappings_with_at_least_one_app()
+    {
+        Assert.Contains("apps: must be a mapping from a name to an app", Errors("apps: [web, api]"));
+        Assert.Contains("apps: at least one app", Errors("apps: {}"));
+        Assert.Contains("apps.web: must be a mapping", Errors("apps:\n  web: node server.js"));
+    }
+
+    [Fact]
+    public void At_most_five_apps()
+    {
+        var apps = string.Concat(Enumerable.Range(0, PreviewDefinition.MaxApps + 1)
+            .Select(i => $"\n  a{i}: {{ path: {(i == 0 ? "/" : $"/p{i}")}, image: a, command: b, port: 80 }}"));
+
+        Assert.Contains($"apps: at most {PreviewDefinition.MaxApps} apps", Errors("apps:" + apps));
+    }
+
+    [Theory]
+    [InlineData("Web")]
+    [InlineData("1web")]
+    [InlineData("web_1")]
+    [InlineData("hub")]
+    [InlineData("a-very-long-name-that-is-no-host-label")]
+    public void App_names_are_lowercase_host_names_other_than_hub(string name)
+    {
+        Assert.Contains($"apps.{name}: the name must be a lowercase host name (letters, digits, -) other than hub",
+            Errors($"apps:\n  {name}: {{ image: a, command: b, port: 80 }}"));
+    }
+
+    [Fact]
+    public void An_app_may_not_share_its_name_with_a_service()
+    {
+        Assert.Contains("apps.db: also the name of a service; apps and services share the preview's network",
+            Errors("apps:\n  web: { image: a, command: b, port: 80 }\n  db: { path: /db, image: a, command: b, port: 81 }\nservices:\n  db: { image: postgres:17 }"));
+    }
+
+    [Fact]
+    public void Exactly_one_app_is_on_the_root_path()
+    {
+        Assert.Contains("apps: exactly one app must be on path / (the default)",
+            Errors("apps:\n  api: { path: /api, image: a, command: b, port: 80 }"));
+        Assert.Contains("apps.api: its path / is also the path of apps.web; each app needs its own prefix (the default is /)",
+            Errors("apps:\n  web: { image: a, command: b, port: 80 }\n  api: { image: a, command: b, port: 81 }"));
+    }
+
+    [Fact]
+    public void Prefixes_are_unique()
+    {
+        Assert.Contains("apps.b: its path /api is also the path of apps.a; each app needs its own prefix (the default is /)",
+            Errors("apps:\n  web: { image: a, command: b, port: 80 }\n  a: { path: /api, image: a, command: b, port: 81 }\n  b: { path: /api, image: a, command: b, port: 82 }"));
+    }
+
+    [Theory]
+    [InlineData("api")]
+    [InlineData("/api/")]
+    [InlineData("//api")]
+    [InlineData("/a b")]
+    [InlineData("/api?x=1")]
+    [InlineData("/api#top")]
+    [InlineData("/../x")]
+    [InlineData("/./x")]
+    [InlineData("/api/..")]
+    [InlineData("/%2e%2e")]
+    [InlineData("/a//b")]
+    public void A_prefix_is_a_clean_path_starting_with_a_slash(string prefix)
+    {
+        Assert.Contains("apps.api.path: must be / or a prefix like /api (segments of letters, digits, . _ ~ -, no trailing slash)",
+            Errors($"apps:\n  web: {{ image: a, command: b, port: 80 }}\n  api: {{ path: \"{prefix}\", image: a, command: b, port: 81 }}"));
+    }
+
+    [Theory]
+    [InlineData("build")]
+    [InlineData("volumes")]
+    [InlineData("ports")]
+    [InlineData("privileged")]
+    [InlineData("user")]
+    [InlineData("networks")]
+    [InlineData("entrypoint")]
+    public void Docker_options_are_refused_on_each_app(string key)
+    {
+        var errors = Errors($"apps:\n  web: {{ image: a, command: b, port: 80 }}\n  api: {{ path: /api, image: a, command: b, port: 81, {key}: x }}");
+
+        Assert.Contains($"apps.api.{key}: not allowed; a preview definition only describes how to start the app, the hub decides what it may do", errors);
+    }
+
+    [Fact]
+    public void Each_app_needs_image_command_and_port_and_its_own_checks()
+    {
+        var errors = Errors("apps:\n  web: { path: /, environment: { S: x }, generate: [S, \"bad name\"] }");
+
+        Assert.Contains("apps.web.image: required", errors);
+        Assert.Contains("apps.web.command: required", errors);
+        Assert.Contains("apps.web.port: required", errors);
+        Assert.Contains("apps.web.generate.S: also set in apps.web.environment", errors);
+        Assert.Contains("apps.web.generate.bad name: not a variable name", errors);
     }
 
     private static PreviewDefinition Ok(string yaml)
