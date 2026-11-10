@@ -2707,6 +2707,12 @@ export interface components {
         };
         /** @enum {unknown} */
         CredentialKind: "none" | "https_token" | "ssh_key";
+        CriterionChange: {
+            /** Format: int32 */
+            replaces: null | number;
+            was: null | string;
+            text: string;
+        };
         /** @enum {unknown} */
         CriterionCoverage: "covered" | "partial" | "missing";
         CriterionInfo: {
@@ -2911,6 +2917,7 @@ export interface components {
             criteria?: null | string[];
             /** Format: uuid */
             providerId?: null | string;
+            minSize?: null | components["schemas"]["SpecSize"];
         };
         RepositoryInfo: {
             /** Format: uuid */
@@ -3123,10 +3130,12 @@ export interface components {
             password: string;
         };
         SpecProposalInfo: {
+            size: components["schemas"]["SpecSize"];
             title: null | string;
             description: null | string;
-            criteria: string[];
-            questions: string[];
+            criteria: components["schemas"]["CriterionChange"][];
+            assumptions: string[];
+            questions: components["schemas"]["SpecQuestion"][];
             promptVersion: string;
             /** Format: uuid */
             providerId: string;
@@ -3135,6 +3144,13 @@ export interface components {
             /** Format: int32 */
             durationMs: number;
         };
+        SpecQuestion: {
+            question: string;
+            options: string[];
+            recommended: null | string;
+        };
+        /** @enum {unknown} */
+        SpecSize: "small" | "medium" | "large";
         StartRunRequest: {
             /** Format: uuid */
             repositoryId?: null | string;

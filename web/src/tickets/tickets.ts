@@ -11,6 +11,7 @@ export type CreateTicketRequest = components['schemas']['CreateTicketRequest']
 export type UpdateTicketRequest = components['schemas']['UpdateTicketRequest']
 export type RefineSpecRequest = components['schemas']['RefineSpecRequest']
 export type SpecProposal = components['schemas']['SpecProposalInfo']
+export type SpecSize = components['schemas']['SpecSize']
 
 export const statusLabel: Record<TicketStatus, string> = {
   open: 'Open',
@@ -126,43 +127,101 @@ export function toUpdateTicketRequest(form: TicketForm): UpdateTicketRequest {
 export function toRefineSpecRequest(
   form: TicketForm,
   providerId: string | null,
+  minSize?: SpecSize,
 ): RefineSpecRequest {
   return {
     title: form.title.trim(),
     description: form.description,
     criteria: filled(form.criteria).map((c) => c.text.trim()),
     providerId,
+    ...(minSize ? { minSize } : {}),
   }
 }
 
-// Taking over parts of a proposal. Each one changes only the form; nothing is saved until "Save".
+/** The keys of the criteria a refine request sends, in order: a proposal's `replaces` is a place in this list. */
+export const refinedCriterionKeys = (form: TicketForm) => filled(form.criteria).map((c) => c.key)
 
-export function takeProposedTitle(form: TicketForm, title: string): TicketForm {
-  return { ...form, title }
+/** "More detail": one size larger, or null when the proposal is large already. */
+export function largerSize(size: SpecSize): SpecSize | null {
+  return size === 'small' ? 'medium' : size === 'medium' ? 'large' : null
 }
 
-export function takeProposedDescription(form: TicketForm, description: string): TicketForm {
-  return { ...form, description }
+/** What the person ticked in a proposal; criteria and assumptions by their place in the proposal. */
+export type RefineSelection = {
+  title: boolean
+  description: boolean
+  criteria: readonly number[]
+  assumptions: readonly number[]
+  decisions: readonly { question: string; option: string }[]
 }
 
-/** Adds one proposed criterion after the existing ones. */
-export function addProposedCriterion(form: TicketForm, text: string): TicketForm {
-  return { ...form, criteria: [...form.criteria, { key: draftKey(), id: null, text }] }
+/** Everything ticked: a proposal's parts count as accepted unless the person unticks them. */
+export function selectAll(proposal: SpecProposal): RefineSelection {
+  return {
+    title: proposal.title != null,
+    description: proposal.description != null,
+    criteria: proposal.criteria.map((_, i) => i),
+    assumptions: proposal.assumptions.map((_, i) => i),
+    decisions: [],
+  }
 }
 
-/** Replaces all criteria; replaced criteria get new ids when saved. */
-export function replaceCriteria(form: TicketForm, texts: string[]): TicketForm {
-  return { ...form, criteria: texts.map((text) => ({ key: draftKey(), id: null, text })) }
-}
-
-/** Appends the open questions to the description, so they can be answered there before refining again. */
-export function appendQuestions(form: TicketForm, questions: string[]): TicketForm {
-  const list = questions.map((q) => `- ${q}`).join('\n')
-  const description = form.description.trimEnd()
+/**
+ * Takes over the ticked parts of a proposal. Only the form changes; nothing is saved until "Save". A rewritten criterion
+ * keeps its id (its text changes); when it was removed from the form since, the rewrite is added as new. Assumptions
+ * and decisions go under "## Assumptions" in the description, where the agent reads them.
+ * `keys`: {@link refinedCriterionKeys} of the form the proposal was asked for.
+ */
+export function applyProposal(
+  form: TicketForm,
+  proposal: SpecProposal,
+  selection: RefineSelection,
+  keys: readonly string[],
+): TicketForm {
+  let criteria = form.criteria
+  for (const i of selection.criteria) {
+    const change = proposal.criteria[i]
+    if (!change) continue
+    const key = change.replaces != null ? keys[change.replaces] : undefined
+    if (key && criteria.some((c) => c.key === key)) {
+      criteria = criteria.map((c) => (c.key === key ? { ...c, text: change.text } : c))
+    } else {
+      criteria = [...criteria, { key: draftKey(), id: null, text: change.text }]
+    }
+  }
+  const lines = [
+    ...selection.assumptions
+      .map((i) => proposal.assumptions[i])
+      .filter((a) => a !== undefined)
+      .map((a) => `Assumed: ${a}`),
+    ...selection.decisions.map((d) => `Decided: ${d.question} → ${d.option}`),
+  ]
+  const description =
+    selection.description && proposal.description != null ? proposal.description : form.description
   return {
     ...form,
-    description: `${description}${description ? '\n\n' : ''}## Open questions\n\n${list}\n`,
+    title: selection.title && proposal.title != null ? proposal.title : form.title,
+    description: appendAssumptions(description, lines),
+    criteria,
   }
+}
+
+/** Adds list lines to the "## Assumptions" section of a description, or starts that section at the end. */
+export function appendAssumptions(description: string, lines: readonly string[]): string {
+  if (lines.length === 0) return description
+  const list = lines.map((line) => `- ${line}`).join('\n')
+  const text = description.trimEnd()
+  const heading = /^## Assumptions[ \t]*$/m.exec(text)
+  if (!heading) {
+    return `${text}${text ? '\n\n' : ''}## Assumptions\n\n${list}\n`
+  }
+  // The section ends at the next heading of the same or a higher level, or at the end.
+  const after = heading.index + heading[0].length
+  const next = /^#{1,2} /m.exec(text.slice(after))
+  const end = next ? after + next.index : text.length
+  const section = text.slice(0, end).trimEnd()
+  const rest = text.slice(end)
+  return `${section}\n${list}\n${rest ? `\n${rest}\n` : ''}`
 }
 
 export const ticketsQuery = (slug: string) =>

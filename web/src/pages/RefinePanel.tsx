@@ -1,27 +1,29 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useState, type ReactNode } from 'react'
+import { orderedOptions } from '../inbox/inbox'
 import { providersQuery } from '../llm/llm'
 import { MarkdownView } from '../tickets/MarkdownView'
 import {
-  addProposedCriterion,
-  appendQuestions,
-  replaceCriteria,
-  takeProposedDescription,
-  takeProposedTitle,
+  applyProposal,
+  largerSize,
+  refinedCriterionKeys,
+  selectAll,
   toRefineSpecRequest,
   useRefineSpec,
+  type RefineSelection,
   type SpecProposal,
+  type SpecSize,
   type TicketForm,
 } from '../tickets/tickets'
 import { Button } from '../ui/Button'
-import { ErrorText, Hint, Select } from '../ui/form'
+import { Check, ErrorText, Hint, Select } from '../ui/form'
 import { CheckIcon } from '../ui/icons'
-import { ConfirmDialog } from '../ui/overlay'
+import { Tag } from '../ui/Tag'
 
 /**
- * "Refine with AI": sends the form as it is to an LLM and shows the proposal next to it.
- * Each part is taken over only by clicking it; the form is saved only by its own Save button.
+ * "Refine with AI": sends the form as it is to an LLM and shows only what it would change, each part ticked. One
+ * click takes over what stays ticked; the form is saved only by its own Save button.
  */
 export function RefinePanel({
   slug,
@@ -38,7 +40,9 @@ export function RefinePanel({
   const providers = [...(projectProviders.data ?? []), ...(ownProviders.data ?? [])]
   const [providerId, setProviderId] = useState<string | null>(null)
   const refine = useRefineSpec(slug)
-  const [used, setUsed] = useState<Set<string>>(new Set())
+  // The criteria the request sent, by key: a rewrite names its criterion by its place in this list.
+  const [keys, setKeys] = useState<string[]>([])
+  const [taken, setTaken] = useState(false)
   const proposal = refine.data
 
   if (projectProviders.isPending || ownProviders.isPending) {
@@ -56,14 +60,10 @@ export function RefinePanel({
     )
   }
 
-  function take(part: string, next: TicketForm) {
-    onChange(next)
-    setUsed(new Set(used).add(part))
-  }
-
-  function start() {
-    setUsed(new Set())
-    refine.mutate(toRefineSpecRequest(form, providerId))
+  function start(minSize?: SpecSize) {
+    setTaken(false)
+    setKeys(refinedCriterionKeys(form))
+    refine.mutate(toRefineSpecRequest(form, providerId, minSize))
   }
 
   return (
@@ -74,10 +74,7 @@ export function RefinePanel({
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="m-0 text-sm font-semibold">Refine with AI</h2>
-          <Hint>
-            Proposes a clearer title, description and criteria. Nothing changes until you take it
-            over.
-          </Hint>
+          <Hint>Proposes only what it would change. Nothing changes until you take it over.</Hint>
         </div>
         {providers.length > 1 && (
           <label className="flex items-center gap-2 text-sm text-fg-muted">
@@ -97,17 +94,28 @@ export function RefinePanel({
             </Select>
           </label>
         )}
-        <Button disabled={refine.isPending || !form.title.trim()} onClick={start}>
+        <Button disabled={refine.isPending || !form.title.trim()} onClick={() => start()}>
           {refine.isPending ? 'Refining… (can take a minute)' : 'Refine with AI'}
         </Button>
       </div>
       {refine.error && <ErrorText>{refine.error.message}</ErrorText>}
-      {proposal && (
+      {taken && (
+        <p className="m-0 inline-flex items-center gap-1.5 text-sm font-medium text-ok">
+          <CheckIcon size={13} strokeWidth={2} />
+          Taken over. Save the ticket to keep it.
+        </p>
+      )}
+      {proposal && !taken && (
         <Proposal
+          // A new answer starts with everything ticked again.
+          key={`${proposal.size}-${proposal.durationMs}-${proposal.promptVersion}`}
           proposal={proposal}
-          form={form}
-          used={used}
-          take={take}
+          pending={refine.isPending}
+          onMore={(size) => start(size)}
+          onTake={(selection) => {
+            onChange(applyProposal(form, proposal, selection, keys))
+            setTaken(true)
+          }}
           onDismiss={() => refine.reset()}
         />
       )}
@@ -117,138 +125,171 @@ export function RefinePanel({
 
 function Proposal({
   proposal,
-  form,
-  used,
-  take,
+  pending,
+  onMore,
+  onTake,
   onDismiss,
 }: {
   proposal: SpecProposal
-  form: TicketForm
-  used: Set<string>
-  take: (part: string, next: TicketForm) => void
+  pending: boolean
+  onMore: (size: SpecSize) => void
+  onTake: (selection: RefineSelection) => void
   onDismiss: () => void
 }) {
-  const hasSavedCriteria = form.criteria.some((c) => c.id !== null)
-  const { title, description } = proposal
+  const [selection, setSelection] = useState<RefineSelection>(() => selectAll(proposal))
+  const more = largerSize(proposal.size)
+  const count =
+    (selection.title ? 1 : 0) +
+    (selection.description ? 1 : 0) +
+    selection.criteria.length +
+    selection.assumptions.length +
+    selection.decisions.length
+  const empty =
+    proposal.title == null &&
+    proposal.description == null &&
+    proposal.criteria.length === 0 &&
+    proposal.assumptions.length === 0 &&
+    proposal.questions.length === 0
+
+  const toggle = (list: readonly number[], i: number, on: boolean) =>
+    on ? [...list.filter((x) => x !== i), i].sort((a, b) => a - b) : list.filter((x) => x !== i)
+  const decide = (question: string, option: string | null) =>
+    setSelection((s) => ({
+      ...s,
+      decisions: [
+        ...s.decisions.filter((d) => d.question !== question),
+        ...(option ? [{ question, option }] : []),
+      ],
+    }))
 
   return (
     <div className="flex flex-col gap-5 border-t border-line-soft pt-4">
-      <p className="m-0 text-sm text-fg-subtle">
-        Proposal from {proposal.providerName} ({proposal.model}, {proposal.promptVersion}) in{' '}
-        {Math.round(proposal.durationMs / 1000)} s. Take over what you want, then save.
-      </p>
-      {title && title !== form.title && (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Tag tone="neutral">{proposal.size}</Tag>
+        <p className="m-0 min-w-0 flex-1 text-sm text-fg-subtle">
+          Proposal from {proposal.providerName} ({proposal.model}, {proposal.promptVersion}) in{' '}
+          {Math.round(proposal.durationMs / 1000)} s.
+        </p>
+        {more && (
+          <Button size="sm" variant="ghost" disabled={pending} onClick={() => onMore(more)}>
+            {pending ? 'Asking…' : 'More detail'}
+          </Button>
+        )}
+      </div>
+      {empty && <p className="m-0 text-fg-2">The ticket is fine as it is.</p>}
+      {proposal.title != null && (
         <ProposalPart title="Title">
-          <p className="m-0 font-medium">{title}</p>
-          <TakeButton
-            done={used.has('title')}
-            onClick={() => take('title', takeProposedTitle(form, title))}
-          >
-            Use this title
-          </TakeButton>
+          <Check
+            checked={selection.title}
+            onChange={(e) => setSelection({ ...selection, title: e.target.checked })}
+            label={<span className="font-medium">{proposal.title}</span>}
+          />
         </ProposalPart>
       )}
-      {description && (
+      {proposal.description != null && (
         <ProposalPart title="Description">
+          <Check
+            checked={selection.description}
+            onChange={(e) => setSelection({ ...selection, description: e.target.checked })}
+            label="Replace the description with this"
+          />
           <div className="rounded-md border border-line-soft bg-bg px-4 py-3">
-            <MarkdownView text={description} />
+            <MarkdownView text={proposal.description} />
           </div>
-          <TakeButton
-            done={used.has('description')}
-            onClick={() => take('description', takeProposedDescription(form, description))}
-          >
-            Replace the description
-          </TakeButton>
         </ProposalPart>
       )}
       {proposal.criteria.length > 0 && (
         <ProposalPart title="Acceptance criteria">
-          <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
-            {proposal.criteria.map((c, i) => (
-              <li key={c} className="flex items-baseline gap-3">
-                <span className="w-5 shrink-0 text-right text-sm text-fg-subtle tabular-nums">
-                  {i + 1}.
-                </span>
-                <span className="min-w-0 flex-1">{c}</span>
-                <TakeButton
-                  done={used.has(`criterion-${i}`) || used.has('criteria')}
-                  onClick={() => take(`criterion-${i}`, addProposedCriterion(form, c))}
-                >
-                  Add
-                </TakeButton>
-              </li>
-            ))}
-          </ol>
-          {used.has('criteria') ? (
-            <TakenOver />
-          ) : hasSavedCriteria ? (
-            <ConfirmDialog
-              trigger={<Button size="sm">Replace all criteria with these</Button>}
-              title="Replace all criteria?"
-              description="Saved criteria are deleted and the proposed ones added as new."
-              confirmLabel="Replace criteria"
-              onConfirm={() => take('criteria', replaceCriteria(form, proposal.criteria))}
+          {proposal.criteria.map((c, i) => (
+            <Check
+              key={i}
+              checked={selection.criteria.includes(i)}
+              onChange={(e) =>
+                setSelection({
+                  ...selection,
+                  criteria: toggle(selection.criteria, i, e.target.checked),
+                })
+              }
+              label={
+                <>
+                  <span className="mr-2 text-xs font-semibold text-fg-muted">
+                    {c.was != null ? 'Changed' : 'New'}
+                  </span>
+                  {c.text}
+                </>
+              }
+              hint={c.was != null ? `was: ${c.was}` : undefined}
             />
-          ) : (
-            <TakeButton
-              done={false}
-              onClick={() => take('criteria', replaceCriteria(form, proposal.criteria))}
-            >
-              Replace all criteria with these
-            </TakeButton>
-          )}
+          ))}
+        </ProposalPart>
+      )}
+      {proposal.assumptions.length > 0 && (
+        <ProposalPart title="Assumptions">
+          <Hint>
+            Accepted unless you untick them; they go under “Assumptions” in the description.
+          </Hint>
+          {proposal.assumptions.map((a, i) => (
+            <Check
+              key={i}
+              checked={selection.assumptions.includes(i)}
+              onChange={(e) =>
+                setSelection({
+                  ...selection,
+                  assumptions: toggle(selection.assumptions, i, e.target.checked),
+                })
+              }
+              label={a}
+            />
+          ))}
         </ProposalPart>
       )}
       {proposal.questions.length > 0 && (
-        <ProposalPart title="Open questions">
-          <ul className="m-0 list-disc space-y-1 pl-5 marker:text-fg-faint">
-            {proposal.questions.map((q) => (
-              <li key={q}>{q}</li>
-            ))}
-          </ul>
-          <TakeButton
-            done={used.has('questions')}
-            onClick={() => take('questions', appendQuestions(form, proposal.questions))}
-          >
-            Add to the description to answer them
-          </TakeButton>
+        <ProposalPart title="Questions">
+          {proposal.questions.map((q) => {
+            const chosen = selection.decisions.find((d) => d.question === q.question)?.option
+            return (
+              <div
+                key={q.question}
+                className="flex flex-col gap-2"
+                role="group"
+                aria-label={q.question}
+              >
+                <p className="m-0">{q.question}</p>
+                <div className="flex flex-wrap gap-2">
+                  {orderedOptions(q).map((option) => (
+                    <Button
+                      key={option}
+                      size="sm"
+                      variant={chosen === option ? 'primary' : 'secondary'}
+                      aria-pressed={chosen === option}
+                      onClick={() => decide(q.question, chosen === option ? null : option)}
+                    >
+                      {option}
+                      {option === q.recommended && (
+                        <>
+                          {' '}
+                          <span className="text-xs font-normal text-fg-subtle">recommended</span>
+                        </>
+                      )}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
         </ProposalPart>
       )}
-      <div>
+      <div className="flex flex-wrap items-center gap-2">
+        {!empty && (
+          <Button variant="primary" disabled={count === 0} onClick={() => onTake(selection)}>
+            Take over selected ({count})
+          </Button>
+        )}
         <Button variant="ghost" onClick={onDismiss}>
           Close the proposal
         </Button>
       </div>
     </div>
-  )
-}
-
-function TakeButton({
-  done,
-  onClick,
-  children,
-}: {
-  done: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return done ? (
-    <TakenOver />
-  ) : (
-    <div>
-      <Button size="sm" onClick={onClick}>
-        {children}
-      </Button>
-    </div>
-  )
-}
-
-function TakenOver() {
-  return (
-    <span className="inline-flex h-7 items-center gap-1.5 text-xs font-medium text-ok">
-      <CheckIcon size={13} strokeWidth={2} />
-      Taken over
-    </span>
   )
 }
 

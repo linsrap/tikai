@@ -3338,6 +3338,32 @@
           "ssh_key"
         ]
       },
+      "CriterionChange": {
+        "required": [
+          "replaces",
+          "was",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "replaces": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "was": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
       "CriterionCoverage": {
         "enum": [
           "covered",
@@ -4158,6 +4184,16 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "minSize": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SpecSize"
+              }
+            ]
           }
         }
       },
@@ -5037,9 +5073,11 @@
       },
       "SpecProposalInfo": {
         "required": [
+          "size",
           "title",
           "description",
           "criteria",
+          "assumptions",
           "questions",
           "promptVersion",
           "providerId",
@@ -5049,6 +5087,9 @@
         ],
         "type": "object",
         "properties": {
+          "size": {
+            "$ref": "#/components/schemas/SpecSize"
+          },
           "title": {
             "type": [
               "null",
@@ -5064,13 +5105,19 @@
           "criteria": {
             "type": "array",
             "items": {
+              "$ref": "#/components/schemas/CriterionChange"
+            }
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
               "type": "string"
             }
           },
           "questions": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/SpecQuestion"
             }
           },
           "promptVersion": {
@@ -5091,6 +5138,38 @@
             "format": "int32"
           }
         }
+      },
+      "SpecQuestion": {
+        "required": [
+          "question",
+          "options",
+          "recommended"
+        ],
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommended": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SpecSize": {
+        "enum": [
+          "small",
+          "medium",
+          "large"
+        ]
       },
       "StartRunRequest": {
         "type": "object",
