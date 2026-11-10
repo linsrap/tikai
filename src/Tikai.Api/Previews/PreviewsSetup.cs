@@ -3,7 +3,7 @@ using Tikai.Orchestrator.Previews;
 
 namespace Tikai.Api.Previews;
 
-/// <summary>Previews of review rounds: settings, the start and teardown jobs, the log follower and the reconciler.</summary>
+/// <summary>Previews of review rounds: settings, the start and teardown jobs, the log follower, the reconciler and the proxy's upstream cache.</summary>
 internal static class PreviewsSetup
 {
     public static IServiceCollection AddTikaiPreviews(this IServiceCollection services, IConfiguration configuration)
@@ -22,6 +22,8 @@ internal static class PreviewsSetup
         services.AddJobHandler<PreviewStarter>(PreviewJob.StartQueue);
         services.AddJobHandler<PreviewTeardown>(PreviewJob.TeardownQueue);
         services.AddHostedService<PreviewReconciler>();
+        services.AddSingleton<PreviewUpstreamCache>();
+        services.AddHostedService(sp => sp.GetRequiredService<PreviewUpstreamCache>());
         services.AddHttpForwarder();
         return services;
     }
