@@ -24,6 +24,7 @@ services:
       # which the hub (this container) joins to reach the app.
       Tikai__Previews__PreviewsVolume: ${COMPOSE_PROJECT_NAME}_previews
       Tikai__Previews__HubContainer: ${COMPOSE_PROJECT_NAME}-hub-1
+      Tikai__Previews__Domain: ${TIKAI_PREVIEW_DOMAIN:-}
     volumes:
       - data:/data # Data Protection keys (encrypted with TIKAI_SECRET) and repository mirrors; hub only
     networks: [default, agents]
