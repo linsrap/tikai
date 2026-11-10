@@ -2304,6 +2304,157 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/change-sets/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChangeSetPreviewInfo"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change-sets/{id}/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PreviewInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/previews/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PreviewInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/previews/{id}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    afterSeq?: number;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PreviewLogLineInfo"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2419,6 +2570,12 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             delivery: components["schemas"]["DeliveryInfo"];
+        };
+        ChangeSetPreviewInfo: {
+            available: boolean;
+            unavailableReason: null | string;
+            definition: components["schemas"]["PreviewDefinitionInfo"];
+            preview: null | components["schemas"]["PreviewInfo"];
         };
         /** @enum {unknown} */
         ChangeSetStatus: "open" | "delivering" | "merged" | "pushed" | "closed";
@@ -2623,6 +2780,45 @@ export interface components {
             risks: string[];
             filesExpected: string[];
         };
+        PreviewDefinitionInfo: {
+            /** Format: int32 */
+            roundNo: number;
+            found: boolean;
+            errors: string[];
+        };
+        PreviewInfo: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            changeSetId: string;
+            /** Format: int32 */
+            roundNo: number;
+            headSha: string;
+            state: components["schemas"]["PreviewState"];
+            error: null | string;
+            stopReason: null | string;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            runningAt: null | string;
+            /** Format: date-time */
+            stoppedAt: null | string;
+            /** Format: int32 */
+            idleMinutes: number;
+            /** Format: int64 */
+            lastLogSeq: number;
+            url: null | string;
+        };
+        PreviewLogLineInfo: {
+            /** Format: int64 */
+            seq: number;
+            source: string;
+            text: string;
+            /** Format: date-time */
+            at: string;
+        };
+        /** @enum {unknown} */
+        PreviewState: "preparing" | "starting" | "running" | "stopped" | "failed";
         ProjectInfo: {
             /** Format: uuid */
             id: string;

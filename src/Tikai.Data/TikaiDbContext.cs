@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Tikai.Core.Attention;
 using Tikai.Core.Common;
 using Tikai.Core.Llm;
+using Tikai.Core.Previews;
 using Tikai.Core.Projects;
 using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
@@ -43,6 +44,10 @@ public class TikaiDbContext(DbContextOptions options)
     public DbSet<ReviewThread> ReviewThreads => Set<ReviewThread>();
 
     public DbSet<ReviewComment> ReviewComments => Set<ReviewComment>();
+
+    public DbSet<Preview> Previews => Set<Preview>();
+
+    public DbSet<PreviewLogLine> PreviewLogLines => Set<PreviewLogLine>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

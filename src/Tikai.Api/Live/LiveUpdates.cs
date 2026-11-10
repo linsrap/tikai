@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Tikai.Core.Attention;
 using Tikai.Core.Events;
+using Tikai.Core.Previews;
 using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Data;
@@ -26,6 +27,7 @@ internal sealed partial class LiveUpdates(IEventBus bus, IHubContext<LiveHub, IL
             bus.Subscribe(AttentionItem.Topic, OnItemAsync),
             bus.Subscribe(RunEvent.Topic, OnRunEventsAsync),
             bus.Subscribe(ChangeSet.Topic, OnChangeSetAsync),
+            bus.Subscribe(Preview.Topic, OnPreviewAsync),
         ];
         return Task.CompletedTask;
     }
@@ -100,6 +102,30 @@ internal sealed partial class LiveUpdates(IEventBus bus, IHubContext<LiveHub, IL
         if (target is not null)
         {
             await hub.Clients.Groups(LiveGroups.All, LiveGroups.Project(target.ProjectId)).ChangeSetChanged(new(changeSetId, target.Slug, target.Number));
+        }
+    }
+
+    // State changes and new log lines of a preview.
+    private async Task OnPreviewAsync(BusEvent e, CancellationToken cancellationToken)
+    {
+        if (e.Id is not { } previewId)
+        {
+            await ResyncAsync();
+            return;
+        }
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
+        var target = await (
+            from v in db.Previews
+            join c in db.ChangeSets on v.ChangeSetId equals c.Id
+            join t in db.Tickets on c.TicketId equals t.Id
+            join p in db.Projects on t.ProjectId equals p.Id
+            where v.Id == previewId
+            select new { ProjectId = p.Id, ChangeSetId = c.Id, p.Slug, t.Number }).SingleOrDefaultAsync(cancellationToken);
+        if (target is not null)
+        {
+            await hub.Clients.Groups(LiveGroups.All, LiveGroups.Project(target.ProjectId))
+                .PreviewChanged(new(previewId, target.ChangeSetId, target.Slug, target.Number));
         }
     }
 

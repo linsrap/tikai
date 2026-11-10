@@ -57,6 +57,9 @@ public interface ILiveClient
     /// <summary>A change set got a new round or a verdict, or closed.</summary>
     Task ChangeSetChanged(ChangeSetChange change);
 
+    /// <summary>A preview changed its state or has new log lines: re-read it and its log after the last seq seen.</summary>
+    Task PreviewChanged(PreviewChange change);
+
     /// <summary>The run has new transcript events: fetch those after the last seq seen.</summary>
     Task RunEvents(RunEventsChange change);
 
@@ -71,6 +74,8 @@ public sealed record AttentionChange(Guid ItemId, string ProjectSlug, int Ticket
 public sealed record ChangeSetChange(Guid ChangeSetId, string ProjectSlug, int TicketNumber);
 
 public sealed record RunEventsChange(Guid RunId);
+
+public sealed record PreviewChange(Guid PreviewId, Guid ChangeSetId, string ProjectSlug, int TicketNumber);
 
 internal static class LiveGroups
 {

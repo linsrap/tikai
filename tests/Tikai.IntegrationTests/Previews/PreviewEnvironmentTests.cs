@@ -46,8 +46,8 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
     {
         var (environment, runtime) = Create();
         var previewId = NewPreview();
-        var log = new List<PreviewLogLine>();
-        Task Sink(IReadOnlyList<PreviewLogLine> lines, CancellationToken _)
+        var log = new List<PreviewLogEntry>();
+        Task Sink(IReadOnlyList<PreviewLogEntry> lines, CancellationToken _)
         {
             lock (log)
             {
@@ -139,7 +139,7 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
     {
         var (environment, _) = Create();
         var previewId = NewPreview();
-        var log = new List<PreviewLogLine>();
+        var log = new List<PreviewLogEntry>();
         var ct = TestContext.Current.CancellationToken;
         await environment.WriteSourceAsync(previewId, await BundleAsync(), ct);
         await environment.CloneAsync(previewId, RoundRef, (_, _) => Task.CompletedTask, ct);

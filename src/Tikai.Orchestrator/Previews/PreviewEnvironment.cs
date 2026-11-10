@@ -9,10 +9,10 @@ namespace Tikai.Orchestrator.Previews;
 
 /// <summary>One line of a preview's log.</summary>
 /// <param name="Source">hub, setup 1, app, …</param>
-public sealed record PreviewLogLine(string Source, string Text);
+public sealed record PreviewLogEntry(string Source, string Text);
 
 /// <summary>Stores lines of a preview's log (already redacted).</summary>
-public delegate Task PreviewLogSink(IReadOnlyList<PreviewLogLine> lines, CancellationToken cancellationToken);
+public delegate Task PreviewLogSink(IReadOnlyList<PreviewLogEntry> lines, CancellationToken cancellationToken);
 
 /// <summary>A preview could not be started, for a reason people can act on.</summary>
 public sealed class PreviewStartException(string message) : Exception(message);
@@ -106,7 +106,7 @@ public sealed class PreviewEnvironment(
             {
                 throw new PreviewStartException($"Cloning the round failed (exit code {output.ExitCode}): {output.Text}");
             }
-            await log([new PreviewLogLine("hub", "Source: " + output.Text)], cancellationToken);
+            await log([new PreviewLogEntry("hub", "Source: " + output.Text)], cancellationToken);
         }
         finally
         {
@@ -120,7 +120,7 @@ public sealed class PreviewEnvironment(
         {
             return;
         }
-        await log([new PreviewLogLine("hub", $"Pulling {image}")], cancellationToken);
+        await log([new PreviewLogEntry("hub", $"Pulling {image}")], cancellationToken);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_options.PullTimeout);
         try
@@ -143,7 +143,7 @@ public sealed class PreviewEnvironment(
     {
         await PullAsync(step.Image, log, cancellationToken);
         var source = $"setup {number.ToString(CultureInfo.InvariantCulture)}";
-        await log([new PreviewLogLine("hub", $"Setup step {number}: {step.Run}")], cancellationToken);
+        await log([new PreviewLogEntry("hub", $"Setup step {number}: {step.Run}")], cancellationToken);
         await containers.RemoveAsync(DockerContainerRuntime.PreviewName(PreviewRole.Setup, previewId), CancellationToken.None);
         var container = await containers.CreatePreviewAsync(new PreviewContainerSpec(
             previewId, PreviewRole.Setup, step.Image, Entrypoint: ["/bin/sh", "-c", step.Run], Command: [], Environment: []), cancellationToken);
@@ -196,7 +196,7 @@ public sealed class PreviewEnvironment(
                 ServiceName: service.Name, HealthcheckCommand: service.HealthcheckCommand), cancellationToken);
             await containers.StartAsync(id, cancellationToken);
             started.Add((service, id));
-            await log([new PreviewLogLine("hub", $"Service {service.Name} started ({service.Image})")], cancellationToken);
+            await log([new PreviewLogEntry("hub", $"Service {service.Name} started ({service.Image})")], cancellationToken);
         }
         try
         {
@@ -217,7 +217,7 @@ public sealed class PreviewEnvironment(
             Environment: [.. app.Environment.Select(e => new ContainerEnv(e.Key, e.Value)), .. secrets.Select(s => new ContainerEnv(s.Key, s.Value, IsSecret: true))],
             Port: app.Port), cancellationToken);
         await containers.StartAsync(appId, cancellationToken);
-        await log([new PreviewLogLine("hub", $"App started ({app.Image}): {app.Command}")], cancellationToken);
+        await log([new PreviewLogEntry("hub", $"App started ({app.Image}): {app.Command}")], cancellationToken);
 
         Uri upstream;
         try
@@ -357,13 +357,13 @@ public sealed class PreviewEnvironment(
         {
             lines.Enqueue($"(reading the log failed: {ex.Message})");
         }
-        await log([.. lines.Select(text => new PreviewLogLine(source, RunEventPayload.Cut(text)))], CancellationToken.None);
+        await log([.. lines.Select(text => new PreviewLogEntry(source, RunEventPayload.Cut(text)))], CancellationToken.None);
     }
 
     /// <summary>Follows a container's log and stores it in batches, so a long build shows up while it runs.</summary>
     private async Task PumpLogAsync(string containerId, string source, SecretRedactor redactor, PreviewLogSink log, CancellationToken cancellationToken)
     {
-        var channel = Channel.CreateBounded<PreviewLogLine>(new BoundedChannelOptions(10_000) { SingleReader = true, SingleWriter = true });
+        var channel = Channel.CreateBounded<PreviewLogEntry>(new BoundedChannelOptions(10_000) { SingleReader = true, SingleWriter = true });
         var reader = Task.Run(async () =>
         {
             try
@@ -371,7 +371,7 @@ public sealed class PreviewEnvironment(
                 await foreach (var line in containers.ReadLogAsync(containerId, follow: true, cancellationToken))
                 {
                     var text = line.SkippedBytes is { } skipped ? $"[a line of {skipped} bytes was left out]" : redactor.Redact(line.Text);
-                    await channel.Writer.WriteAsync(new PreviewLogLine(source, RunEventPayload.Cut(text)), cancellationToken);
+                    await channel.Writer.WriteAsync(new PreviewLogEntry(source, RunEventPayload.Cut(text)), cancellationToken);
                 }
                 channel.Writer.Complete();
             }
@@ -381,7 +381,7 @@ public sealed class PreviewEnvironment(
             }
         }, CancellationToken.None);
 
-        var batch = new List<PreviewLogLine>();
+        var batch = new List<PreviewLogEntry>();
         while (await WaitAsync(channel.Reader, cancellationToken))
         {
             while (batch.Count < 200 && channel.Reader.TryRead(out var line))
@@ -398,7 +398,7 @@ public sealed class PreviewEnvironment(
     }
 
     /// <summary>Waits for more lines, at most <see cref="_logFlushInterval"/>; false when the log ended.</summary>
-    private async Task<bool> WaitAsync(ChannelReader<PreviewLogLine> reader, CancellationToken cancellationToken)
+    private async Task<bool> WaitAsync(ChannelReader<PreviewLogEntry> reader, CancellationToken cancellationToken)
     {
         if (reader.TryPeek(out _))
         {

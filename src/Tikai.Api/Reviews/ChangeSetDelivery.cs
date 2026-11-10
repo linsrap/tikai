@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Tikai.Api.Attention;
+using Tikai.Api.Previews;
 using Tikai.Api.Projects;
 using Tikai.Api.Runs;
 using Tikai.Core.Agents;
@@ -215,6 +216,7 @@ internal sealed partial class ChangeSetDelivery(
         await attention.DismissOpenBlockingAsync(runId, cancellationToken);
         await NoteAsync(runId, delivered.Note, new JsonObject { ["commit"] = delivered.Sha, ["round"] = round.RoundNo }, now, cancellationToken);
         await RunCleanups.EnqueueAsync(jobs, runId, cancellationToken);
+        await PreviewStops.ForChangeSetAsync(db, jobs, events, target.ChangeSet.Id, PreviewStops.ChangeSetEnded, now, cancellationToken);
         await events.PublishAsync(AgentRun.Topic, runId, cancellationToken);
         await events.PublishAsync(ChangeSet.Topic, target.ChangeSet.Id, cancellationToken);
         await transaction.CommitAsync(cancellationToken);

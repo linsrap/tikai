@@ -359,6 +359,183 @@ namespace Tikai.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Tikai.Core.Previews.Preview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppContainerId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("app_container_id");
+
+                    b.Property<Guid>("ChangeSetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("change_set_id");
+
+                    b.Property<DateTimeOffset?>("CleanedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cleaned_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Definition")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("definition");
+
+                    b.Property<string>("Environment")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("environment");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("error");
+
+                    b.Property<string>("HeadSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("head_sha");
+
+                    b.Property<int>("IdleMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("idle_minutes");
+
+                    b.Property<long>("LastLogSeq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_log_seq");
+
+                    b.Property<DateTimeOffset?>("LastRequestAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_request_at");
+
+                    b.Property<int>("RoundNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("round_no");
+
+                    b.Property<DateTimeOffset?>("RunningAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("running_at");
+
+                    b.Property<Guid>("StartedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("started_by_id");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("state");
+
+                    b.Property<string>("StopReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("stop_reason");
+
+                    b.Property<DateTimeOffset?>("StoppedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("stopped_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Upstream")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("upstream");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_previews");
+
+                    b.HasIndex("ChangeSetId")
+                        .HasDatabaseName("ix_previews_change_set_id");
+
+                    b.HasIndex("StartedById")
+                        .HasDatabaseName("ix_previews_started_by_id");
+
+                    b.HasIndex("State")
+                        .HasDatabaseName("ix_previews_state");
+
+                    b.HasIndex(new[] { "ChangeSetId" }, "ux_previews_active_change_set")
+                        .IsUnique()
+                        .HasDatabaseName("ux_previews_active_change_set")
+                        .HasFilter("state IN ('preparing', 'starting', 'running')");
+
+                    b.ToTable("previews", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_previews_ended", "(state IN ('stopped', 'failed')) = (stopped_at IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_previews_failed", "(state = 'failed') = (error IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_previews_round_no", "round_no > 0");
+
+                            t.HasCheckConstraint("ck_previews_state", "state IN ('preparing', 'starting', 'running', 'stopped', 'failed')");
+                        });
+                });
+
+            modelBuilder.Entity("Tikai.Core.Previews.PreviewLogLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("PreviewId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("preview_id");
+
+                    b.Property<long>("Seq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("seq");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_preview_log_lines");
+
+                    b.HasIndex("PreviewId", "Seq")
+                        .IsUnique()
+                        .HasDatabaseName("ix_preview_log_lines_preview_id_seq");
+
+                    b.ToTable("preview_log_lines", (string)null);
+                });
+
             modelBuilder.Entity("Tikai.Core.Projects.Project", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1534,6 +1711,33 @@ namespace Tikai.Data.Migrations
                         .HasForeignKey("OwnerUserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("fk_llm_providers_users_owner_user_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Previews.Preview", b =>
+                {
+                    b.HasOne("Tikai.Core.Reviews.ChangeSet", null)
+                        .WithMany()
+                        .HasForeignKey("ChangeSetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_previews_change_sets_change_set_id");
+
+                    b.HasOne("Tikai.Data.Identity.TikaiUser", null)
+                        .WithMany()
+                        .HasForeignKey("StartedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_previews_users_started_by_id");
+                });
+
+            modelBuilder.Entity("Tikai.Core.Previews.PreviewLogLine", b =>
+                {
+                    b.HasOne("Tikai.Core.Previews.Preview", null)
+                        .WithMany()
+                        .HasForeignKey("PreviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_preview_log_lines_previews_preview_id");
                 });
 
             modelBuilder.Entity("Tikai.Core.Projects.Repository", b =>
