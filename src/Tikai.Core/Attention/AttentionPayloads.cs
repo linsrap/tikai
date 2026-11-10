@@ -6,10 +6,12 @@ using System.Text.Json.Serialization;
 namespace Tikai.Core.Attention;
 
 /// <summary>An agent's question (ask_human). An option is answered by sending its text.</summary>
-public sealed record QuestionPayload(string Question, string? Context, IReadOnlyList<string> Options);
+/// <param name="Recommended">The option the agent would choose (null on questions from before step 20).</param>
+public sealed record QuestionPayload(string Question, string? Context, IReadOnlyList<string> Options, string? Recommended = null);
 
 /// <summary>An agent's plan (propose_plan), approved or sent back with notes.</summary>
-public sealed record PlanPayload(IReadOnlyList<string> Steps, IReadOnlyList<string> Risks, IReadOnlyList<string> FilesExpected);
+/// <param name="Summary">The plan in one sentence, the inbox's headline (null on plans from before step 20).</param>
+public sealed record PlanPayload(IReadOnlyList<string> Steps, IReadOnlyList<string> Risks, IReadOnlyList<string> FilesExpected, string? Summary = null);
 
 /// <summary>The agent's self-report from submit_for_review.</summary>
 public sealed record ReviewPayload(string Summary, IReadOnlyList<CriterionMapping> CriteriaMapping, IReadOnlyList<string> OpenConcerns);

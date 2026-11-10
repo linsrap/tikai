@@ -49,8 +49,8 @@ public sealed class McpAuthTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.DoesNotContain("Ticket X", seenByY.ToString(), StringComparison.Ordinal);
 
         // The same question from both runs is two items; Y's answer does not reach X's call.
-        var askX = agentX.CallAsync("ask_human", new { question = "Which color?" });
-        var askY = agentY.CallAsync("ask_human", new { question = "Which color?" });
+        var askX = agentX.CallAsync("ask_human", new { question = "Which color?", options = new[] { "yes", "no" }, recommended = "yes" });
+        var askY = agentY.CallAsync("ask_human", new { question = "Which color?", options = new[] { "yes", "no" }, recommended = "yes" });
         var items = await McpTestKit.WaitForOpenItemsAsync(_browser, 2);
         var itemX = items.Single(i => i.TicketKey == "ALP-1");
         var itemY = items.Single(i => i.TicketKey == "BET-1");

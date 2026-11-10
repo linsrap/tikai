@@ -38,8 +38,8 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
             ["ask_human", "get_review_comments", "get_ticket", "propose_plan", "reply_to_thread", "report_progress", "submit_for_review"],
             tools.Select(t => t.Name).Order());
         string[] Arguments(string tool) => [.. tools.Single(t => t.Name == tool).JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name)];
-        Assert.Equal(["question", "context", "options"], Arguments("ask_human"));
-        Assert.Equal(["steps", "risks", "files_expected"], Arguments("propose_plan"));
+        Assert.Equal(["question", "options", "recommended", "context"], Arguments("ask_human"));
+        Assert.Equal(["summary", "steps", "risks", "files_expected"], Arguments("propose_plan"));
         Assert.Equal(["summary", "criteria_mapping", "open_concerns"], Arguments("submit_for_review"));
         Assert.Equal(["thread_id", "body"], Arguments("reply_to_thread"));
         Assert.Empty(Arguments("get_ticket"));
@@ -146,9 +146,11 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
         var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
         await using var agent = await McpTestKit.ConnectAsync(_factory, token);
 
-        Assert.Contains("question", (await agent.CallAsync("ask_human", new { question = " " })).Error(), StringComparison.Ordinal);
-        Assert.Contains("options", (await agent.CallAsync("ask_human", new { question = "Q", options = Enumerable.Range(0, 11).Select(i => $"o{i}") })).Error(), StringComparison.Ordinal);
-        Assert.Contains("steps", (await agent.CallAsync("propose_plan", new { steps = Array.Empty<string>() })).Error(), StringComparison.Ordinal);
+        Assert.Contains("question: required", (await agent.CallAsync("ask_human", new { question = " ", options = new[] { "yes", "no" }, recommended = "yes" })).Error(), StringComparison.Ordinal);
+        Assert.Contains("options: give 2 to 4", (await agent.CallAsync("ask_human", new { question = "Q", options = Enumerable.Range(0, 5).Select(i => $"o{i}"), recommended = "o0" })).Error(), StringComparison.Ordinal);
+        Assert.Contains("recommended: must be", (await agent.CallAsync("ask_human", new { question = "Q", options = new[] { "a", "b" }, recommended = "c" })).Error(), StringComparison.Ordinal);
+        Assert.Contains("summary: at most 160 characters (yours has 161)", (await agent.CallAsync("propose_plan", new { summary = new string('s', 161), steps = new[] { "One" } })).Error(), StringComparison.Ordinal);
+        Assert.Contains("steps: give 1 to 6", (await agent.CallAsync("propose_plan", new { summary = "S", steps = Array.Empty<string>() })).Error(), StringComparison.Ordinal);
         Assert.Empty(await _browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items"));
     }
 }

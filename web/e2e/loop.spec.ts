@@ -83,7 +83,15 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
   const nav = page.getByRole('navigation', { name: 'Main' })
   await nav.getByRole('link', { name: /^Inbox/ }).click()
   const plan = page.getByRole('article', { name: 'Plan to approve: E2E-1' })
-  await expect(plan.getByText('Write before.txt')).toBeVisible()
+  // The summary first; steps, risks and files on demand.
+  await expect(
+    plan.getByText('Write before.txt, then the word you pick to answer.txt.', { exact: true }),
+  ).toBeVisible()
+  const details = plan.getByRole('listitem').filter({ hasText: 'Write before.txt' })
+  await expect(details).toBeHidden()
+  await plan.getByText('Show plan (2 steps, 1 risk, 2 files)').click()
+  await expect(details).toBeVisible()
+  await expect(plan.getByText('2 files in the root')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Inbox, 1 waiting' })).toBeVisible()
   await plan.getByRole('button', { name: 'Approve plan' }).click()
   await expect(plan).toBeHidden()
@@ -91,6 +99,13 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
   // Then the question, with its options.
   const question = page.getByRole('article', { name: 'Question: E2E-1' })
   await expect(question.getByText('Which word?')).toBeVisible()
+  await expect(question.getByText('It goes into')).toBeHidden()
+  await question.getByText('Why it asks').click()
+  await expect(question.getByText('It goes into')).toBeVisible()
+  // The recommended option comes first.
+  await expect(
+    question.getByRole('group', { name: 'Options' }).getByRole('button').first(),
+  ).toHaveAccessibleName('alpha recommended')
   await question
     .getByRole('group', { name: 'Options' })
     .getByRole('button', { name: 'beta' })

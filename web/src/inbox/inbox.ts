@@ -39,6 +39,21 @@ export function coverageSummary(coverage: readonly Pick<ReviewCoverage, 'status'
     .join(', ')
 }
 
+/** "Criteria: 2 covered, 1 partial · 1 open concern": what a collapsed self-report holds. */
+export function selfReportLine(
+  coverage: readonly Pick<ReviewCoverage, 'status'>[],
+  openConcerns: readonly string[],
+): string {
+  return [
+    coverage.length > 0 ? `Criteria: ${coverageSummary(coverage)}` : null,
+    openConcerns.length > 0
+      ? `${openConcerns.length} open concern${openConcerns.length === 1 ? '' : 's'}`
+      : null,
+  ]
+    .filter((part) => part !== null)
+    .join(' · ')
+}
+
 /** The review analysis in one line for the inbox card. */
 export function analysisLine(brief: AnalysisBrief): string {
   if (brief.status === 'pending') return 'Analysis: running…'
@@ -68,6 +83,52 @@ export function ago(iso: string, now = Date.now()): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`
   return new Date(iso).toLocaleString()
+}
+
+type PlanPayload = components['schemas']['PlanPayload']
+type QuestionPayload = components['schemas']['QuestionPayload']
+
+/** A plan's headline: its one-sentence summary, or the first step for plans from before summaries. */
+export const planHeadline = (plan: Pick<PlanPayload, 'summary' | 'steps'>): string =>
+  plan.summary ?? plan.steps[0] ?? ''
+
+const count = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+
+/** What the plan's details hold: "5 steps, 2 risks, 9 files" (empty parts left out). */
+export function planDetails(plan: Pick<PlanPayload, 'steps' | 'risks' | 'filesExpected'>): string {
+  return [
+    count(plan.steps.length, 'step'),
+    plan.risks.length > 0 ? count(plan.risks.length, 'risk') : null,
+    plan.filesExpected.length > 0 ? count(plan.filesExpected.length, 'file') : null,
+  ]
+    .filter((part) => part !== null)
+    .join(', ')
+}
+
+export type FolderFiles = { folder: string; names: string[] }
+
+/** Expected files grouped by folder, in the order the agent listed them; `folder` is '' for the root. */
+export function filesByFolder(files: readonly string[]): FolderFiles[] {
+  const groups = new Map<string, string[]>()
+  for (const file of files) {
+    const path = file.replace(/\\/g, '/').replace(/\/+$/, '')
+    const slash = path.lastIndexOf('/')
+    const folder = slash < 0 ? '' : path.slice(0, slash)
+    const names = groups.get(folder) ?? []
+    names.push(path.slice(slash + 1))
+    groups.set(folder, names)
+  }
+  return [...groups].map(([folder, names]) => ({ folder, names }))
+}
+
+/** The question's options with the recommended one first (the others in the agent's order). */
+export function orderedOptions(
+  question: Pick<QuestionPayload, 'options' | 'recommended'>,
+): string[] {
+  const recommended = question.recommended
+  return recommended && question.options.includes(recommended)
+    ? [recommended, ...question.options.filter((o) => o !== recommended)]
+    : [...question.options]
 }
 
 function useItemMutation<TInput>(send: (input: TInput) => Promise<unknown>) {

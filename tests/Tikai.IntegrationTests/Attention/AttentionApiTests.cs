@@ -106,9 +106,9 @@ public sealed class AttentionApiTests(PostgresFixture postgres) : IAsyncLifetime
         var ticket = await McpTestKit.CreateTicketAsync(_browser, "hub", "HUB", "Ticket");
         var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
         var agent = _agent = await McpTestKit.ConnectAsync(_factory, token);
-        _ = agent.CallAsync("ask_human", new { question = "Q?" });
+        _ = agent.CallAsync("ask_human", new { question = "Q?", options = new[] { "yes", "no" }, recommended = "yes" });
         var question = (await McpTestKit.WaitForOpenItemsAsync(_browser, 1)).Single().Id;
-        _ = agent.CallAsync("propose_plan", new { steps = new[] { "Step" } });
+        _ = agent.CallAsync("propose_plan", new { summary = "Do it.", steps = new[] { "Step" } });
         var plan = (await McpTestKit.WaitForOpenItemsAsync(_browser, 2)).Single(i => i.Kind == AttentionKind.PlanApproval).Id;
         return (question, plan);
     }

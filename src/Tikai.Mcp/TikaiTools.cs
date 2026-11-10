@@ -48,13 +48,14 @@ internal sealed partial class TikaiTools(
     }
 
     [McpServerTool(Name = "submit_for_review")]
-    [Description("Submits your work for human review with a self-report: the committed state of your branch is taken, uncommitted changes are not. Commit first. Does not wait for the review; stop after it.")]
+    [Description("Submits your work for human review with a short self-report: the committed state of your branch is taken, uncommitted changes are not. Commit first. Does not wait for the review; stop after it.")]
     public async Task<string> SubmitForReview(
         RequestContext<CallToolRequestParams> request,
-        [Description("What you changed and why.")] string summary,
-        [Description("For each acceptance criterion (id from get_ticket): covered, partial or missing, with a note on where or why.")]
+        [Description("What you changed and why, in at most 3 sentences (400 characters). Details belong in the commits.")] string summary,
+        [Description("For each acceptance criterion (id from get_ticket): covered, partial or missing, with a note on where or why (at most 200 characters).")]
         IReadOnlyList<CriterionMapping>? criteria_mapping = null,
-        [Description("What you are unsure about or deliberately left out.")] IReadOnlyList<string>? open_concerns = null,
+        [Description("At most 3 things a reviewer must know: what you are unsure about or deliberately left out (200 characters each).")]
+        IReadOnlyList<string>? open_concerns = null,
         CancellationToken cancellationToken = default)
     {
         var result = await runs.SubmitForReviewAsync(RunScope.From(request.User), summary, criteria_mapping, open_concerns, cancellationToken);
@@ -62,31 +63,33 @@ internal sealed partial class TikaiTools(
     }
 
     [McpServerTool(Name = "propose_plan")]
-    [Description("Proposes your plan to a human before you implement it. Returns approve, or revise with notes on what to change." + WaitNote)]
+    [Description("Proposes your plan to a human before you implement it. The human reads the summary first and opens the details only when needed, so keep it short. Returns approve, or revise with notes on what to change." + WaitNote)]
     public async Task<PlanResult> ProposePlan(
         RequestContext<CallToolRequestParams> request,
         IProgress<ProgressNotificationValue> progress,
-        [Description("The steps you will take, in order.")] IReadOnlyList<string> steps,
-        [Description("What could go wrong or needs care.")] IReadOnlyList<string>? risks = null,
-        [Description("Files you expect to create or change.")] IReadOnlyList<string>? files_expected = null,
+        [Description("The plan in one sentence (at most 160 characters): what you will change and how.")] string summary,
+        [Description("1 to 6 steps in order, one line each (at most 120 characters).")] IReadOnlyList<string> steps,
+        [Description("At most 3 risks a human should know before approving (160 characters each).")] IReadOnlyList<string>? risks = null,
+        [Description("Paths of the files you expect to create or change.")] IReadOnlyList<string>? files_expected = null,
         CancellationToken cancellationToken = default)
     {
-        var (payload, error) = AttentionRules.Plan(steps, risks, files_expected);
+        var (payload, error) = AttentionRules.Plan(summary, steps, risks, files_expected);
         var answer = await RaiseAndWaitAsync(request, progress, AttentionKind.PlanApproval, payload ?? throw new McpException(error!), cancellationToken);
         return new PlanResult(answer.Decision ?? PlanDecision.Revise, answer.Text);
     }
 
     [McpServerTool(Name = "ask_human")]
-    [Description("Asks a human a question instead of guessing, and returns the answer." + WaitNote)]
+    [Description("Asks a human a question instead of guessing, and returns the answer: the text of the option they picked, or their own words. The human sees the question and one button per option; the context only on request." + WaitNote)]
     public async Task<AskResult> AskHuman(
         RequestContext<CallToolRequestParams> request,
         IProgress<ProgressNotificationValue> progress,
-        [Description("The question.")] string question,
-        [Description("What the human needs to know to answer: what you are doing, what you found, what you would choose.")] string? context = null,
-        [Description("Possible answers, if there are a few clear choices. The human may still answer in their own words.")] IReadOnlyList<string>? options = null,
+        [Description("One short question (at most 200 characters).")] string question,
+        [Description("2 to 4 possible answers, each at most 80 characters. The human may still answer in their own words.")] IReadOnlyList<string> options,
+        [Description("The option you would choose, exactly as written in options.")] string recommended,
+        [Description("Why you ask: what you found and why you would choose the recommended option (at most 2000 characters).")] string? context = null,
         CancellationToken cancellationToken = default)
     {
-        var (payload, error) = AttentionRules.Question(question, context, options);
+        var (payload, error) = AttentionRules.Question(question, context, options, recommended);
         var answer = await RaiseAndWaitAsync(request, progress, AttentionKind.Question, payload ?? throw new McpException(error!), cancellationToken);
         return new AskResult(answer.Text ?? "");
     }

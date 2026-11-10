@@ -59,6 +59,21 @@ public class ClaudeCodeAdapterTests
     }
 
     [Fact]
+    public void Fresh_sessions_are_told_to_keep_what_humans_read_short()
+    {
+        var start = ClaudeCodeAdapter.Prompt(Context());
+        var summary = ClaudeCodeAdapter.SummaryPrompt(Context(), new FreshSession(null, [], "", ""));
+
+        foreach (var prompt in new[] { start, summary })
+        {
+            Assert.Contains("a one-sentence summary, up to 6 steps", prompt, StringComparison.Ordinal);
+            Assert.Contains("2 to 4 possible answers and the one you recommend", prompt, StringComparison.Ordinal);
+            Assert.Contains("a summary of at most 3 sentences", prompt, StringComparison.Ordinal);
+            Assert.Contains("at most 3 open concerns", prompt, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Only_the_key_is_secret_in_the_environment()
     {
         var env = _adapter.BuildContainer(Context()).Environment;

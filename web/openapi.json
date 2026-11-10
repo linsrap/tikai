@@ -3821,6 +3821,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "summary": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -4070,6 +4076,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "recommended": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

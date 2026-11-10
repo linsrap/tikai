@@ -2816,6 +2816,7 @@ export interface components {
             steps: string[];
             risks: string[];
             filesExpected: string[];
+            summary?: null | string;
         };
         PreviewAppInfo: {
             name: string;
@@ -2883,6 +2884,7 @@ export interface components {
             question: string;
             context: null | string;
             options: string[];
+            recommended?: null | string;
         };
         RefineSpecRequest: {
             title: string;

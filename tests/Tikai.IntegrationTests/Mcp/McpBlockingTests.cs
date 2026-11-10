@@ -44,7 +44,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
 
         var ask = agent.CallAsync(
             "ask_human",
-            new { question = "  Which database? ", context = "Choosing storage", options = new[] { "Postgres", " ", "SQLite" } },
+            new { question = "  Which database? ", context = "Choosing storage", options = new[] { "Postgres", " ", "SQLite" }, recommended = "Postgres" },
             new SynchronousProgress(progress.Enqueue));
         var item = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
 
@@ -76,18 +76,19 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
         await using var agent = await McpTestKit.ConnectAsync(_factory, token);
 
-        var first = agent.CallAsync("propose_plan", new { steps = new[] { "Add table", "Add API" }, risks = new[] { "Migration" }, files_expected = new[] { "src/A.cs" } });
+        var first = agent.CallAsync("propose_plan", new { summary = "Do it.", steps = new[] { "Add table", "Add API" }, risks = new[] { "Migration" }, files_expected = new[] { "src/A.cs" } });
         var item = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
         Assert.Equal(AttentionKind.PlanApproval, item.Kind);
         Assert.Equal(["Add table", "Add API"], item.Plan!.Steps);
         Assert.Equal(["src/A.cs"], item.Plan.FilesExpected);
+        Assert.Equal("Do it.", item.Plan.Summary);
         await McpTestKit.AnswerAsync(_browser, item.Id, new { decision = "revise", text = "Add tests first" });
         var revise = (await first).Json();
         Assert.Equal("revise", revise.GetProperty("decision").GetString());
         Assert.Equal("Add tests first", revise.GetProperty("notes").GetString());
 
         // The revised plan is a different request, so a new item.
-        var second = agent.CallAsync("propose_plan", new { steps = new[] { "Add tests", "Add table", "Add API" } });
+        var second = agent.CallAsync("propose_plan", new { summary = "Do it.", steps = new[] { "Add tests", "Add table", "Add API" } });
         var newItem = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
         Assert.NotEqual(item.Id, newItem.Id);
         await McpTestKit.AnswerAsync(_browser, newItem.Id, new { decision = "approve" });
@@ -107,7 +108,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         // The call drops (client timeout, network) while it waits; the item stays open.
         using (var drop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken))
         {
-            var dropped = agent.CallAsync("ask_human", new { question = "Which port?" }, cancellationToken: drop.Token);
+            var dropped = agent.CallAsync("ask_human", new { question = "Which port?", options = new[] { "yes", "no" }, recommended = "yes" }, cancellationToken: drop.Token);
             await McpTestKit.WaitForOpenItemsAsync(_browser);
             await drop.CancelAsync();
             // The SDK client reports it as a cancellation or as the server's 499.
@@ -120,7 +121,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         await McpTestKit.AnswerAsync(_browser, item.Id, new { text = "8080" });
 
         // The agent asks again: same item, stored answer, no wait.
-        var again = await agent.CallAsync("ask_human", new { question = "Which port?" });
+        var again = await agent.CallAsync("ask_human", new { question = "Which port?", options = new[] { "yes", "no" }, recommended = "yes" });
         Assert.Equal("8080", again.Json().GetProperty("answer").GetString());
         Assert.Equal(1, await CountItemsAsync());
     }
@@ -132,7 +133,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
         await using var agent = await McpTestKit.ConnectAsync(_factory, token);
         using var drop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var dropped = agent.CallAsync("ask_human", new { question = "Q" }, cancellationToken: drop.Token);
+        var dropped = agent.CallAsync("ask_human", new { question = "Q", options = new[] { "yes", "no" }, recommended = "yes" }, cancellationToken: drop.Token);
         var item = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
         await drop.CancelAsync();
         // The SDK client reports it as a cancellation or as the server's 499.
@@ -152,7 +153,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         await using var agent = await McpTestKit.ConnectAsync(_factory, token);
 
         // A dangling call (Claude Code's idle abort leaves the request open) and the retry, plus a few at once.
-        var calls = Enumerable.Range(0, 4).Select(_ => agent.CallAsync("ask_human", new { question = "Same?", options = new[] { "yes", "no" } })).ToList();
+        var calls = Enumerable.Range(0, 4).Select(_ => agent.CallAsync("ask_human", new { question = "Same?", options = new[] { "yes", "no" }, recommended = "yes" })).ToList();
         var item = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
         await WaitUntilAsync(() => Waiter.WaitingCount == 4);
         Assert.Equal(1, await CountItemsAsync());
@@ -164,7 +165,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
             Assert.Equal("yes", (await call).Json().GetProperty("answer").GetString());
         }
         // Asked once more after the answer was handed out: the same answer again, still one item.
-        Assert.Equal("yes", (await agent.CallAsync("ask_human", new { question = "Same?", options = new[] { "yes", "no" } })).Json().GetProperty("answer").GetString());
+        Assert.Equal("yes", (await agent.CallAsync("ask_human", new { question = "Same?", options = new[] { "yes", "no" }, recommended = "yes" })).Json().GetProperty("answer").GetString());
         Assert.Equal(1, await CountItemsAsync());
         await WaitUntilAsync(() => Waiter.WaitingCount == 0);
     }
@@ -178,13 +179,13 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
 
         foreach (var (question, answer) in new[] { ("First?", "1"), ("Second?", "2") })
         {
-            var call = agent.CallAsync("ask_human", new { question });
+            var call = agent.CallAsync("ask_human", new { question, options = new[] { "yes", "no" }, recommended = "yes" });
             var item = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
             await McpTestKit.AnswerAsync(_browser, item.Id, new { text = answer });
             await call;
         }
         // "First?" again, after another question: a new question, not the old answer.
-        var again = agent.CallAsync("ask_human", new { question = "First?" });
+        var again = agent.CallAsync("ask_human", new { question = "First?", options = new[] { "yes", "no" }, recommended = "yes" });
         var open = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
         Assert.Equal("First?", open.Question!.Question);
         Assert.Equal(3, await CountItemsAsync());
@@ -200,7 +201,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         Guid itemId;
         await using (var agent = await McpTestKit.ConnectAsync(_factory, token))
         {
-            var call = agent.CallAsync("propose_plan", new { steps = new[] { "One step" } });
+            var call = agent.CallAsync("propose_plan", new { summary = "Do it.", steps = new[] { "One step" } });
             itemId = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single().Id;
             // The hub goes down: the call is cut, everything in memory is gone.
             await _factory.DisposeAsync();
@@ -218,7 +219,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         await McpTestKit.AnswerAsync(_browser, itemId, new { decision = "approve" });
 
         await using var resumed = await McpTestKit.ConnectAsync(_factory, token);
-        var result = await resumed.CallAsync("propose_plan", new { steps = new[] { "One step" } });
+        var result = await resumed.CallAsync("propose_plan", new { summary = "Do it.", steps = new[] { "One step" } });
         Assert.Equal("approve", result.Json().GetProperty("decision").GetString());
         Assert.Equal(1, await CountItemsAsync());
     }
@@ -229,7 +230,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         var ticket = await McpTestKit.CreateTicketAsync(_browser, "hub", "HUB", "Ticket");
         var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
         await using var agent = await McpTestKit.ConnectAsync(_factory, token);
-        var call = agent.CallAsync("ask_human", new { question = "Quiet?" });
+        var call = agent.CallAsync("ask_human", new { question = "Quiet?", options = new[] { "yes", "no" }, recommended = "yes" });
         var item = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
 
         // Answered without pg_notify, as if the notification was lost.
@@ -253,7 +254,7 @@ public sealed class McpBlockingTests(PostgresFixture postgres) : IAsyncLifetime
         var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
         await using var agent = await McpTestKit.ConnectAsync(_factory, token);
         using var drop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var dropped = agent.CallAsync("ask_human", new { question = "Q" }, cancellationToken: drop.Token);
+        var dropped = agent.CallAsync("ask_human", new { question = "Q", options = new[] { "yes", "no" }, recommended = "yes" }, cancellationToken: drop.Token);
         var item = (await McpTestKit.WaitForOpenItemsAsync(_browser)).Single();
         await drop.CancelAsync();
         // The SDK client reports it as a cancellation or as the server's 499.

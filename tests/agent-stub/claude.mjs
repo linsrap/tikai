@@ -250,7 +250,7 @@ async function reviewChanges(ticket) {
   const again = await tool("submit_for_review", { summary: "Again." });
   let asked = "accepted";
   try {
-    await tool("ask_human", { question: "Anything else?" }, 10000);
+    await tool("ask_human", { question: "Anything else?", options: ["yes", "no"], recommended: "no" }, 10000);
   } catch (e) {
     asked = e.message;
   }
@@ -276,7 +276,11 @@ async function planAndWait(ticket, lines) {
   let steps = ["Write before.txt", "Ask which word to use and write it to answer.txt"];
   for (;;) {
     const decision = JSON.parse(
-      await tool("propose_plan", { steps, risks: ["None: this is the stub agent"], files_expected: ["before.txt", "answer.txt"] }, 3600_000),
+      await tool(
+        "propose_plan",
+        { summary: "Write before.txt, then the word you pick to answer.txt.", steps, risks: ["None: this is the stub agent"], files_expected: ["before.txt", "answer.txt"] },
+        3600_000,
+      ),
     );
     if (decision.decision === "approve") break;
     steps = [...steps, `Also: ${decision.notes}`];
@@ -284,7 +288,7 @@ async function planAndWait(ticket, lines) {
   bash("printf 'before\\n' > before.txt && git add before.txt && git commit --quiet -m 'Add before.txt'");
   const before = sh("git rev-parse HEAD");
   session.add({ step: "asking", question: "Which word?" });
-  const { answer, asked } = await askUntilAnswered("Which word?", { context: "It goes into `answer.txt`.", options: ["alpha", "beta"] });
+  const { answer, asked } = await askUntilAnswered("Which word?", { context: "It goes into `answer.txt`.", options: ["alpha", "beta"], recommended: "alpha" });
   if (answer === null) {
     say("No answer; giving up.");
     result({ num_turns: 3, result: "gave up waiting", total_cost_usd: 0.001 });
@@ -494,7 +498,7 @@ async function main() {
     session.add({ step: "committed", before_sha: before });
     if (scenario === "wait-nosession") fs.rmSync(sessionFile);
     else session.add({ step: "asking", question: "Which word?" });
-    const { answer, asked } = await askUntilAnswered("Which word?");
+    const { answer, asked } = await askUntilAnswered("Which word?", { options: ["alpha", "beta"], recommended: "alpha" });
     if (answer === null) {
       say("No answer; giving up.");
       result({ num_turns: 3, result: "gave up waiting", total_cost_usd: 0.001 });
@@ -536,7 +540,7 @@ async function main() {
   }
   if (scenario === "ask") {
     try {
-      await tool("ask_human", { question: "Which colour?" }, 2000);
+      await tool("ask_human", { question: "Which colour?", options: ["red", "blue"], recommended: "red" }, 2000);
     } catch {
       say("No answer; giving up.");
     }

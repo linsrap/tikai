@@ -114,7 +114,7 @@ public sealed class InboxTests(PostgresFixture postgres) : IAsyncLifetime
         var questionTicket = await McpTestKit.CreateTicketAsync(_browser, "ask", "AS", "Ask");
         var (_, askToken) = await McpTestKit.StartRunAsync(_factory, questionTicket.Id);
         var asker = await ConnectAsync(askToken);
-        _ = asker.CallAsync("ask_human", new { question = "Which colour?", context = "The *logo*.", options = new[] { "red", "blue" } });
+        _ = asker.CallAsync("ask_human", new { question = "Which colour?", context = "The *logo*.", options = new[] { "red", "blue" }, recommended = "blue" });
         var question = Assert.Single(await McpTestKit.WaitForOpenItemsAsync(_browser));
 
         var reviewTicket = await McpTestKit.CreateTicketAsync(_browser, "review", "RV", "Review");
@@ -130,6 +130,7 @@ public sealed class InboxTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Equal(question.Id, items[0].Id);
         Assert.Equal(("Which colour?", "The *logo*."), (items[0].Question!.Question, items[0].Question!.Context));
         Assert.Equal(["red", "blue"], items[0].Question!.Options);
+        Assert.Equal("blue", items[0].Question!.Recommended);
         var review = items[2];
         Assert.Equal("Done.", review.Review!.Summary);
         var coverage = Assert.Single(review.ReviewCoverage);

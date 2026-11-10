@@ -1,6 +1,62 @@
-import { ago, analysisLine, coverageSummary, roundLine, waitingCount } from './inbox'
+import {
+  ago,
+  analysisLine,
+  coverageSummary,
+  filesByFolder,
+  orderedOptions,
+  planDetails,
+  planHeadline,
+  roundLine,
+  selfReportLine,
+  waitingCount,
+} from './inbox'
 
 describe('inbox', () => {
+  it('heads a plan with its summary, or its first step when it has none', () => {
+    expect(planHeadline({ summary: 'Add a login page.', steps: ['Read', 'Write'] })).toBe(
+      'Add a login page.',
+    )
+    expect(planHeadline({ summary: null, steps: ['Read', 'Write'] })).toBe('Read')
+    expect(planHeadline({ steps: [] })).toBe('')
+  })
+
+  it('says what a plan holds', () => {
+    expect(planDetails({ steps: ['a'], risks: [], filesExpected: [] })).toBe('1 step')
+    expect(planDetails({ steps: ['a', 'b'], risks: ['r'], filesExpected: ['x', 'y'] })).toBe(
+      '2 steps, 1 risk, 2 files',
+    )
+  })
+
+  it('groups expected files by folder in the agent order', () => {
+    expect(
+      filesByFolder([
+        'src/Api/Reviews/A.cs',
+        'README.md',
+        'src/Api/Reviews/B.cs',
+        'web\\src\\x.ts',
+        'docs/',
+      ]),
+    ).toEqual([
+      { folder: 'src/Api/Reviews', names: ['A.cs', 'B.cs'] },
+      { folder: '', names: ['README.md', 'docs'] },
+      { folder: 'web/src', names: ['x.ts'] },
+    ])
+  })
+
+  it('sums up a collapsed self-report in one line', () => {
+    expect(selfReportLine([], [])).toBe('')
+    expect(selfReportLine([{ status: 'covered' }, { status: 'partial' }], ['a'])).toBe(
+      'Criteria: 1 covered, 1 partial · 1 open concern',
+    )
+    expect(selfReportLine([], ['a', 'b'])).toBe('2 open concerns')
+  })
+
+  it('puts the recommended option first', () => {
+    expect(orderedOptions({ options: ['a', 'b', 'c'], recommended: 'b' })).toEqual(['b', 'a', 'c'])
+    expect(orderedOptions({ options: ['a', 'b'], recommended: null })).toEqual(['a', 'b'])
+    expect(orderedOptions({ options: ['a', 'b'], recommended: 'z' })).toEqual(['a', 'b'])
+  })
+
   it('names a later round and how the agent answered the comments', () => {
     expect(roundLine(null)).toBeNull()
     expect(roundLine({ roundNo: 1, answered: 0, unanswered: 0 })).toBeNull()
