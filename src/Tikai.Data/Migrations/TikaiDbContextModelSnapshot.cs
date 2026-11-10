@@ -365,11 +365,6 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<string>("AppContainerId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("app_container_id");
-
                     b.Property<Guid>("ChangeSetId")
                         .HasColumnType("uuid")
                         .HasColumnName("change_set_id");
@@ -447,10 +442,9 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.Property<string>("Upstream")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("upstream");
+                    b.Property<string>("Upstreams")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("upstreams");
 
                     b.Property<uint>("xmin")
                         .IsConcurrencyToken()

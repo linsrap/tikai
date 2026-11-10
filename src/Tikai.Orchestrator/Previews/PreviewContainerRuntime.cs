@@ -31,9 +31,9 @@ public enum PreviewRole
 /// <summary>A preview container: what runs comes from the definition, the sandbox from the hub's settings.</summary>
 /// <param name="Entrypoint">Null keeps the image's entrypoint (services).</param>
 /// <param name="Command">Null keeps the image's command.</param>
-/// <param name="ServiceName">The service's name, which is also its host name on the preview network.</param>
+/// <param name="Name">The app's or service's name, which is also its host name (network alias) on the preview network.</param>
 /// <param name="HealthcheckCommand">A shell command Docker runs in a service to report it healthy.</param>
-/// <param name="Port">The app's port (published on the loopback in <see cref="PreviewUpstream.Loopback"/> mode).</param>
+/// <param name="Port">An app's port (published on the loopback in <see cref="PreviewUpstream.Loopback"/> mode, for each app).</param>
 public sealed record PreviewContainerSpec(
     Guid PreviewId,
     PreviewRole Role,
@@ -41,7 +41,7 @@ public sealed record PreviewContainerSpec(
     IReadOnlyList<string>? Entrypoint,
     IReadOnlyList<string>? Command,
     IReadOnlyList<ContainerEnv> Environment,
-    string? ServiceName = null,
+    string? Name = null,
     string? HealthcheckCommand = null,
     int? Port = null);
 
@@ -97,9 +97,13 @@ public sealed partial class DockerContainerRuntime
 
     private PreviewOptions Previews => previewOptions.Value;
 
-    public static string PreviewName(PreviewRole role, Guid previewId, string? service = null) => role == PreviewRole.Service
-        ? $"tikai-preview-{previewId:D}-{service}"
-        : $"tikai-preview-{role.ToString().ToLowerInvariant()}-{previewId:D}";
+    /// <param name="name">The service's or app's name (from the definition, checked as a host name).</param>
+    public static string PreviewName(PreviewRole role, Guid previewId, string? name = null) => role switch
+    {
+        PreviewRole.Service => $"tikai-preview-{previewId:D}-{name}",
+        PreviewRole.App => $"tikai-preview-app-{previewId:D}-{name}",
+        _ => $"tikai-preview-{role.ToString().ToLowerInvariant()}-{previewId:D}",
+    };
 
     public static string PreviewNetwork(Guid previewId) => $"tikai-preview-{previewId:D}";
 
@@ -134,7 +138,7 @@ public sealed partial class DockerContainerRuntime
     /// <summary>
     /// Prep, setup and app run agent-written code like an agent: the agent uid, only the preview's directory (subpath
     /// = the preview's GUID) at /preview, and the sandbox of <see cref="Sandbox"/>; prep without network, setup on the
-    /// agents network (internet for package registries), the app on the preview's network. Services run stock images as
+    /// agents network (internet for package registries), each app on the preview's network under its name. Services run stock images as
     /// their own user, without the volume, with a writable root (anonymous volumes of the image only), all capabilities
     /// dropped except <see cref="ServiceCapabilities"/>, no new privileges and the same limits.
     /// </summary>
@@ -146,7 +150,7 @@ public sealed partial class DockerContainerRuntime
             PreviewRole.Service => Service(spec),
             _ => throw new ArgumentOutOfRangeException(nameof(spec), spec.Role, "Seed and cleanup containers have their own methods."),
         };
-        parameters.Name = PreviewName(spec.Role, spec.PreviewId, spec.ServiceName);
+        parameters.Name = PreviewName(spec.Role, spec.PreviewId, spec.Name);
         parameters.Image = spec.Image;
         // Null (not empty) keeps the image's own: an empty entrypoint would clear it.
         parameters.Entrypoint = spec.Entrypoint is null ? null! : [.. spec.Entrypoint];
@@ -185,7 +189,7 @@ public sealed partial class DockerContainerRuntime
         };
         if (spec.Role == PreviewRole.App)
         {
-            parameters.NetworkingConfig = Aliases(spec.PreviewId, "app");
+            parameters.NetworkingConfig = Aliases(spec.PreviewId, spec.Name ?? throw new ArgumentException("An app needs its name.", nameof(spec)));
             if (Previews.Upstream == PreviewUpstream.Loopback && spec.Port is { } port)
             {
                 var key = $"{port.ToString(CultureInfo.InvariantCulture)}/tcp";
@@ -199,7 +203,7 @@ public sealed partial class DockerContainerRuntime
     private CreateContainerParameters Service(PreviewContainerSpec spec) => new()
     {
         Env = [.. spec.Environment.Select(e => $"{e.Name}={e.Value}")],
-        NetworkingConfig = Aliases(spec.PreviewId, spec.ServiceName ?? throw new ArgumentException("A service needs its name.", nameof(spec))),
+        NetworkingConfig = Aliases(spec.PreviewId, spec.Name ?? throw new ArgumentException("A service needs its name.", nameof(spec))),
         Healthcheck = spec.HealthcheckCommand is null ? null : new HealthcheckConfig
         {
             Test = ["CMD-SHELL", spec.HealthcheckCommand],

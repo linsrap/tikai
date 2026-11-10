@@ -52,7 +52,7 @@ public class PreviewReconciliationTests
     [InlineData(PreviewState.Starting)]
     public void A_start_nobody_works_on_any_more_fails(PreviewState state)
     {
-        var preview = Running(_a) with { State = state, AppContainerId = null, HasLiveStartJob = false };
+        var preview = Running(_a) with { State = state, Apps = [], HasLiveStartJob = false };
 
         var fail = Assert.IsType<FailPreviewAction>(Assert.Single(Plan([], [preview])));
 
@@ -62,7 +62,7 @@ public class PreviewReconciliationTests
     [Fact]
     public void A_start_in_progress_is_left_alone_with_its_containers()
     {
-        var preview = Running(_a) with { State = PreviewState.Preparing, AppContainerId = null, HasLiveStartJob = true };
+        var preview = Running(_a) with { State = PreviewState.Preparing, Apps = [], HasLiveStartJob = true };
 
         Assert.Empty(Plan([Container(_a, PreviewRole.Setup, running: true), Network(_a)], [preview]));
     }
@@ -81,6 +81,24 @@ public class PreviewReconciliationTests
         var fail = Assert.IsType<FailPreviewAction>(Assert.Single(Plan([Network(_a)], [Running(_a)])));
 
         Assert.Equal("The app stopped.", fail.Reason);
+    }
+
+    [Fact]
+    public void A_preview_with_several_apps_runs_while_every_app_runs()
+    {
+        var preview = Running(_a) with { Apps = [Upstream("web", "/"), Upstream("api", "/api")] };
+
+        Assert.Empty(Plan([Container("web", _a), Container("api", _a), Network(_a)], [preview]));
+    }
+
+    [Fact]
+    public void A_preview_fails_when_any_of_its_apps_stops()
+    {
+        var preview = Running(_a) with { Apps = [Upstream("web", "/"), Upstream("api", "/api")] };
+
+        var fail = Assert.IsType<FailPreviewAction>(Assert.Single(Plan([Container("web", _a), Container("api", _a, running: false)], [preview])));
+
+        Assert.Equal((PreviewState.Running, "The app api stopped."), (fail.State, fail.Reason));
     }
 
     [Fact]
@@ -113,12 +131,16 @@ public class PreviewReconciliationTests
         [.. PreviewReconciliation.Plan(resources, previews, uncleaned ?? [], _maxLifetime)];
 
     private static ActivePreview Running(Guid id, TimeSpan? idleFor = null, TimeSpan? age = null) =>
-        new(id, PreviewState.Running, ChangeSetOpen: true, AppContainerId: "app-" + id, HasLiveStartJob: false,
+        new(id, PreviewState.Running, ChangeSetOpen: true, Apps: [new PreviewAppUpstream("app", "/", "http://x", "app-" + id)], HasLiveStartJob: false,
             Age: age ?? TimeSpan.FromMinutes(40), IdleFor: idleFor ?? TimeSpan.FromMinutes(1), IdleMinutes: 30);
 
     private static PreviewResource App(Guid id, bool running = true) => new(false, "app-" + id, id, PreviewRole.App, running);
 
     private static PreviewResource Container(Guid id, PreviewRole role, bool running) => new(false, $"{role}-{id}", id, role, running);
+
+    private static PreviewAppUpstream Upstream(string name, string path) => new(name, path, $"http://{name}", name + "-container");
+
+    private static PreviewResource Container(string app, Guid id, bool running = true) => new(false, app + "-container", id, PreviewRole.App, running);
 
     private static PreviewResource Network(Guid id) => new(true, "net-" + id, id, null, false);
 }

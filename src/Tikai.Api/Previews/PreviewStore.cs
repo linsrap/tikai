@@ -94,14 +94,14 @@ internal sealed class PreviewStore(
             .ExecuteUpdateAsync(s => s.SetProperty(p => p.State, PreviewState.Starting).SetProperty(p => p.UpdatedAt, now), cancellationToken), cancellationToken);
     }
 
-    public async Task<bool> MarkRunningAsync(Guid previewId, Uri upstream, string appContainerId, CancellationToken cancellationToken)
+    public async Task<bool> MarkRunningAsync(Guid previewId, IReadOnlyList<PreviewAppUpstream> apps, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
+        var upstreams = PreviewUpstreams.ToJson(apps);
         return await ChangeAsync(previewId, db.Previews.Where(p => p.Id == previewId && p.State == PreviewState.Starting)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.State, PreviewState.Running)
-                .SetProperty(p => p.Upstream, upstream.ToString())
-                .SetProperty(p => p.AppContainerId, appContainerId)
+                .SetProperty(p => p.Upstreams, upstreams)
                 .SetProperty(p => p.RunningAt, now)
                 .SetProperty(p => p.UpdatedAt, now), cancellationToken), cancellationToken);
     }
@@ -116,7 +116,7 @@ internal sealed class PreviewStore(
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.State, PreviewState.Failed)
                 .SetProperty(p => p.Error, error)
-                .SetProperty(p => p.Upstream, (string?)null)
+                .SetProperty(p => p.Upstreams, (string?)null)
                 .SetProperty(p => p.StoppedAt, now)
                 .SetProperty(p => p.UpdatedAt, now), cancellationToken);
         if (changed == 0)
@@ -154,7 +154,7 @@ internal sealed class PreviewStore(
     {
         var active = PreviewRules.Active.Select(s => JsonNamingPolicy.SnakeCaseLower.ConvertName(s.ToString())).ToArray();
         var rows = await db.Database.SqlQuery<ActiveRow>($"""
-            SELECT p.id AS "Id", p.state AS "State", c.status IN ('open', 'delivering') AS "ChangeSetOpen", p.app_container_id AS "AppContainerId",
+            SELECT p.id AS "Id", p.state AS "State", c.status IN ('open', 'delivering') AS "ChangeSetOpen", p.upstreams::text AS "Upstreams",
                    EXISTS (SELECT 1 FROM jobs j WHERE j.queue = {PreviewJob.StartQueue} AND j.dead_at IS NULL AND j.payload->>'preview_id' = p.id::text) AS "HasLiveStartJob",
                    EXTRACT(EPOCH FROM now() - p.created_at)::float8 AS "AgeSeconds",
                    EXTRACT(EPOCH FROM now() - COALESCE(p.last_request_at, p.running_at))::float8 AS "IdleSeconds",
@@ -163,7 +163,7 @@ internal sealed class PreviewStore(
             WHERE p.state = ANY({active})
             """).ToListAsync(cancellationToken);
         return [.. rows.Select(r => new ActivePreview(
-            r.Id, Enum.Parse<PreviewState>(r.State.Replace("_", "", StringComparison.Ordinal), ignoreCase: true), r.ChangeSetOpen, r.AppContainerId, r.HasLiveStartJob,
+            r.Id, Enum.Parse<PreviewState>(r.State.Replace("_", "", StringComparison.Ordinal), ignoreCase: true), r.ChangeSetOpen, PreviewUpstreams.FromJson(r.Upstreams), r.HasLiveStartJob,
             TimeSpan.FromSeconds(r.AgeSeconds), r.IdleSeconds is { } idle ? TimeSpan.FromSeconds(idle) : null, r.IdleMinutes))];
     }
 
@@ -206,5 +206,5 @@ internal sealed class PreviewStore(
         return true;
     }
 
-    private sealed record ActiveRow(Guid Id, string State, bool ChangeSetOpen, string? AppContainerId, bool HasLiveStartJob, double AgeSeconds, double? IdleSeconds, int IdleMinutes);
+    private sealed record ActiveRow(Guid Id, string State, bool ChangeSetOpen, string? Upstreams, bool HasLiveStartJob, double AgeSeconds, double? IdleSeconds, int IdleMinutes);
 }

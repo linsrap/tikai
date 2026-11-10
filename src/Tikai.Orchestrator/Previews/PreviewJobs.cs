@@ -8,8 +8,8 @@ namespace Tikai.Orchestrator.Previews;
 
 /// <summary>
 /// Starts a preview (queue <see cref="PreviewJob.StartQueue"/>): bundle the round's pinned ref from the mirror (the only
-/// git the hub runs for it), clone, setup steps, services and app (<see cref="PreviewEnvironment"/>), then follow the
-/// app's log. Between steps it checks that the preview is still wanted; a stop meanwhile wins. Any failure fails the
+/// git the hub runs for it), clone, setup steps, services and apps (<see cref="PreviewEnvironment"/>), then follow the
+/// apps' logs. Between steps it checks that the preview is still wanted; a stop meanwhile wins. Any failure fails the
 /// preview with a reason people can act on and queues its teardown. A start is tried once: after a hub restart the
 /// reconciler fails it.
 /// </summary>
@@ -77,7 +77,7 @@ public sealed partial class PreviewStarter(
             return;
         }
         var started = await environment.StartAsync(previewId, definition, log, cancellationToken);
-        if (!await store.MarkRunningAsync(previewId, started.Upstream, started.AppContainerId, cancellationToken))
+        if (!await store.MarkRunningAsync(previewId, started.Apps, cancellationToken))
         {
             // Stopped while it started; its teardown is queued and removes what was just started.
             return;
@@ -135,7 +135,7 @@ public sealed partial class PreviewTeardown(
 }
 
 /// <summary>
-/// Follows the log of each running app into its preview log while this hub runs. The generated values are only in
+/// Follows the logs of each running preview's apps into its preview log while this hub runs. The generated values are only in
 /// memory, so after a restart the log is not followed again (the reconciler still notices an app that stops).
 /// </summary>
 public sealed partial class PreviewLogFollower(IServiceScopeFactory scopes, PreviewEnvironment environment, ILogger<PreviewLogFollower> logger) : IDisposable
@@ -154,7 +154,7 @@ public sealed partial class PreviewLogFollower(IServiceScopeFactory scopes, Prev
         {
             try
             {
-                await environment.FollowAppLogAsync(started.AppContainerId, started.Secrets, async (lines, ct) =>
+                await environment.FollowAppLogsAsync(started, async (lines, ct) =>
                 {
                     await using var scope = scopes.CreateAsyncScope();
                     await scope.ServiceProvider.GetRequiredService<IPreviewStore>().AppendLogAsync(previewId, lines, ct);
@@ -194,6 +194,6 @@ public sealed partial class PreviewLogFollower(IServiceScopeFactory scopes, Prev
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Preview {PreviewId}: following the app's log ended")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Preview {PreviewId}: following the apps' logs ended")]
     private partial void LogFollowEnded(Guid previewId, Exception exception);
 }

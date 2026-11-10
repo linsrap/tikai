@@ -70,10 +70,14 @@ public sealed record PreviewApp(
     public const string RootPath = "/";
 
     /// <summary>Its lines in the preview log: <c>app</c> for the single app, <c>app &lt;name&gt;</c> otherwise.</summary>
-    public string LogSource => Name == SingleName ? "app" : $"app {Name}";
+    public string LogSource => LogSourceFor(Name);
 
     /// <summary>How the hub's messages name it: "The app" or "The app web".</summary>
-    public string Label => Name == SingleName ? "The app" : $"The app {Name}";
+    public string Label => LabelFor(Name);
+
+    public static string LogSourceFor(string name) => name == SingleName ? "app" : $"app {name}";
+
+    public static string LabelFor(string name) => name == SingleName ? "The app" : $"The app {name}";
 }
 
 /// <param name="Command">Arguments for the image's own entrypoint (like compose's list form); null keeps the image's command.</param>

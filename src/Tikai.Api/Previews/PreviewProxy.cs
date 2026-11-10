@@ -150,8 +150,9 @@ internal sealed partial class PreviewProxy(
         if (!_upstreams.TryGetValue(previewId, out var cached) || cached.Until <= now)
         {
             var db = context.RequestServices.GetRequiredService<TikaiDbContext>();
-            var upstream = await db.Previews.Where(p => p.Id == previewId && p.State == PreviewState.Running)
-                .Select(p => p.Upstream).SingleOrDefaultAsync(context.RequestAborted);
+            var upstreams = await db.Previews.Where(p => p.Id == previewId && p.State == PreviewState.Running)
+                .Select(p => p.Upstreams).SingleOrDefaultAsync(context.RequestAborted);
+            var upstream = PreviewUpstreams.FromJson(upstreams).FirstOrDefault(a => a.Path == "/")?.Url;
             cached = (upstream, now + _upstreamCache);
             _upstreams[previewId] = cached;
         }

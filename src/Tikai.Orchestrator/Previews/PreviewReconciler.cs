@@ -43,9 +43,14 @@ public static class PreviewReconciliation
                 }
                 continue;
             }
-            if (!resources.Any(r => !r.IsNetwork && r.Id == preview.AppContainerId && r.Running))
+            // Every app must run: the preview is one origin, and a missing app breaks its paths.
+            if (preview.Apps.Count == 0)
             {
                 actions.Add(new FailPreviewAction(preview.PreviewId, preview.State, "The app stopped."));
+            }
+            else if (preview.Apps.FirstOrDefault(a => !resources.Any(r => !r.IsNetwork && r.Id == a.ContainerId && r.Running)) is { } stopped)
+            {
+                actions.Add(new FailPreviewAction(preview.PreviewId, preview.State, $"{PreviewApp.LabelFor(stopped.Name)} stopped."));
             }
             else if (preview.Age >= maxLifetime)
             {
@@ -72,8 +77,8 @@ public static class PreviewReconciliation
 
 /// <summary>
 /// Brings previews and containers back in line every <see cref="OrchestratorOptions.ReconcileInterval"/>: stops idle
-/// previews, previews past the time limit and previews of ended change sets, fails starts nobody works on and apps
-/// that stopped, and queues the teardown of whatever ended previews left behind.
+/// previews, previews past the time limit and previews of ended change sets, fails starts nobody works on and previews
+/// with an app that stopped, and queues the teardown of whatever ended previews left behind.
 /// </summary>
 public sealed partial class PreviewReconciler(
     IServiceScopeFactory scopes,

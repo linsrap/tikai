@@ -3,12 +3,13 @@ using System.Security.Cryptography;
 using System.Threading.Channels;
 using Microsoft.Extensions.Options;
 using Tikai.Core.Agents;
+using Tikai.Core.Previews;
 using Tikai.Core.Runs;
 
 namespace Tikai.Orchestrator.Previews;
 
 /// <summary>One line of a preview's log.</summary>
-/// <param name="Source">hub, setup 1, app, …</param>
+/// <param name="Source">hub, setup 1, app (or app &lt;name&gt;), a service's name</param>
 public sealed record PreviewLogEntry(string Source, string Text);
 
 /// <summary>Stores lines of a preview's log (already redacted).</summary>
@@ -17,10 +18,10 @@ public delegate Task PreviewLogSink(IReadOnlyList<PreviewLogEntry> lines, Cancel
 /// <summary>A preview could not be started, for a reason people can act on.</summary>
 public sealed class PreviewStartException(string message) : Exception(message);
 
-/// <summary>A started preview: where the hub reaches its app, and the values the hub generated (removed from its log).</summary>
-public sealed record PreviewStarted(Uri Upstream, string AppContainerId, IReadOnlyList<string> Secrets)
+/// <summary>A started preview: where the hub reaches each app, and the values the hub generated (removed from its log).</summary>
+public sealed record PreviewStarted(IReadOnlyList<PreviewAppUpstream> Apps, IReadOnlyList<string> Secrets)
 {
-    public override string ToString() => $"PreviewStarted {{ Upstream = {Upstream}, AppContainerId = {AppContainerId}, Secrets = {Secrets.Count} }}";
+    public override string ToString() => $"PreviewStarted {{ Apps = {string.Join(", ", Apps.Select(a => $"{a.Name} {a.Path} {a.Url}"))}, Secrets = {Secrets.Count} }}";
 }
 
 /// <summary>
@@ -174,12 +175,13 @@ public sealed class PreviewEnvironment(
     }
 
     /// <summary>
-    /// The preview's network, the services (started, then healthy), and the app; returns once the app answers on its
-    /// health check path (any answer on / without one).
+    /// The preview's network, the services (started, then healthy), and the apps; returns once every app answers on its
+    /// health check path (any answer on / without one). Each generated value is random per preview and the same in every
+    /// app that lists it.
     /// </summary>
     public async Task<PreviewStarted> StartAsync(Guid previewId, PreviewDefinition definition, PreviewLogSink log, CancellationToken cancellationToken)
     {
-        foreach (var image in definition.Services.Select(s => s.Image).Append(definition.Apps.Single().Image).Distinct(StringComparer.Ordinal))
+        foreach (var image in definition.Services.Select(s => s.Image).Concat(definition.Apps.Select(a => a.Image)).Distinct(StringComparer.Ordinal))
         {
             await PullAsync(image, log, cancellationToken);
         }
@@ -193,7 +195,7 @@ public sealed class PreviewEnvironment(
             var id = await containers.CreatePreviewAsync(new PreviewContainerSpec(
                 previewId, PreviewRole.Service, service.Image, Entrypoint: null, Command: service.Command,
                 Environment: [.. service.Environment.Select(e => new ContainerEnv(e.Key, e.Value))],
-                ServiceName: service.Name, HealthcheckCommand: service.HealthcheckCommand), cancellationToken);
+                Name: service.Name, HealthcheckCommand: service.HealthcheckCommand), cancellationToken);
             await containers.StartAsync(id, cancellationToken);
             started.Add((service, id));
             await log([new PreviewLogEntry("hub", $"Service {service.Name} started ({service.Image})")], cancellationToken);
@@ -210,37 +212,52 @@ public sealed class PreviewEnvironment(
             throw new PreviewStartException($"The services were not healthy within {_options.StartTimeout}.");
         }
 
-        var secrets = definition.Apps.Single().Generate.ToDictionary(name => name, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), StringComparer.Ordinal);
-        var app = definition.Apps.Single();
-        var appId = await containers.CreatePreviewAsync(new PreviewContainerSpec(
-            previewId, PreviewRole.App, app.Image, Entrypoint: ["/bin/sh", "-c", app.Command], Command: [],
-            Environment: [.. app.Environment.Select(e => new ContainerEnv(e.Key, e.Value)), .. secrets.Select(s => new ContainerEnv(s.Key, s.Value, IsSecret: true))],
-            Port: app.Port), cancellationToken);
-        await containers.StartAsync(appId, cancellationToken);
-        await log([new PreviewLogEntry("hub", $"App started ({app.Image}): {app.Command}")], cancellationToken);
+        var secrets = definition.Apps.SelectMany(a => a.Generate).Distinct(StringComparer.Ordinal)
+            .ToDictionary(name => name, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), StringComparer.Ordinal);
+        var redactor = new SecretRedactor(secrets.Values);
+        var apps = new List<(PreviewApp App, string Id)>();
+        foreach (var app in definition.Apps)
+        {
+            var id = await containers.CreatePreviewAsync(new PreviewContainerSpec(
+                previewId, PreviewRole.App, app.Image, Entrypoint: ["/bin/sh", "-c", app.Command], Command: [],
+                Environment: [.. app.Environment.Select(e => new ContainerEnv(e.Key, e.Value)), .. app.Generate.Select(name => new ContainerEnv(name, secrets[name], IsSecret: true))],
+                Name: app.Name, Port: app.Port), cancellationToken);
+            apps.Add((app, id));
+        }
+        foreach (var (app, id) in apps)
+        {
+            await containers.StartAsync(id, cancellationToken);
+            var where = app.Name == PreviewApp.SingleName ? "" : $" on {app.Path}";
+            await log([new PreviewLogEntry("hub", $"{app.Label} started{where} ({app.Image}): {app.Command}")], cancellationToken);
+        }
 
-        Uri upstream;
-        try
+        var upstreams = new List<PreviewAppUpstream>();
+        foreach (var (app, id) in apps)
         {
-            upstream = await UpstreamAsync(previewId, appId, app.Port, cancellationToken);
-            await WaitForAppAsync(upstream, app.HealthcheckPath, appId, timeout.Token);
+            try
+            {
+                var upstream = await UpstreamAsync(previewId, app, id, cancellationToken);
+                await WaitForAppAsync(upstream, app, id, timeout.Token);
+                upstreams.Add(new PreviewAppUpstream(app.Name, app.Path, upstream.ToString(), id));
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                await LogTailAsync(id, app.LogSource, redactor, log);
+                throw new PreviewStartException($"{app.Label} did not answer on port {app.Port}{app.HealthcheckPath} within {_options.StartTimeout}; see the preview log.");
+            }
+            catch (PreviewStartException)
+            {
+                await LogTailAsync(id, app.LogSource, redactor, log);
+                throw;
+            }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            await LogTailAsync(appId, "app", new SecretRedactor(secrets.Values), log);
-            throw new PreviewStartException($"The app did not answer on port {app.Port}{app.HealthcheckPath} within {_options.StartTimeout}; see the preview log.");
-        }
-        catch (PreviewStartException)
-        {
-            await LogTailAsync(appId, "app", new SecretRedactor(secrets.Values), log);
-            throw;
-        }
-        return new PreviewStarted(upstream, appId, [.. secrets.Values]);
+        return new PreviewStarted(upstreams, [.. secrets.Values]);
     }
 
-    /// <summary>Follows the app's log into the preview log until it ends or <paramref name="cancellationToken"/> stops it.</summary>
-    public Task FollowAppLogAsync(string appContainerId, IReadOnlyList<string> secrets, PreviewLogSink log, CancellationToken cancellationToken) =>
-        PumpLogAsync(appContainerId, "app", new SecretRedactor(secrets), log, cancellationToken);
+    /// <summary>Follows each app's log into the preview log until it ends or <paramref name="cancellationToken"/> stops it.</summary>
+    public Task FollowAppLogsAsync(PreviewStarted started, PreviewLogSink log, CancellationToken cancellationToken) =>
+        Task.WhenAll(started.Apps.Select(app =>
+            PumpLogAsync(app.ContainerId, PreviewApp.LogSourceFor(app.Name), new SecretRedactor(started.Secrets), log, cancellationToken)));
 
     /// <summary>Removes the preview's containers and network.</summary>
     public Task StopAsync(Guid previewId, CancellationToken cancellationToken) => containers.RemovePreviewAsync(previewId, cancellationToken);
@@ -269,18 +286,19 @@ public sealed class PreviewEnvironment(
         }
     }
 
-    private async Task<Uri> UpstreamAsync(Guid previewId, string appId, int port, CancellationToken cancellationToken)
+    private async Task<Uri> UpstreamAsync(Guid previewId, PreviewApp app, string appId, CancellationToken cancellationToken)
     {
+        var port = app.Port;
         if (_options.Upstream == PreviewUpstream.Network)
         {
             // The hub is on the preview's network, where Docker resolves container names.
-            return new Uri($"http://{DockerContainerRuntime.PreviewName(PreviewRole.App, previewId)}:{port.ToString(CultureInfo.InvariantCulture)}");
+            return new Uri($"http://{DockerContainerRuntime.PreviewName(PreviewRole.App, previewId, app.Name)}:{port.ToString(CultureInfo.InvariantCulture)}");
         }
         var published = await containers.PublishedPortAsync(appId, port, cancellationToken);
         if (published is null)
         {
-            await ThrowIfStoppedAsync(appId, cancellationToken);
-            throw new PreviewStartException("Docker did not publish the app's port on the loopback.");
+            await ThrowIfStoppedAsync(app, appId, cancellationToken);
+            throw new PreviewStartException($"Docker did not publish port {port} of {app.Name} on the loopback.");
         }
         return new Uri($"http://127.0.0.1:{published.Value.ToString(CultureInfo.InvariantCulture)}");
     }
@@ -303,8 +321,9 @@ public sealed class PreviewEnvironment(
         }
     }
 
-    private async Task WaitForAppAsync(Uri upstream, string? healthPath, string appId, CancellationToken cancellationToken)
+    private async Task WaitForAppAsync(Uri upstream, PreviewApp app, string appId, CancellationToken cancellationToken)
     {
+        var healthPath = app.HealthcheckPath;
         var url = new Uri(upstream, healthPath ?? "/");
         while (true)
         {
@@ -324,17 +343,17 @@ public sealed class PreviewEnvironment(
             {
                 // The single request timed out.
             }
-            await ThrowIfStoppedAsync(appId, cancellationToken);
+            await ThrowIfStoppedAsync(app, appId, cancellationToken);
             await Task.Delay(TimeSpan.FromSeconds(1), timeProvider, cancellationToken);
         }
     }
 
-    private async Task ThrowIfStoppedAsync(string appId, CancellationToken cancellationToken)
+    private async Task ThrowIfStoppedAsync(PreviewApp app, string appId, CancellationToken cancellationToken)
     {
         var status = await containers.InspectAsync(appId, cancellationToken);
         if (status is null || !status.Running)
         {
-            throw new PreviewStartException($"The app stopped with exit code {status?.ExitCode}{(status?.OomKilled == true ? " (out of memory)" : "")}.");
+            throw new PreviewStartException($"{app.Label} stopped with exit code {status?.ExitCode}{(status?.OomKilled == true ? " (out of memory)" : "")}.");
         }
     }
 
