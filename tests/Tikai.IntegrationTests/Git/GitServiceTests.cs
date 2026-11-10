@@ -181,6 +181,27 @@ public sealed class GitServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_ref_bundle_carries_exactly_that_ref_and_fetches_into_an_empty_repository()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = _temp.Combine("hub.git");
+        await _git.InitBareAsync(path, "main", ct);
+        await TestGit.CommitAsync(path, "main", "On main", ("a.txt", "a"));
+        var head = await TestGit.CommitAsync(path, "tikai/HUB-1-abc", "Agent work", ("b.txt", "b"));
+        await TestGit.RunAsync(path, "update-ref", "refs/tikai/rounds/x/1", head);
+        var bundle = _temp.Combine("round.bundle");
+
+        Assert.Equal(head, await _git.CreateRefBundleAsync(path, "refs/tikai/rounds/x/1", bundle, ct));
+
+        Assert.Equal($"{head} refs/tikai/rounds/x/1", await TestGit.RunAsync(null, "bundle", "list-heads", bundle));
+        var clone = await TestGit.InitBareAsync(_temp.Combine("empty.git"));
+        await TestGit.RunAsync(clone, "fetch", "--quiet", bundle, "+refs/tikai/rounds/x/1:refs/heads/review/HUB-1-r1");
+        Assert.Equal(head, await TestGit.RunAsync(clone, "rev-parse", "review/HUB-1-r1"));
+        await Assert.ThrowsAsync<GitException>(() => _git.CreateRefBundleAsync(path, "refs/tikai/rounds/x/2", _temp.Combine("none.bundle"), ct));
+        await Assert.ThrowsAsync<ArgumentException>(() => _git.CreateRefBundleAsync(path, "HEAD", _temp.Combine("none.bundle"), ct));
+    }
+
+    [Fact]
     public async Task Repositories_with_read_only_object_files_can_be_deleted()
     {
         var ct = TestContext.Current.CancellationToken;

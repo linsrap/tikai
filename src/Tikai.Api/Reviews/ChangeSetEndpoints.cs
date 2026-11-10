@@ -41,6 +41,38 @@ internal static class ChangeSetEndpoints
         changeSets.MapPost("/{id:guid}/verdict", VerdictAsync);
         changeSets.MapPost("/{id:guid}/rebase", RebaseAsync);
         changeSets.MapPost("/{id:guid}/rounds/{roundNo:int}/analysis", RetryAnalysisAsync);
+        changeSets.MapGet("/{id:guid}/rounds/{roundNo:int}/bundle", BundleAsync);
+    }
+
+    /// <summary>
+    /// A round as a git bundle, to try it on people's own computers: its pinned round ref with the whole history, so it
+    /// can be fetched into any clone of the repository (or an empty one). The review screen shows the commands.
+    /// </summary>
+    private static async Task<Results<FileStreamHttpResult, ProblemHttpResult>> BundleAsync(
+        Guid id, int roundNo, TikaiDbContext db, IGitService git, MirrorPaths mirrors, CancellationToken cancellationToken)
+    {
+        var key = await (
+            from c in db.ChangeSets
+            join t in db.Tickets on c.TicketId equals t.Id
+            join p in db.Projects on t.ProjectId equals p.Id
+            where c.Id == id
+            select new { p.Key, t.Number }).SingleOrDefaultAsync(cancellationToken);
+        if (key is null || await RoundAsync(db, mirrors, id, roundNo, cancellationToken) is not { } target)
+        {
+            return NotFound();
+        }
+        var file = Path.Combine(Path.GetTempPath(), $"tikai-download-{Guid.NewGuid():N}.bundle");
+        try
+        {
+            await git.CreateRefBundleAsync(target.Mirror, ReviewRules.RoundRef(id, roundNo), file, cancellationToken);
+        }
+        catch (GitException ex)
+        {
+            File.Delete(file);
+            return Conflict("No bundle", ex.Message);
+        }
+        var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 81920, FileOptions.DeleteOnClose | FileOptions.Asynchronous);
+        return TypedResults.File(stream, "application/octet-stream", $"{TicketKey.Format(key.Key, key.Number)}-round-{roundNo}.bundle");
     }
 
     private static async Task<Results<Ok<ChangeSetInfo>, ProblemHttpResult>> GetAsync(Guid id, TikaiDbContext db, CancellationToken cancellationToken) =>

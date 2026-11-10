@@ -51,6 +51,12 @@ public interface IGitService
     Task<string> CreateBundleAsync(string path, string branch, string outputFile, bool withHead = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Writes a git bundle with exactly one ref (e.g. a review round's pinned ref) and its whole history, for a copy on
+    /// people's own computers. Returns the commit the bundle holds.
+    /// </summary>
+    Task<string> CreateRefBundleAsync(string path, string reference, string outputFile, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Takes work from an untrusted bundle (made from a run clone): checks that the mirror has its prerequisites, fetches
     /// <paramref name="branch"/> with every object checked (fsck), and points each of <paramref name="targetRefs"/> at
     /// it (forced: they are the hub's own refs). Returns the fetched commit.

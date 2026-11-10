@@ -77,6 +77,18 @@ public sealed class DeliveryTests(PostgresFixture postgres, AgentHost agents) : 
         await TestGit.RunAsync(null, "clone", "--quiet", bundle, clone);
         Assert.Equal("hello\n", (await File.ReadAllTextAsync(Path.Combine(clone, "hello.txt"), TestContext.Current.CancellationToken)).ReplaceLineEndings("\n"));
         Assert.Equal(merged, await TestGit.RunAsync(Path.Combine(clone, ".git"), "rev-parse", "HEAD"));
+
+        // A round as a bundle, fetched into a branch with the command the review screen shows; also after the merge.
+        using var round = await hub.Browser.GetAsync($"/api/change-sets/{id}/rounds/1/bundle");
+        Assert.Equal(HttpStatusCode.OK, round.StatusCode);
+        Assert.Equal("HUB-1-round-1.bundle", round.Content.Headers.ContentDisposition?.FileName);
+        var roundBundle = _temp.Combine("HUB-1-round-1.bundle");
+        await File.WriteAllBytesAsync(roundBundle, await round.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+        Assert.Equal($"{head} {ReviewRules.RoundRef(id, 1)}", await TestGit.RunAsync(null, "bundle", "list-heads", roundBundle));
+        await TestGit.RunAsync(Path.Combine(clone, ".git"), "fetch", "--quiet", roundBundle, $"+{ReviewRules.RoundRef(id, 1)}:refs/heads/review/HUB-1-r1");
+        Assert.Equal(head, await TestGit.RunAsync(Path.Combine(clone, ".git"), "rev-parse", "review/HUB-1-r1"));
+        await ExpectAsync(HttpStatusCode.NotFound, hub.Browser.GetAsync($"/api/change-sets/{id}/rounds/9/bundle"));
+        await ExpectAsync(HttpStatusCode.NotFound, hub.Browser.GetAsync($"/api/change-sets/{Guid.NewGuid()}/rounds/1/bundle"));
     }
 
     [Fact]
