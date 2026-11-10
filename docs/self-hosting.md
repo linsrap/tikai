@@ -53,7 +53,7 @@ Keep a copy outside the server (a password manager). The keys in the `tikai_data
 | `db` | Postgres 17. Not reachable from outside the compose network. |
 | `docker-proxy` | Limited access to Docker (containers, images, networks; no image builds): the hub starts agent and preview containers through it. |
 | agent containers | One per agent run, started by the hub (not by compose): `tikai-agent-<run-id>`, plus short-lived `tikai-prep-…`, `tikai-seed-…` and `tikai-inspect-…` containers while a run is prepared or resumed. The hub removes containers of its runs volume that no active run claims. |
-| preview containers | Per running preview: `tikai-preview-app-<id>` and its services (`tikai-preview-<id>-db`, …) on a network `tikai-preview-<id>`, plus short-lived setup, prep and cleanup containers. The hub removes those of previews that ended. |
+| preview containers | Per running preview: its apps (`tikai-preview-app-<id>-<name>`) and its services (`tikai-preview-<id>-db`, …) on a network `tikai-preview-<id>`, plus short-lived setup, prep and cleanup containers. The hub removes those of previews that ended. |
 
 Data lives in three named volumes: `tikai_pg` (database), `tikai_data` (the keys that sign login cookies and encrypt stored credentials, and the repository mirrors) and `tikai_runs` (one directory per agent run: its clone and the agent's session; removed when the run ends, by a short-lived cleanup container). `docker compose down` keeps them; `docker compose down -v` **deletes** `tikai_pg` and `tikai_data`. `tikai_runs` is created by Docker with the first agent run, so `down -v` leaves it: remove it with `docker volume rm tikai_runs`. The same goes for `tikai_previews` (one directory per running preview: the round's source and what its setup built; removed when the preview stops). Keep `tikai_data` and `tikai_pg` together: without the keys in `tikai_data`, stored repository credentials cannot be decrypted and have to be entered again.
 
@@ -133,7 +133,22 @@ On a ticket page, **Assign to agent** starts Claude Code on the ticket. The agen
 **Preview** on the review screen starts the latest round of a change in containers and opens it in a new tab, to click through it before approving. Every preview is fresh, with empty data, and short-lived.
 
 - **The repository says how,** in `tikai-preview.yml` at its root (the agent can write and keep it current): `setup` steps (an image and a shell command each, run in order on the round's source, with internet for package registries), the `app` (image, command, port, environment, `generate` for variables that get a random value per preview, a health check path), `services` such as a database (stock images, reachable by their name), and `idle_minutes`. Nothing else is allowed: no image builds, volumes, ports, privileges or networks; the hub decides those. Tikai's own [`tikai-preview.yml`](../tikai-preview.yml) is an example. A round without the file shows an example and **Try it locally** instead.
-- **Isolation:** the round is cloned like an agent run; setup steps and the app run as the agent user with a read-only root, no capabilities and limits (`Tikai__Previews__MemoryBytes`, default 4 GB, `Cpus` 2, `PidsLimit` 1024). The app and its services are on a network of their own without internet. Services keep only the capabilities images like Postgres need to switch to their own user.
+- **Several processes** (for example a Vite dev server and a .NET API) go under `apps` instead of `app`: a map from a name to the same fields plus `path`, a prefix of the preview's address (default `/`). At most 5 apps, exactly one on `/`; the longest matching prefix gets the request, with the path unchanged (`/api/users` reaches the `/api` app as `/api/users`). Apps reach each other and the services by name (`http://api:8080`); a `generate` variable has the same value in every app that lists it. The preview runs once every app passes its health check and fails when any app stops. Each app gets the request with its own container name as host (`tikai-preview-app-<id>-<name>`), so a dev server that checks the host, like Vite, needs to allow it (`server.allowedHosts: true` in the config the preview uses).
+
+  ```yaml
+  apps:
+    web:
+      image: node:24-trixie-slim
+      command: npm run dev -- --host 0.0.0.0
+      port: 5173
+    api:
+      path: /api
+      image: mcr.microsoft.com/dotnet/sdk:10.0
+      command: dotnet run --project src/Api --urls http://0.0.0.0:8080
+      port: 8080
+      healthcheck: { path: /api/health }
+  ```
+- **Isolation:** the round is cloned like an agent run; setup steps and the apps run as the agent user with a read-only root, no capabilities and limits (`Tikai__Previews__MemoryBytes`, default 4 GB, `Cpus` 2, `PidsLimit` 1024). The apps and services are on a network of their own without internet. Services keep only the capabilities images like Postgres need to switch to their own user.
 - **Its own address:** a preview is served by the hub at `http://<id>.preview.localhost:8080` (with the scheme and port you use for Tikai), never on Tikai's own address, so the app never sees Tikai's login cookie. Browsers resolve `*.localhost` without DNS, so this works when Tikai is opened on `localhost` or `127.0.0.1`. For any other address set `TIKAI_PREVIEW_DOMAIN` (for example `preview.tikai.example.com`) and point a **wildcard DNS** record (`*.preview.tikai.example.com`) at the machine; with TLS in front, the reverse proxy needs a wildcard certificate for it. Without either, the review screen says previews are off. **Open preview** lets your browser in with a one-time link; the preview's own cookie works only on its address.
 - **Stops:** with **Stop**, after `idle_minutes` (default 30) without a request, after 4 hours at most (`Tikai__Previews__MaxLifetime`), when a newer preview of the change starts, and when the change is merged, pushed or rejected. At most 2 previews run at a time (`Tikai__Previews__MaxRunning`). Containers, network and files are removed when it stops.
 - **Images** are pulled on first use (through the docker proxy); the first preview of a project takes longer.

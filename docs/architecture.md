@@ -10,7 +10,7 @@ A short map for contributors. Details live in the code and in `CLAUDE.md`.
 | `db` | Postgres 17: everything except git objects and keys. The source of truth for runs, answers and reviews. |
 | `docker-proxy` | Lets the hub start containers without giving it the Docker socket. |
 | agent containers | One per run (Claude Code), started by the hub. They see only their own run directory and talk to the hub only through MCP with a run token. |
-| preview containers | A review round's app and its services, started from the repository's `tikai-preview.yml` in stock images (no image builds), on their own network. The hub serves each on its own host name. |
+| preview containers | A review round's apps (one or several, routed by path prefix) and its services, started from the repository's `tikai-preview.yml` in stock images (no image builds), on their own network. The hub serves each on its own host name. |
 
 Volumes: `data` (key ring, repository mirrors; hub only), `pg`, `runs` (one directory per run; never mounted in the hub), `previews` (one directory per running preview; never mounted in the hub).
 

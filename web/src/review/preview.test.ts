@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { canStart, logStart, previewLine, type ChangeSetPreview, type Preview } from './preview'
+import {
+  appsLine,
+  canStart,
+  filterLog,
+  logFilterOptions,
+  logStart,
+  previewLine,
+  type ChangeSetPreview,
+  type Preview,
+  type PreviewLogLine,
+} from './preview'
 
 const preview = (over: Partial<Preview> = {}): Preview => ({
   id: 'p1',
@@ -15,6 +25,7 @@ const preview = (over: Partial<Preview> = {}): Preview => ({
   idleMinutes: 30,
   lastLogSeq: 12,
   url: 'http://p1.preview.localhost:8080',
+  apps: [{ name: 'app', path: '/', logSource: 'app' }],
   ...over,
 })
 
@@ -75,5 +86,34 @@ describe('logStart', () => {
   it('shows the latest lines', () => {
     expect(logStart(12)).toBe(0)
     expect(logStart(1200)).toBe(700)
+  })
+})
+
+describe('several apps', () => {
+  const apps = [
+    { name: 'web', path: '/', logSource: 'app web' },
+    { name: 'api', path: '/api', logSource: 'app api' },
+  ]
+  const line = (seq: number, source: string): PreviewLogLine => ({
+    seq,
+    source,
+    text: 't',
+    at: '2026-11-10T10:00:00Z',
+  })
+
+  it('says which app serves which path, only when there are several', () => {
+    expect(appsLine(apps)).toBe('Apps: web on /, api on /api')
+    expect(appsLine([{ name: 'app', path: '/', logSource: 'app' }])).toBeNull()
+  })
+
+  it('offers a log filter per app only when there are several', () => {
+    expect(logFilterOptions(apps).map((o) => o.label)).toEqual(['All', 'web', 'api'])
+    expect(logFilterOptions(apps.slice(0, 1))).toEqual([])
+  })
+
+  it("shows one app's lines with the hub's notes", () => {
+    const lines = [line(1, 'hub'), line(2, 'app web'), line(3, 'app api'), line(4, 'setup 1')]
+    expect(filterLog(lines, 'app api').map((l) => l.seq)).toEqual([1, 3])
+    expect(filterLog(lines, 'all')).toHaveLength(4)
   })
 })

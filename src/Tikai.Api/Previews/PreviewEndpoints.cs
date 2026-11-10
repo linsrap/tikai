@@ -275,8 +275,15 @@ internal sealed class PreviewService(
         var p = await db.Previews.AsNoTracking().SingleOrDefaultAsync(p => p.Id == previewId, cancellationToken);
         return p is null ? null : new PreviewInfo(
             p.Id, p.ChangeSetId, p.RoundNo, p.HeadSha, p.State, p.Error, p.StopReason, p.CreatedAt, p.RunningAt, p.StoppedAt,
-            p.IdleMinutes, p.LastLogSeq, p.State == PreviewState.Running && request is not null ? Origin(p.Id, request) : null);
+            p.IdleMinutes, p.LastLogSeq, p.State == PreviewState.Running && request is not null ? Origin(p.Id, request) : null,
+            Apps(p.Definition));
     }
+
+    /// <summary>The apps of the definition stored with the preview (checked when it was started).</summary>
+    private static List<PreviewAppInfo> Apps(string definition) =>
+        PreviewDefinition.Parse(definition).Definition is { } parsed
+            ? [.. parsed.Apps.Select(a => new PreviewAppInfo(a.Name, a.Path, a.LogSource))]
+            : [];
 
     private static ProblemHttpResult Problem(int status, string title, string detail) =>
         TypedResults.Problem(statusCode: status, title: title, detail: detail);

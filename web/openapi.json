@@ -3824,6 +3824,25 @@
           }
         }
       },
+      "PreviewAppInfo": {
+        "required": [
+          "name",
+          "path",
+          "logSource"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "logSource": {
+            "type": "string"
+          }
+        }
+      },
       "PreviewDefinitionInfo": {
         "required": [
           "roundNo",
@@ -3872,7 +3891,8 @@
           "stoppedAt",
           "idleMinutes",
           "lastLogSeq",
-          "url"
+          "url",
+          "apps"
         ],
         "type": "object",
         "properties": {
@@ -3937,6 +3957,12 @@
               "null",
               "string"
             ]
+          },
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreviewAppInfo"
+            }
           }
         }
       },

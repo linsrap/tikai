@@ -66,6 +66,7 @@ public sealed class PreviewApiTests(PostgresFixture postgres, AgentHost agents) 
         var changeSetId = await SubmittedAsync(hub, "preview-apps");
 
         var started = await StartAsync(hub, changeSetId);
+        Assert.Equal([("web", "/", "app web"), ("api", "/api", "app api")], started.Apps.Select(a => (a.Name, a.Path, a.LogSource)));
         await WaitForAsync(hub, changeSetId, p => p.Id == started.Id && p.State == PreviewState.Running);
         var row = await PreviewRowAsync(hub, started.Id);
         var apps = PreviewUpstreams.FromJson(row.Upstreams);
