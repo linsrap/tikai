@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using Tikai.Core.Previews;
 
 namespace Tikai.Orchestrator.Previews;
 
@@ -63,6 +64,31 @@ public static class PreviewHosts
         }
         var label = name[..^(suffix.Length + 1)];
         return label.Length == 32 && Guid.TryParseExact(label, "N", out previewId) ? PreviewHostMatch.Preview : PreviewHostMatch.Unknown;
+    }
+
+    /// <summary>
+    /// The app that serves <paramref name="path"/>: the longest prefix that is the path itself or followed by a slash
+    /// (<c>/api</c> serves <c>/api</c> and <c>/api/x</c>, not <c>/apix</c>), compared ordinally; <c>/</c> serves the
+    /// rest. The path is forwarded unchanged. Null when no app is on <c>/</c> and nothing else matches.
+    /// </summary>
+    /// <param name="path">The request's path (decoded as ASP.NET Core gives it, so an encoded slash stays one segment).</param>
+    public static PreviewAppUpstream? Route(IReadOnlyList<PreviewAppUpstream> apps, string path)
+    {
+        if (path.Length == 0)
+        {
+            path = "/";
+        }
+        PreviewAppUpstream? best = null;
+        foreach (var app in apps)
+        {
+            var matches = app.Path == "/"
+                || (path.StartsWith(app.Path, StringComparison.Ordinal) && (path.Length == app.Path.Length || path[app.Path.Length] == '/'));
+            if (matches && (best is null || app.Path.Length > best.Path.Length))
+            {
+                best = app;
+            }
+        }
+        return best;
     }
 
     /// <summary>
