@@ -4,42 +4,76 @@ namespace Tikai.Core.Attention;
 /// Builds payloads from what an agent sends (trimmed, empty entries dropped) and checks answers from people.
 /// Each check returns null when valid, otherwise a message for the agent or person.
 /// </summary>
+/// <remarks>
+/// The limits keep what people read in the inbox short (headline first, details on demand). An agent that sends too
+/// much gets an error naming the field, the limit and its length, so it can shorten the text in one try.
+/// </remarks>
 public static class AttentionRules
 {
-    public const int MaxQuestionLength = 4_000;
-    public const int MaxContextLength = 20_000;
-    public const int MaxOptions = 10;
-    public const int MaxOptionLength = 500;
-    public const int MaxListItems = 50;
+    public const int MaxQuestionLength = 200;
+    public const int MaxContextLength = 2_000;
+    public const int MinOptions = 2;
+    public const int MaxOptions = 4;
+    public const int MaxOptionLength = 80;
+
+    public const int MaxPlanSummaryLength = 160;
+    public const int MaxSteps = 6;
+    public const int MaxStepLength = 120;
+    public const int MaxRisks = 3;
+    public const int MaxRiskLength = 160;
     public const int MaxFiles = 200;
-    public const int MaxItemLength = 2_000;
-    public const int MaxSummaryLength = 20_000;
+    public const int MaxFileLength = 500;
+
+    public const int MaxReviewSummaryLength = 400;
+    public const int MaxNoteLength = 200;
+    public const int MaxConcerns = 3;
+    public const int MaxConcernLength = 200;
+
     public const int MaxAnswerLength = 20_000;
 
-    public static (QuestionPayload? Payload, string? Error) Question(string? question, string? context, IEnumerable<string?>? options)
+    /// <param name="recommended">One of the options: the one the agent would choose.</param>
+    public static (QuestionPayload? Payload, string? Error) Question(string? question, string? context, IEnumerable<string?>? options, string? recommended)
     {
         var text = question?.Trim() ?? "";
+        var background = Empty(context);
         var list = Clean(options);
+        var choice = recommended?.Trim() ?? "";
         var error =
-            text.Length is 0 or > MaxQuestionLength ? $"Ask a question of 1 to {MaxQuestionLength} characters."
-            : context?.Length > MaxContextLength ? $"The context can have at most {MaxContextLength} characters."
-            : list.Count > MaxOptions || list.Any(o => o.Length > MaxOptionLength) ? $"Give at most {MaxOptions} options of at most {MaxOptionLength} characters each."
-            : null;
-        return error is null ? (new QuestionPayload(text, Empty(context), list), null) : (null, error);
+            Length("question", text, MaxQuestionLength, "Ask one short question; put the background into context.")
+            ?? (background?.Length > MaxContextLength
+                ? $"context: at most {MaxContextLength} characters (yours has {background.Length}). Keep only what the human needs to decide."
+                : null)
+            ?? (list.Count is < MinOptions or > MaxOptions
+                ? $"options: give {MinOptions} to {MaxOptions} possible answers (you gave {list.Count}). The human can still answer in their own words."
+                : null)
+            ?? Items("options", list, MaxOptionLength)
+            ?? (list.Distinct(StringComparer.Ordinal).Count() != list.Count ? "options: each option must be different." : null)
+            ?? (choice.Length == 0 ? "recommended: required. Name the option you would choose." : null)
+            ?? (!list.Contains(choice, StringComparer.Ordinal) ? "recommended: must be exactly one of the options." : null);
+        return error is null ? (new QuestionPayload(text, background, list, choice), null) : (null, error);
     }
 
-    public static (PlanPayload? Payload, string? Error) Plan(IEnumerable<string?>? steps, IEnumerable<string?>? risks, IEnumerable<string?>? filesExpected)
+    /// <param name="summary">The plan in one sentence: the headline people read first.</param>
+    public static (PlanPayload? Payload, string? Error) Plan(
+        string? summary, IEnumerable<string?>? steps, IEnumerable<string?>? risks, IEnumerable<string?>? filesExpected)
     {
+        var text = summary?.Trim() ?? "";
         var stepList = Clean(steps);
         var riskList = Clean(risks);
         var files = Clean(filesExpected);
         var error =
-            stepList.Count is 0 or > MaxListItems ? $"Propose 1 to {MaxListItems} steps."
-            : riskList.Count > MaxListItems ? $"List at most {MaxListItems} risks."
-            : files.Count > MaxFiles ? $"List at most {MaxFiles} expected files."
-            : stepList.Concat(riskList).Concat(files).Any(s => s.Length > MaxItemLength) ? $"Each step, risk and file can have at most {MaxItemLength} characters."
-            : null;
-        return error is null ? (new PlanPayload(stepList, riskList, files), null) : (null, error);
+            Length("summary", text, MaxPlanSummaryLength, "Say in one sentence what you will do.")
+            ?? (stepList.Count is 0 or > MaxSteps
+                ? $"steps: give 1 to {MaxSteps} steps (you gave {stepList.Count}). Merge small steps into larger ones."
+                : null)
+            ?? Items("steps", stepList, MaxStepLength)
+            ?? (riskList.Count > MaxRisks
+                ? $"risks: at most {MaxRisks} (you gave {riskList.Count}). Keep the ones a human should know before approving."
+                : null)
+            ?? Items("risks", riskList, MaxRiskLength)
+            ?? (files.Count > MaxFiles ? $"files_expected: at most {MaxFiles} files (you gave {files.Count})." : null)
+            ?? Items("files_expected", files, MaxFileLength);
+        return error is null ? (new PlanPayload(stepList, riskList, files, text), null) : (null, error);
     }
 
     /// <param name="criterionIds">The ticket's criteria; the mapping may only name these.</param>
@@ -50,13 +84,18 @@ public static class AttentionRules
         var mappings = (mapping ?? []).Select(m => m with { Note = Empty(m.Note) }).ToList();
         var concerns = Clean(openConcerns);
         var unknown = mappings.Where(m => !criterionIds.Contains(m.CriterionId)).Select(m => m.CriterionId).ToList();
+        var longNote = mappings.FirstOrDefault(m => m.Note?.Length > MaxNoteLength);
         var error =
-            text.Length is 0 or > MaxSummaryLength ? $"Write a summary of 1 to {MaxSummaryLength} characters."
-            : unknown.Count > 0 ? $"These criterion ids are not this ticket's: {string.Join(", ", unknown)}. Use the ids from get_ticket."
-            : mappings.DistinctBy(m => m.CriterionId).Count() != mappings.Count ? "Map each criterion at most once."
-            : mappings.Any(m => m.Note?.Length > MaxItemLength) ? $"Each note can have at most {MaxItemLength} characters."
-            : concerns.Count > MaxListItems || concerns.Any(c => c.Length > MaxItemLength) ? $"List at most {MaxListItems} open concerns of at most {MaxItemLength} characters each."
-            : null;
+            Length("summary", text, MaxReviewSummaryLength, "At most 3 sentences: what changed and why; details belong in the commits.")
+            ?? (unknown.Count > 0 ? $"These criterion ids are not this ticket's: {string.Join(", ", unknown)}. Use the ids from get_ticket." : null)
+            ?? (mappings.DistinctBy(m => m.CriterionId).Count() != mappings.Count ? "Map each criterion at most once." : null)
+            ?? (longNote is not null
+                ? $"criteria_mapping: each note at most {MaxNoteLength} characters (the one for {longNote.CriterionId} has {longNote.Note!.Length}). Say where or why in a few words."
+                : null)
+            ?? (concerns.Count > MaxConcerns
+                ? $"open_concerns: at most {MaxConcerns} (you gave {concerns.Count}). Keep the ones a reviewer must know."
+                : null)
+            ?? Items("open_concerns", concerns, MaxConcernLength);
         return error is null ? (new ReviewPayload(text, mappings, concerns), null) : (null, error);
     }
 
@@ -76,6 +115,17 @@ public static class AttentionRules
             _ => ("kind", $"A {kind} item is not answered here."),
         };
         return error is null ? (new AttentionAnswer(trimmed, decision), null) : (null, error);
+    }
+
+    private static string? Length(string field, string text, int max, string hint) =>
+        text.Length == 0 ? $"{field}: required. {hint}"
+        : text.Length > max ? $"{field}: at most {max} characters (yours has {text.Length}). {hint}"
+        : null;
+
+    private static string? Items(string field, List<string> items, int max)
+    {
+        var index = items.FindIndex(i => i.Length > max);
+        return index < 0 ? null : $"{field}: each entry at most {max} characters (entry {index + 1} has {items[index].Length}).";
     }
 
     private static List<string> Clean(IEnumerable<string?>? values) =>

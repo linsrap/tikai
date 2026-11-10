@@ -90,7 +90,7 @@ public sealed class LiveHubTests(PostgresFixture postgres) : IAsyncLifetime
 
         // An agent asks: the item is raised and the run blocked (it was queued here, so only the item changes).
         _agent = await McpTestKit.ConnectAsync(_factory, token);
-        _ = _agent.CallAsync("ask_human", new { question = "Q?" });
+        _ = _agent.CallAsync("ask_human", new { question = "Q?", options = new[] { "yes", "no" }, recommended = "yes" });
         var item = Assert.Single(await McpTestKit.WaitForOpenItemsAsync(_browser));
 
         foreach (var listener in new[] { all, project })
