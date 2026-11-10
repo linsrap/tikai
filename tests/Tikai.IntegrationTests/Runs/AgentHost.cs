@@ -47,9 +47,20 @@ public sealed class AgentHost : IAsyncLifetime
     {
         Llm = await FakeAnthropicServer.StartAsync(body: StubAnalysis);
         var root = RepoRoot();
-        await BuildAsync(Path.Combine(root, "images", "agent-base"), BaseImage, null);
-        await BuildAsync(Path.Combine(root, "tests", "agent-stub"), StubImage, BaseImage);
+        // Test classes start in parallel, and two builds of one image would share Testcontainers' tar file.
+        await _build.WaitAsync();
+        try
+        {
+            await BuildAsync(Path.Combine(root, "images", "agent-base"), BaseImage, null);
+            await BuildAsync(Path.Combine(root, "tests", "agent-stub"), StubImage, BaseImage);
+        }
+        finally
+        {
+            _build.Release();
+        }
     }
+
+    private static readonly SemaphoreSlim _build = new(1, 1);
 
     public async ValueTask DisposeAsync()
     {

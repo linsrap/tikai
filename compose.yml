@@ -20,6 +20,10 @@ services:
       Tikai__Agents__RunsVolume: ${COMPOSE_PROJECT_NAME}_runs
       Tikai__Agents__McpUrl: http://hub:8080/mcp
       Tikai__Agents__ClaudeCodeImage: tikai/agent-claude-code:local
+      # Previews: each mounts only its own directory of the previews volume and runs on its own internal network,
+      # which the hub (this container) joins to reach the app.
+      Tikai__Previews__PreviewsVolume: ${COMPOSE_PROJECT_NAME}_previews
+      Tikai__Previews__HubContainer: ${COMPOSE_PROJECT_NAME}-hub-1
     volumes:
       - data:/data # Data Protection keys (encrypted with TIKAI_SECRET) and repository mirrors; hub only
     networks: [default, agents]
@@ -44,10 +48,10 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Lets the hub start agent containers with limited rights. Agents never see this socket.
+  # Lets the hub start agent and preview containers with limited rights (no BUILD). Agents never see this socket.
   docker-proxy:
     image: tecnativa/docker-socket-proxy:v0.4.1
-    environment: { CONTAINERS: 1, POST: 1, IMAGES: 1 }
+    environment: { CONTAINERS: 1, POST: 1, IMAGES: 1, NETWORKS: 1 }
     volumes: [/var/run/docker.sock:/var/run/docker.sock:ro]
     restart: unless-stopped
 
@@ -73,4 +77,5 @@ networks:
 volumes:
   data:
   pg:
-# The runs volume (<project>_runs) is created by Docker with the first agent run; "docker compose down -v" leaves it.
+# The runs and previews volumes (<project>_runs, <project>_previews) are created by Docker with the first agent run and
+# the first preview; "docker compose down -v" leaves them.

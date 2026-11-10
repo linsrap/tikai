@@ -21,6 +21,7 @@ public static class OrchestratorServiceCollectionExtensions
         services.AddScoped<RunControl>();
         services.AddScoped<RunCleanup>();
         services.AddSingleton<RunWorkCollector>();
+        services.AddSingleton<Previews.PreviewEnvironment>();
         return services;
     }
 }
