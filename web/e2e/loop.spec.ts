@@ -412,3 +412,56 @@ test('a round is previewed at its own address and stopped', async ({ page, conte
     .poll(async () => (await request.get(`http://${host}/`)).status(), { timeout: 10_000 })
     .not.toBe(200)
 })
+
+test('a preview with two apps routes /api to the second one', async ({ page, context }) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('ada@example.org')
+  await page.getByLabel('Password').fill('correct horse battery')
+  await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible()
+  const request = page.request
+  await post(request, context, '/api/projects', { name: 'Two apps', slug: 'two-apps', key: 'TA' })
+  await post(request, context, '/api/projects/two-apps/repositories', { name: 'app' })
+  await post(request, context, '/api/projects/two-apps/llm-providers', {
+    name: 'Stub key',
+    defaultModel: 'claude-haiku-5-5',
+    apiKey: 'stub-key-not-used-0123456789',
+    baseUrl: fakeLlm,
+  })
+  // The stub commits web.js (on /) and api.js (on /api) with a tikai-preview.yml using apps.
+  await post(request, context, '/api/projects/two-apps/tickets', {
+    title: 'A frontend and an API',
+    description: 'Two processes. stub:preview-apps',
+    criteria: ['Both answer'],
+  })
+  await post(request, context, '/api/projects/two-apps/tickets/1/runs', {})
+  await page.goto('/projects/two-apps/tickets/1')
+  await page.getByRole('link', { name: 'Review', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /A frontend and an API/ })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Preview' })
+  await panel.getByRole('button', { name: 'Start preview' }).click()
+  await expect(panel.getByText('Running', { exact: true })).toBeVisible({ timeout: 180_000 })
+  await expect(panel.getByText('Apps: web on /, api on /api')).toBeVisible()
+  await panel.getByRole('group', { name: 'Log of' }).getByRole('button', { name: 'api' }).click()
+  await expect(panel.getByRole('log', { name: 'Preview log' })).toContainText(
+    'api listening with [redacted]',
+  )
+  await expect(panel.getByRole('log', { name: 'Preview log' })).not.toContainText('web listening')
+
+  const opened = context.waitForEvent('page')
+  await panel.getByRole('button', { name: 'Open preview' }).click()
+  const app = await opened
+  await expect(app.locator('body')).toContainText('"app":"web"')
+  const origin = new URL(app.url()).origin
+  // The hub reaches each app on the preview's network by its container; /api goes to the second, path unchanged.
+  await app.goto(`${origin}/api/hello`)
+  await expect(app.locator('body')).toContainText('"app":"api","path":"/api/hello"')
+  await app.goto(`${origin}/from-api`)
+  await expect(app.locator('body')).toContainText('"fromApi":{"app":"api"')
+  await app.close()
+
+  await panel.getByRole('button', { name: 'Stop' }).click()
+  await expect(panel.getByText('Stopped', { exact: true })).toBeVisible()
+})
