@@ -24,10 +24,10 @@ public sealed record AnalyzerResult(
 /// </summary>
 public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<ReviewAnalyzer> logger)
 {
-    public const string PromptName = "review-analysis.v1";
+    public const string PromptName = "review-analysis.v2";
 
     /// <summary>For a later round: the same schema, read from the previous analysis and the interdiff.</summary>
-    public const string InterdiffPromptName = "review-analysis-interdiff.v1";
+    public const string InterdiffPromptName = "review-analysis-interdiff.v2";
     public static readonly TimeSpan Limit = TimeSpan.FromMinutes(5);
 
     private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
@@ -40,7 +40,21 @@ public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<R
         {
           "type": "object",
           "properties": {
-            "summary": { "type": "string", "description": "What the change does and how, 2-4 sentences." },
+            "headline": { "type": "string", "description": "One sentence, at most 160 characters: what the change does and whether it meets the ticket." },
+            "look_at": {
+              "type": "array",
+              "description": "At most 3 places the reviewer must read closely, most important first. Empty when nothing stands out.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": { "type": "string", "description": "The file's path as listed (new path)." },
+                  "line": { "type": "integer", "description": "A line in the new version of the file." },
+                  "reason": { "type": "string", "description": "One line, at most 160 characters: what to check there." }
+                },
+                "required": ["path", "line", "reason"],
+                "additionalProperties": false
+              }
+            },
             "coverage": {
               "type": "array",
               "description": "One entry per acceptance criterion.",
@@ -85,20 +99,21 @@ public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<R
             },
             "files": {
               "type": "array",
-              "description": "A risk level for every file read.",
+              "description": "Only files whose change is medium or high risk; every other file is low.",
               "items": {
                 "type": "object",
                 "properties": {
                   "path": { "type": "string" },
-                  "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+                  "risk": { "type": "string", "enum": ["medium", "high"] },
                   "reason": { "type": "string", "description": "One line the reviewer can act on." }
                 },
                 "required": ["path", "risk", "reason"],
                 "additionalProperties": false
               }
-            }
+            },
+            "summary": { "type": "string", "description": "Details for who wants them: what the change does and how, at most 3 sentences." }
           },
-          "required": ["summary", "coverage", "groups", "files"],
+          "required": ["headline", "look_at", "coverage", "groups", "files", "summary"],
           "additionalProperties": false
         }
         """);

@@ -173,6 +173,13 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
         var (first, second) = (ticket.Criteria[0].Id, ticket.Criteria[1].Id);
         var answer = JsonSerializer.Serialize(new
         {
+            headline = "Adds a startup script; one criterion has no test.",
+            look_at = new object[]
+            {
+                new { path = "src/added.ts", line = 1, reason = "Runs at startup." },
+                new { path = "change.txt", line = 1, reason = "The edited line." },
+                new { path = "gone.txt", line = 1, reason = "Deleted, so dropped." },
+            },
             summary = "Changes text files and adds a script.",
             coverage = new object[]
             {
@@ -184,7 +191,11 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
                 new { title = "Script", layer = "ui", note = "The new script.", files = new[] { "src/added.ts" } },
                 new { title = "Text files", layer = "docs", note = "Edits and a rename.", files = new[] { "change.txt", "old-name.txt", "nowhere.txt" } },
             },
-            files = new object[] { new { path = "src/added.ts", risk = "high", reason = "Runs at startup." } },
+            files = new object[]
+            {
+                new { path = "src/added.ts", risk = "high", reason = "Runs at startup." },
+                new { path = "change.txt", risk = "low", reason = "Text." },
+            },
         });
         agents.Llm.Body = FakeAnthropicServer.TextReply(answer, inputTokens: 4000, outputTokens: 600);
         var requestsBefore = agents.Llm.Requests.Count;
@@ -196,8 +207,9 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
             Assert.Equal(AnalysisStatus.Done, analysis.Status);
             var result = analysis.Result!;
             // .txt files are light, but src/added.ts is not: normal tier, the default model for it.
-            Assert.Equal((AnalysisTier.Normal, "claude-sonnet-5-5", "review-analysis.v1"), (result.Tier, result.Model, result.PromptVersion));
-            Assert.Equal("Changes text files and adds a script.", result.Summary);
+            Assert.Equal((AnalysisTier.Normal, "claude-sonnet-5-5", "review-analysis.v2"), (result.Tier, result.Model, result.PromptVersion));
+            Assert.Equal(("Adds a startup script; one criterion has no test.", "Changes text files and adds a script."), (result.Headline, result.Summary));
+            Assert.Equal([new LookAt("src/added.ts", 1, "Runs at startup."), new LookAt("change.txt", 1, "The edited line.")], result.LookAt);
             Assert.Equal([(first, CriterionCoverage.Covered), (second, CriterionCoverage.Partial)], result.Coverage.Select(c => (c.CriterionId, c.Status)));
             Assert.Equal([new CodeRef("src/added.ts", 1, 1)], result.Coverage[0].Refs);
             Assert.Equal(["Script", "Text files", "Other changes"], result.Groups.Select(g => g.Title));
@@ -220,7 +232,10 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
 
             // The inbox card's line.
             var item = (await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items")).Single(i => i.RunId == run.Id);
-            Assert.Equal(new AnalysisBrief(AnalysisStatus.Done, 1, 1, 0, 1, null), item.Analysis);
+            Assert.Equal((AnalysisStatus.Done, 1, 1, 0, 1, (string?)null), (item.Analysis!.Status, item.Analysis.Covered, item.Analysis.Partial, item.Analysis.Missing, item.Analysis.HighRisk, item.Analysis.Error));
+            // Two criteria; two files need a close look (src/added.ts is in look_at and high risk, counted once).
+            Assert.Equal((ticket.Criteria.Count, 2, result.Headline), (item.Analysis.Criteria, item.Analysis.CloseLook, item.Analysis.Headline));
+            Assert.Equal(result.LookAt, item.Analysis.LookAt);
 
             // Another model for the tier, and a provider that refuses the key: the retry fails with the reason.
             using (var settings = await hub.Browser.PutAsync($"/api/projects/{hub.Slugs[ticket.Id]}/settings", new { analysisModels = new { normal = " claude-review-test " } }))

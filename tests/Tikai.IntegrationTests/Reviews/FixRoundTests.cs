@@ -118,6 +118,7 @@ public sealed class FixRoundTests(PostgresFixture postgres, AgentHost agents) : 
         var message = agents.Llm.Requests.Select(r => r.Body.GetProperty("messages")[0].GetProperty("content")[0].GetProperty("text").GetString()!)
             .Last(m => m.Contains("<previous_analysis", StringComparison.Ordinal));
         Assert.Contains("<previous_analysis round=\"1\">", message, StringComparison.Ordinal);
+        Assert.Contains("Headline: Stub headline.", message, StringComparison.Ordinal);
         Assert.Contains("reviewer: Say fixed version.", message, StringComparison.Ordinal);
         Assert.Contains("agent: Fixed: Say fixed version.", message, StringComparison.Ordinal);
         Assert.DoesNotContain("(between us)", message, StringComparison.Ordinal);

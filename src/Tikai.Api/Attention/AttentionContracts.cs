@@ -51,7 +51,20 @@ public sealed record AttentionItemInfo(
 public sealed record RoundBrief(int RoundNo, int Answered, int Unanswered);
 
 /// <summary>A review analysis in one line: counts per coverage status and high-risk files (zero until it is done).</summary>
-public sealed record AnalysisBrief(AnalysisStatus Status, int Covered, int Partial, int Missing, int HighRisk, string? Error);
+/// <param name="Criteria">The ticket's acceptance criteria now; the ones the analysis did not assess count as not met.</param>
+/// <param name="CloseLook">Files that need a close look: in <see cref="LookAt"/> or with a high risk.</param>
+/// <param name="Headline">The analysis' headline; null until it is done, and for analyses from before v2.</param>
+public sealed record AnalysisBrief(
+    AnalysisStatus Status,
+    int Covered,
+    int Partial,
+    int Missing,
+    int HighRisk,
+    string? Error,
+    int Criteria = 0,
+    int CloseLook = 0,
+    string? Headline = null,
+    IReadOnlyList<LookAt>? LookAt = null);
 
 /// <param name="ProgressStep">What the agent last reported with report_progress.</param>
 public sealed record ItemRun(AgentRunState State, string? Adapter, string? Model, string? ProgressStep, string? ProgressNote, int Attempt);

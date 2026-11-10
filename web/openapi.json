@@ -2477,6 +2477,31 @@
               "null",
               "string"
             ]
+          },
+          "criteria": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "closeLook": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "headline": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lookAt": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/LookAt"
+            }
           }
         }
       },
@@ -3782,6 +3807,26 @@
           }
         }
       },
+      "LookAt": {
+        "required": [
+          "path",
+          "line",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "MergeStyle": {
         "enum": [
           "squash",
@@ -4258,6 +4303,21 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "headline": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lookAt": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/LookAt"
+            }
           }
         }
       },

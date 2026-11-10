@@ -140,8 +140,8 @@ internal static class AttentionEndpoints
     private static async Task<List<AttentionItemInfo>> QueryAsync(TikaiDbContext db, IQueryable<AttentionItem> items, CancellationToken cancellationToken)
     {
         var rows = await items.AsNoTracking()
-            .Join(db.Tickets, i => i.TicketId, t => t.Id, (i, t) => new { Item = i, t.Number, t.Title, t.ProjectId })
-            .Join(db.Projects, x => x.ProjectId, p => p.Id, (x, p) => new { x.Item, x.Number, x.Title, p.Slug, p.Key })
+            .Join(db.Tickets, i => i.TicketId, t => t.Id, (i, t) => new { Item = i, TicketId = t.Id, t.Number, t.Title, t.ProjectId })
+            .Join(db.Projects, x => x.ProjectId, p => p.Id, (x, p) => new { x.Item, x.TicketId, x.Number, x.Title, p.Slug, p.Key })
             .ToListAsync(cancellationToken);
 
         var runIds = rows.Where(x => x.Item.RunId is not null).Select(x => x.Item.RunId!.Value).Distinct().ToList();
@@ -159,7 +159,7 @@ internal static class AttentionEndpoints
         var latest = await db.ReviewRounds.AsNoTracking()
             .Where(r => changeSetIds.Contains(r.ChangeSetId) && r.RoundNo == db.ReviewRounds.Where(o => o.ChangeSetId == r.ChangeSetId).Max(o => o.RoundNo))
             .ToListAsync(cancellationToken);
-        var latestRounds = latest.ToDictionary(r => r.ChangeSetId, Brief);
+        var latestRounds = latest.ToDictionary(r => r.ChangeSetId);
         // Threads the agent was asked to act on, and whether it replied after the last comment sent to it.
         var sentThreads = await db.ReviewThreads.AsNoTracking()
             .Where(t => changeSetIds.Contains(t.ChangeSetId) && db.ReviewComments.Any(c => c.ThreadId == t.Id && c.SentAt != null))
@@ -181,6 +181,12 @@ internal static class AttentionEndpoints
         var criteria = criterionIds.Count == 0
             ? []
             : await db.AcceptanceCriteria.AsNoTracking().Where(c => criterionIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Text, cancellationToken);
+        var reviewedTickets = rows.Where(x => x.Item.Kind == AttentionKind.Review).Select(x => x.TicketId).Distinct().ToList();
+        var criteriaCounts = reviewedTickets.Count == 0
+            ? []
+            : await db.AcceptanceCriteria.AsNoTracking().Where(c => reviewedTickets.Contains(c.TicketId))
+                .GroupBy(c => c.TicketId).Select(g => new { TicketId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.TicketId, g => g.Count, cancellationToken);
 
         var result = new List<AttentionItemInfo>(rows.Count);
         foreach (var x in rows)
@@ -210,7 +216,8 @@ internal static class AttentionEndpoints
                 item.Kind is AttentionKind.Review or AttentionKind.Conflict && item.RunId is { } reviewed && changeSets.TryGetValue(reviewed, out var changeSetId)
                     ? changeSetId : null,
                 item.Kind == AttentionKind.Review && item.RunId is { } analysed && changeSets.TryGetValue(analysed, out var analysedSet)
-                    ? latestRounds.GetValueOrDefault(analysedSet) : null,
+                    && latestRounds.TryGetValue(analysedSet, out var analysedRound)
+                    ? Brief(analysedRound, criteriaCounts.GetValueOrDefault(x.TicketId)) : null,
                 item.Kind == AttentionKind.Review && item.RunId is { } rounded && changeSets.TryGetValue(rounded, out var roundedSet)
                     ? roundBriefs.GetValueOrDefault(roundedSet) : null,
                 item.Kind == AttentionKind.Conflict ? AttentionJson.Deserialize<ConflictPayload>(item.Payload) : null,
@@ -220,7 +227,7 @@ internal static class AttentionEndpoints
         return [.. result.OrderByDescending(i => i.Blocking).ThenByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id)];
     }
 
-    private static AnalysisBrief? Brief(ReviewRound round)
+    private static AnalysisBrief? Brief(ReviewRound round, int criteria)
     {
         if (round.AnalysisStatus is not { } status)
         {
@@ -234,8 +241,19 @@ internal static class AttentionEndpoints
             Count(CriterionCoverage.Partial),
             Count(CriterionCoverage.Missing),
             analysis?.Risks.Count(r => r.Risk == FileRisk.High) ?? 0,
-            round.AnalysisError);
+            round.AnalysisError,
+            criteria,
+            analysis is null ? 0 : CloseLook(analysis),
+            analysis?.Headline,
+            analysis?.LookAt);
     }
+
+    /// <summary>Files the analysis points at or rates high risk, each once.</summary>
+    private static int CloseLook(ReviewAnalysis analysis) =>
+        (analysis.LookAt ?? []).Select(l => l.Path)
+            .Concat(analysis.Risks.Where(r => r.Risk == FileRisk.High).Select(r => r.Path))
+            .Distinct(StringComparer.Ordinal)
+            .Count();
 
     /// <summary>What the agent did right before it raised the item; for a failure, how the run ended.</summary>
     private static async Task<IReadOnlyList<RunEventInfo>> ExcerptAsync(TikaiDbContext db, AttentionItem item, CancellationToken cancellationToken)

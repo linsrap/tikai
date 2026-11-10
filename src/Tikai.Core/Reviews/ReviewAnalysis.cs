@@ -46,6 +46,8 @@ public enum StoryLayer
 /// <param name="PromptVersion">The prompt file that produced it, e.g. "review-analysis.v1".</param>
 /// <param name="PatchesOmitted">Files the model saw only as a list entry (over the tier's budget, or no text diff).</param>
 /// <param name="InterdiffSince">Set when the model read only the interdiff since that round, with its analysis.</param>
+/// <param name="Headline">One sentence the reviewer reads first; null for analyses from before v2.</param>
+/// <param name="LookAt">Up to three places the reviewer should look at closely; null for analyses from before v2.</param>
 public sealed record ReviewAnalysis(
     AnalysisTier Tier,
     string TierReason,
@@ -59,12 +61,17 @@ public sealed record ReviewAnalysis(
     long? InputTokens,
     long? OutputTokens,
     int DurationMs,
-    int? InterdiffSince = null);
+    int? InterdiffSince = null,
+    string? Headline = null,
+    IReadOnlyList<LookAt>? LookAt = null);
 
 /// <summary>How the analysis sees one acceptance criterion; refs point at lines of the new files.</summary>
 public sealed record AnalysisCoverage(Guid CriterionId, CriterionCoverage Status, string Note, IReadOnlyList<CodeRef> Refs);
 
 public sealed record CodeRef(string Path, int LineStart, int LineEnd);
+
+/// <summary>A place the reviewer should look at closely: a line of a file after the change, and why.</summary>
+public sealed record LookAt(string Path, int Line, string Reason);
 
 /// <summary>Files that belong together when reading the change, in reading order.</summary>
 public sealed record StoryGroup(string Title, StoryLayer Layer, string Note, IReadOnlyList<string> Files);
@@ -77,6 +84,10 @@ public sealed record AnalysisFileRisk(string Path, FileRisk Risk, string Reason)
 /// </summary>
 public sealed class AnalysisAnswer
 {
+    public string? Headline { get; set; }
+
+    public List<AnswerLookAt?>? LookAt { get; set; }
+
     public string? Summary { get; set; }
 
     public List<AnswerCoverage?>? Coverage { get; set; }
@@ -95,6 +106,15 @@ public sealed class AnswerCoverage
     public string? Note { get; set; }
 
     public List<AnswerRef?>? Refs { get; set; }
+}
+
+public sealed class AnswerLookAt
+{
+    public string? Path { get; set; }
+
+    public int? Line { get; set; }
+
+    public string? Reason { get; set; }
 }
 
 public sealed class AnswerRef

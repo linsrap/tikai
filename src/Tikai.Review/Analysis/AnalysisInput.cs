@@ -115,8 +115,14 @@ public static class AnalysisInput
         var previous = interdiff.Previous;
         text.AppendLine()
             .Append("<previous_analysis round=\"").Append(interdiff.PreviousRound).AppendLine("\">")
+            .Append("Headline: ").AppendLine(Data(OneLine(previous.Headline ?? "")))
             .Append("Summary: ").AppendLine(Data(OneLine(previous.Summary)))
-            .AppendLine("Coverage:");
+            .AppendLine("Look at:");
+        foreach (var l in previous.LookAt ?? [])
+        {
+            text.Append("- ").Append(l.Path).Append(':').Append(l.Line).Append(" — ").AppendLine(Data(OneLine(l.Reason)));
+        }
+        text.AppendLine("Coverage:");
         foreach (var c in previous.Coverage)
         {
             text.Append("- ").Append(c.CriterionId.ToString("D")).Append(": ").Append(Name(c.Status)).Append(" — ").Append(Data(OneLine(c.Note)));

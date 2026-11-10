@@ -2509,6 +2509,18 @@ export interface components {
             /** Format: int32 */
             highRisk: number;
             error: null | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            criteria: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            closeLook: number;
+            headline?: null | string;
+            lookAt?: null | components["schemas"]["LookAt"][];
         };
         AnalysisCoverage: {
             /** Format: uuid */
@@ -2808,6 +2820,12 @@ export interface components {
             email: string;
             password: string;
         };
+        LookAt: {
+            path: string;
+            /** Format: int32 */
+            line: number;
+            reason: string;
+        };
         /** @enum {unknown} */
         MergeStyle: "squash" | "merge_commit" | null;
         /** @enum {unknown} */
@@ -2928,6 +2946,8 @@ export interface components {
             durationMs: number;
             /** Format: int32 */
             interdiffSince?: null | number;
+            headline?: null | string;
+            lookAt?: null | components["schemas"]["LookAt"][];
         };
         ReviewCommentInfo: {
             /** Format: uuid */
