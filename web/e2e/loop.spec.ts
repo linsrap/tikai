@@ -181,19 +181,29 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
   const tree = page.getByRole('navigation', { name: 'Changed files' })
   await expect(tree.getByText('0 of 2 files viewed')).toBeVisible()
 
-  // The analysis sits above the files: coverage next to the agent's claim, files in story order.
+  // The analysis sits above the files: headline, verdict line, the place to look at, covered criteria in one
+  // line; files in story order.
   const analysis = page.getByRole('region', { name: 'Analysis' })
   await expect(analysis.getByText(/fake analysis\)\.$/)).toBeVisible({ timeout: 30_000 })
-  const row = analysis.getByRole('row', { name: /answer\.txt holds the chosen word/ })
-  await expect(row.getByText('covered', { exact: true }).last()).toBeVisible()
+  await expect(analysis.getByLabel('Analysis result')).toHaveText(
+    'Meets 1/1 criteria · 1 file needs a close look',
+  )
+  await analysis.getByText('1 covered', { exact: true }).click()
+  const covered = analysis.getByRole('list', { name: 'Covered criteria' })
+  await expect(covered.getByText('answer.txt holds the chosen word')).toBeVisible()
+  await analysis.getByText('Details', { exact: true }).click()
+  await expect(analysis.getByText('The details of the fake analysis.')).toBeVisible()
   await expect(tree.getByRole('button', { name: 'Story order' })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
   await expect(tree.getByText('The agent’s files')).toBeVisible()
   await expect(tree.getByText('high', { exact: true })).toBeVisible()
-  // A ref opens its file in the diff.
-  await row.getByRole('button', { name: /\.txt:1$/ }).click()
+  // A place to look at opens its file in the diff.
+  await analysis
+    .getByRole('button', { name: /\.txt:1$/ })
+    .first()
+    .click()
   await expect(page.locator('.monaco-diff-editor')).toBeVisible()
   await tree.getByRole('button', { name: 'Path order' }).click()
   await expect(tree.getByText('The agent’s files')).toHaveCount(0)

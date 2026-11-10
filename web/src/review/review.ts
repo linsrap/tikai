@@ -15,6 +15,7 @@ export type Analysis = components['schemas']['AnalysisInfo']
 export type ReviewAnalysis = components['schemas']['ReviewAnalysis']
 export type AnalysisCoverage = components['schemas']['AnalysisCoverage']
 export type CodeRef = components['schemas']['CodeRef']
+export type LookAt = components['schemas']['LookAt']
 export type StoryLayer = components['schemas']['StoryLayer']
 export type Coverage = components['schemas']['CriterionCoverage']
 export type ReviewThread = components['schemas']['ReviewThreadInfo']
@@ -239,6 +240,60 @@ export function coverageRows(
       disagree: !!claim && !!found && claim.status !== found.status,
     }
   })
+}
+
+/** What a verdict line counts: the ticket's criteria, the analysis' coverage and the files that need a close look. */
+export type VerdictCounts = {
+  criteria: number
+  covered: number
+  partial: number
+  missing: number
+  closeLook: number
+}
+
+/**
+ * The analysis in one line: "Meets 4/5 criteria · 1 partial · 2 files need a close look". Parts that are 0 are left
+ * out; criteria the analysis did not assess count as not met.
+ */
+export function verdictLine(counts: VerdictCounts): string {
+  const notAssessed = Math.max(
+    0,
+    counts.criteria - counts.covered - counts.partial - counts.missing,
+  )
+  return [
+    counts.criteria > 0 ? `Meets ${counts.covered}/${counts.criteria} criteria` : 'No criteria',
+    counts.partial > 0 ? `${counts.partial} partial` : null,
+    counts.missing > 0 ? `${counts.missing} missing` : null,
+    notAssessed > 0 ? `${notAssessed} not assessed` : null,
+    counts.closeLook === 1
+      ? '1 file needs a close look'
+      : counts.closeLook > 1
+        ? `${counts.closeLook} files need a close look`
+        : null,
+  ]
+    .filter((part) => part !== null)
+    .join(' · ')
+}
+
+/** The verdict counts of a full analysis: files in look_at or with a high risk need a close look. */
+export function verdictCounts(
+  criteria: readonly { id: string }[],
+  analysis: Pick<ReviewAnalysis, 'coverage' | 'risks' | 'lookAt'>,
+): VerdictCounts {
+  const ids = new Set(criteria.map((c) => c.id))
+  const count = (status: Coverage) =>
+    analysis.coverage.filter((c) => ids.has(c.criterionId) && c.status === status).length
+  const closeLook = new Set([
+    ...(analysis.lookAt ?? []).map((l) => l.path),
+    ...analysis.risks.filter((r) => r.risk === 'high').map((r) => r.path),
+  ])
+  return {
+    criteria: criteria.length,
+    covered: count('covered'),
+    partial: count('partial'),
+    missing: count('missing'),
+    closeLook: closeLook.size,
+  }
 }
 
 /** "src/a.cs:3–9", or "src/a.cs:3" for one line. */

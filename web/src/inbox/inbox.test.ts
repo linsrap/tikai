@@ -82,17 +82,23 @@ describe('inbox', () => {
   })
 
   it('sums up the review analysis in one line', () => {
-    const brief = { covered: 0, partial: 0, missing: 0, highRisk: 0, error: null }
+    const brief = {
+      covered: 0,
+      partial: 0,
+      missing: 0,
+      highRisk: 0,
+      error: null,
+      criteria: 0,
+      closeLook: 0,
+    }
     expect(analysisLine({ ...brief, status: 'pending' })).toBe('Analysis: running…')
     expect(analysisLine({ ...brief, status: 'failed', error: 'No key.' })).toBe(
       'Analysis unavailable: No key.',
     )
-    expect(analysisLine({ ...brief, status: 'done', covered: 3, missing: 1, highRisk: 1 })).toBe(
-      'Analysis: 3 covered, 1 missing · 1 high-risk file',
-    )
-    expect(analysisLine({ ...brief, status: 'done' })).toBe(
-      'Analysis: no criteria assessed · 0 high-risk files',
-    )
+    expect(
+      analysisLine({ ...brief, status: 'done', criteria: 5, covered: 3, missing: 1, closeLook: 1 }),
+    ).toBe('Meets 3/5 criteria · 1 missing · 1 not assessed · 1 file needs a close look')
+    expect(analysisLine({ ...brief, status: 'done' })).toBe('No criteria')
   })
 
   it('says how long ago an item came in', () => {

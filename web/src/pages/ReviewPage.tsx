@@ -125,7 +125,8 @@ export function ReviewPage({ id }: { id: string }) {
                 {!round.analysis && <AgentReport round={round} analysis={analysis} />}
               </div>
               <div className="flex min-w-0 flex-col gap-5">
-                {round.analysis && <AgentReport round={round} analysis={analysis} />}
+                {/* A done analysis has the agent's report merged in. */}
+                {round.analysis && !analysis && <AgentReport round={round} analysis={analysis} />}
                 <Collapsible title="Comments on the whole change" count={general.length}>
                   <GeneralComments
                     roundNo={round.roundNo}

@@ -7,6 +7,8 @@ import {
   riskOf,
   saveOrderMode,
   storyFiles,
+  verdictCounts,
+  verdictLine,
   type ReviewAnalysis,
   type ReviewFile,
 } from './review'
@@ -107,6 +109,40 @@ describe('review analysis', () => {
       ['Has a test', 'covered', 'missing', true],
       ['Not mentioned', null, null, false],
     ])
+  })
+
+  it('says in one line how the change meets the ticket', () => {
+    const counts = { criteria: 5, covered: 4, partial: 1, missing: 0, closeLook: 2 }
+    expect(verdictLine(counts)).toBe('Meets 4/5 criteria · 1 partial · 2 files need a close look')
+    expect(verdictLine({ ...counts, partial: 0, closeLook: 0 })).toBe(
+      'Meets 4/5 criteria · 1 not assessed',
+    )
+    expect(verdictLine({ ...counts, covered: 5, partial: 0, closeLook: 0 })).toBe(
+      'Meets 5/5 criteria',
+    )
+    expect(verdictLine({ ...counts, criteria: 0, covered: 0, partial: 0, closeLook: 0 })).toBe(
+      'No criteria',
+    )
+  })
+
+  it('counts files in look_at or with a high risk once for the close look', () => {
+    const counts = verdictCounts([{ id: 'a' }, { id: 'b' }, { id: 'c' }], {
+      coverage: [
+        { criterionId: 'a', status: 'covered', note: '', refs: [] },
+        { criterionId: 'b', status: 'missing', note: '', refs: [] },
+        { criterionId: 'gone', status: 'covered', note: '', refs: [] },
+      ],
+      risks: [
+        { path: 'src/a.cs', risk: 'high', reason: '' },
+        { path: 'src/b.cs', risk: 'medium', reason: '' },
+        { path: 'src/c.cs', risk: 'high', reason: '' },
+      ],
+      lookAt: [
+        { path: 'src/a.cs', line: 3, reason: '' },
+        { path: 'src/d.cs', line: 1, reason: '' },
+      ],
+    })
+    expect(counts).toEqual({ criteria: 3, covered: 1, partial: 0, missing: 1, closeLook: 3 })
   })
 
   it('writes refs as path and line range', () => {
