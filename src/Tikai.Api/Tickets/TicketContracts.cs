@@ -1,4 +1,5 @@
 using Tikai.Core.Tickets;
+using Tikai.Llm.Refine;
 
 namespace Tikai.Api.Tickets;
 
@@ -67,22 +68,28 @@ public sealed record CriterionInput(string Text, Guid? Id = null);
 
 /// <summary>A ticket as it is on screen (maybe not saved yet), to be refined by an LLM.</summary>
 /// <param name="ProviderId">Null: the project's provider, otherwise the user's own.</param>
+/// <param name="MinSize">"More detail": the proposal is at least this size.</param>
 public sealed record RefineSpecRequest(
     string Title,
     string Description = "",
     IReadOnlyList<string>? Criteria = null,
-    Guid? ProviderId = null);
+    Guid? ProviderId = null,
+    SpecSize? MinSize = null);
 
 /// <summary>
-/// The proposal. Nothing is stored: the person takes over what they want and saves the ticket.
-/// A null title or description means there is no proposal for that field.
+/// The proposal, only where it differs from the draft. Nothing is stored: the person takes over what they want and
+/// saves the ticket. A null title or description means there is no change to that field.
 /// </summary>
-/// <param name="PromptVersion">The prompt file that produced it, e.g. "refine-spec.v1".</param>
+/// <param name="Criteria">New criteria and rewrites; a rewrite's <c>Replaces</c> is the 0-based place in the request's criteria.</param>
+/// <param name="Assumptions">What the model assumed; accepted unless the person unticks it.</param>
+/// <param name="PromptVersion">The prompt file that produced it, e.g. "refine-spec.v2".</param>
 public sealed record SpecProposalInfo(
+    SpecSize Size,
     string? Title,
     string? Description,
-    IReadOnlyList<string> Criteria,
-    IReadOnlyList<string> Questions,
+    IReadOnlyList<CriterionChange> Criteria,
+    IReadOnlyList<string> Assumptions,
+    IReadOnlyList<SpecQuestion> Questions,
     string PromptVersion,
     Guid ProviderId,
     string ProviderName,

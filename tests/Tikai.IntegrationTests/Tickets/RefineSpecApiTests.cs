@@ -14,13 +14,14 @@ using Tikai.Data.Identity;
 using Tikai.IntegrationTests.Auth;
 using Tikai.IntegrationTests.Llm;
 using Tikai.Llm;
+using Tikai.Llm.Refine;
 
 namespace Tikai.IntegrationTests.Tickets;
 
 public sealed class RefineSpecApiTests(PostgresFixture postgres) : IAsyncLifetime
 {
     private const string Answer = """
-        {"title":"Add a login page","description":"## Goal\n\nPeople can log in.","criteria":["Wrong passwords are rejected","A session cookie is set"],"questions":["How long does a session last?"]}
+        {"size":"medium","title":"Add a login page","description":"## Goal\n\nPeople can log in.","criteria":[{"replaces":1,"text":"Wrong passwords are rejected"},{"replaces":0,"text":"A session cookie is set"}],"assumptions":["Sessions last a day"],"questions":[{"question":"How long does a session last?","options":["A day","A week"],"recommended":"A day"}]}
         """;
 
     private readonly RecordingFactory _chat = new();
@@ -61,9 +62,13 @@ public sealed class RefineSpecApiTests(PostgresFixture postgres) : IAsyncLifetim
         var proposal = (await response.Content.ReadFromJsonAsync<SpecProposalInfo>(TikaiJson.Options, TestContext.Current.CancellationToken))!;
         Assert.Equal("Add a login page", proposal.Title);
         Assert.Equal("## Goal\n\nPeople can log in.", proposal.Description);
-        Assert.Equal(["Wrong passwords are rejected", "A session cookie is set"], proposal.Criteria);
-        Assert.Equal(["How long does a session last?"], proposal.Questions);
-        Assert.Equal(("refine-spec.v1", provider.Id, "Team key", "claude-opus-5-5"), (proposal.PromptVersion, proposal.ProviderId, proposal.ProviderName, proposal.Model));
+        Assert.Equal(SpecSize.Medium, proposal.Size);
+        Assert.Equal([new CriterionChange(0, "works", "Wrong passwords are rejected"), new CriterionChange(null, null, "A session cookie is set")], proposal.Criteria);
+        Assert.Equal(["Sessions last a day"], proposal.Assumptions);
+        var question = Assert.Single(proposal.Questions);
+        Assert.Equal(("How long does a session last?", "A day"), (question.Question, question.Recommended));
+        Assert.Equal(["A day", "A week"], question.Options);
+        Assert.Equal(("refine-spec.v2", provider.Id, "Team key", "claude-opus-5-5"), (proposal.PromptVersion, proposal.ProviderId, proposal.ProviderName, proposal.Model));
         Assert.Equal("sk-ant-api03-project-AAAA", Assert.Single(_chat.Connections).ApiKey);
         Assert.Contains("Project: Tikai Hub\nTitle: login", _chat.LastUserMessage!.ReplaceLineEndings("\n"), StringComparison.Ordinal);
         Assert.Contains("1. works", _chat.LastUserMessage, StringComparison.Ordinal);

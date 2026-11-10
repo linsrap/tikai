@@ -60,7 +60,7 @@ internal static class RefineSpecEndpoint
         {
             result = await refiner.RefineAsync(
                 providers.Connection(provider),
-                new SpecDraft(project.Name, request.Title.Trim(), request.Description ?? "", [.. criteria.Select(c => c.Trim())]),
+                new SpecDraft(project.Name, request.Title.Trim(), request.Description ?? "", [.. criteria.Select(c => c.Trim())], request.MinSize),
                 cancellationToken);
         }
         catch (CryptographicException)
@@ -72,9 +72,11 @@ internal static class RefineSpecEndpoint
             return TypedResults.Problem(statusCode: StatusCodes.Status502BadGateway, title: "Refining failed", detail: result.Error);
         }
         return TypedResults.Ok(new SpecProposalInfo(
+            proposal.Size,
             proposal.Title,
             proposal.Description,
             proposal.Criteria,
+            proposal.Assumptions,
             proposal.Questions,
             proposal.PromptVersion,
             provider.Id,
