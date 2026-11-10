@@ -132,22 +132,7 @@ On a ticket page, **Assign to agent** starts Claude Code on the ticket. The agen
 
 **Preview** on the review screen starts the latest round of a change in containers and opens it in a new tab, to click through it before approving. Every preview is fresh, with empty data, and short-lived.
 
-- **The repository says how,** in `tikai-preview.yml` at its root (the agent can write and keep it current): `setup` steps (an image and a shell command each, run in order on the round's source, with internet for package registries), the `app` (image, command, port, environment, `generate` for variables that get a random value per preview, a health check path), `services` such as a database (stock images, reachable by their name), and `idle_minutes`. Nothing else is allowed: no image builds, volumes, ports, privileges or networks; the hub decides those. Tikai's own [`tikai-preview.yml`](../tikai-preview.yml) is an example. A round without the file shows an example and **Try it locally** instead.
-- **Several processes** (for example a Vite dev server and a .NET API) go under `apps` instead of `app`: a map from a name to the same fields plus `path`, a prefix of the preview's address (default `/`). At most 5 apps, exactly one on `/`; the longest matching prefix gets the request, with the path unchanged (`/api/users` reaches the `/api` app as `/api/users`). Apps reach each other and the services by name (`http://api:8080`); a `generate` variable has the same value in every app that lists it. The preview runs once every app passes its health check and fails when any app stops. Each app gets the request with its own container name as host (`tikai-preview-app-<id>-<name>`), so a dev server that checks the host, like Vite, needs to allow it (`server.allowedHosts: true` in the config the preview uses).
-
-  ```yaml
-  apps:
-    web:
-      image: node:24-trixie-slim
-      command: npm run dev -- --host 0.0.0.0
-      port: 5173
-    api:
-      path: /api
-      image: mcr.microsoft.com/dotnet/sdk:10.0
-      command: dotnet run --project src/Api --urls http://0.0.0.0:8080
-      port: 8080
-      healthcheck: { path: /api/health }
-  ```
+- **The repository says how,** in `tikai-preview.yml` at its root (the agent can write and keep it current): setup steps, one app or several on path prefixes, services such as a database, and `idle_minutes`; no image builds, volumes, ports, privileges or networks, the hub decides those. [preview-file.md](preview-file.md) describes the file, with examples. A round without the file shows an example and **Try it locally** instead.
 - **Isolation:** the round is cloned like an agent run; setup steps and the apps run as the agent user with a read-only root, no capabilities and limits (`Tikai__Previews__MemoryBytes`, default 4 GB, `Cpus` 2, `PidsLimit` 1024). The apps and services are on a network of their own without internet. Services keep only the capabilities images like Postgres need to switch to their own user.
 - **Its own address:** a preview is served by the hub at `http://<id>.preview.localhost:8080` (with the scheme and port you use for Tikai), never on Tikai's own address, so the app never sees Tikai's login cookie. Browsers resolve `*.localhost` without DNS, so this works when Tikai is opened on `localhost` or `127.0.0.1`. For any other address set `TIKAI_PREVIEW_DOMAIN` (for example `preview.tikai.example.com`) and point a **wildcard DNS** record (`*.preview.tikai.example.com`) at the machine; with TLS in front, the reverse proxy needs a wildcard certificate for it. Without either, the review screen says previews are off. **Open preview** lets your browser in with a one-time link; the preview's own cookie works only on its address.
 - **Stops:** with **Stop**, after `idle_minutes` (default 30) without a request, after 4 hours at most (`Tikai__Previews__MaxLifetime`), when a newer preview of the change starts, and when the change is merged, pushed or rejected. At most 2 previews run at a time (`Tikai__Previews__MaxRunning`). Containers, network and files are removed when it stops.

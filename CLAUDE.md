@@ -89,7 +89,7 @@ web/                          React + TypeScript (Vite, TanStack Router + Query 
 images/hub/Dockerfile         hub image: web build → API publish → aspnet runtime with git, serves the SPA from wwwroot
 images/agent-base/            agent base image (node:24 trixie slim, git, uid 1000)
 images/agent-claude-code/     Claude Code on agent-base, version pinned by ARG CLAUDE_CODE_VERSION
-docs/                         contributing.md, self-hosting.md (start, settings, restart and re-login checklist)
+docs/                         contributing.md, self-hosting.md (start, settings, restart and re-login checklist), preview-file.md (the `tikai-preview.yml` format, for people and agents; keep it in line with `PreviewDefinition`)
 compose.yml                   self-hosting: hub, db (Postgres 17), docker-proxy (containers, images, networks; no build), agent images (profile `agents`, build only); networks default, agents; volumes data, pg (the runs and previews volumes are made by Docker with the first run and preview)
 tikai-preview.yml             how Tikai previews itself: web build, API publish, the hub with Postgres and `Tikai__Docker__Enabled=false`
 compose.dev.yml               Postgres 17 for local development
