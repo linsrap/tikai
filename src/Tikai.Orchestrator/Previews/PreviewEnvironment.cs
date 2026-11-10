@@ -179,7 +179,7 @@ public sealed class PreviewEnvironment(
     /// </summary>
     public async Task<PreviewStarted> StartAsync(Guid previewId, PreviewDefinition definition, PreviewLogSink log, CancellationToken cancellationToken)
     {
-        foreach (var image in definition.Services.Select(s => s.Image).Append(definition.App.Image).Distinct(StringComparer.Ordinal))
+        foreach (var image in definition.Services.Select(s => s.Image).Append(definition.Apps.Single().Image).Distinct(StringComparer.Ordinal))
         {
             await PullAsync(image, log, cancellationToken);
         }
@@ -210,8 +210,8 @@ public sealed class PreviewEnvironment(
             throw new PreviewStartException($"The services were not healthy within {_options.StartTimeout}.");
         }
 
-        var secrets = definition.App.Generate.ToDictionary(name => name, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), StringComparer.Ordinal);
-        var app = definition.App;
+        var secrets = definition.Apps.Single().Generate.ToDictionary(name => name, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), StringComparer.Ordinal);
+        var app = definition.Apps.Single();
         var appId = await containers.CreatePreviewAsync(new PreviewContainerSpec(
             previewId, PreviewRole.App, app.Image, Entrypoint: ["/bin/sh", "-c", app.Command], Command: [],
             Environment: [.. app.Environment.Select(e => new ContainerEnv(e.Key, e.Value)), .. secrets.Select(s => new ContainerEnv(s.Key, s.Value, IsSecret: true))],

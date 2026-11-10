@@ -13,10 +13,14 @@ namespace Tikai.Orchestrator.Previews;
 /// environment and health checks; limits, network and privileges come from the hub. Unknown keys are errors.
 /// </summary>
 /// <param name="Setup">Run in order before the app, each in its own container on the source, with internet.</param>
+/// <param name="Apps">
+/// The app processes, each on a path prefix of the preview's one origin; exactly one is on <c>/</c>. The file's
+/// <c>app</c> is one app named <see cref="PreviewApp.SingleName"/> on <c>/</c>.
+/// </param>
 /// <param name="Services">Sidecars (stock images) on the preview's network, reachable by their name.</param>
 public sealed record PreviewDefinition(
     IReadOnlyList<PreviewSetupStep> Setup,
-    PreviewApp App,
+    IReadOnlyList<PreviewApp> Apps,
     IReadOnlyList<PreviewService> Services,
     int IdleMinutes)
 {
@@ -31,6 +35,7 @@ public sealed record PreviewDefinition(
     public const int MaxIdleMinutes = 240;
 
     public const int MaxSetupSteps = 10;
+    public const int MaxApps = 5;
     public const int MaxServices = 5;
     public const int MaxEnvironment = 50;
     public const int MaxTextLength = 8 * 1024;
@@ -41,16 +46,35 @@ public sealed record PreviewDefinition(
 
 public sealed record PreviewSetupStep(string Image, string Run);
 
+/// <param name="Name">Its host name on the preview's network (other apps and services reach it by this name).</param>
+/// <param name="Path">
+/// The path prefix it serves on the preview's origin (<c>/</c>, or <c>/api</c> for <c>/api</c> and <c>/api/…</c>); the
+/// longest matching prefix wins and the path is forwarded unchanged.
+/// </param>
 /// <param name="Command">A shell command (run with /bin/sh -c).</param>
-/// <param name="Generate">Variables the hub fills with a random value per preview.</param>
-/// <param name="HealthcheckPath">The hub waits for a 2xx or 3xx answer here before it calls the preview running.</param>
+/// <param name="Generate">Variables the hub fills with a random value per preview, the same in every app that lists it.</param>
+/// <param name="HealthcheckPath">The hub waits for a 2xx or 3xx answer here (on the app itself) before it calls the preview running.</param>
 public sealed record PreviewApp(
+    string Name,
+    string Path,
     string Image,
     string Command,
     int Port,
     IReadOnlyDictionary<string, string> Environment,
     IReadOnlyList<string> Generate,
-    string? HealthcheckPath);
+    string? HealthcheckPath)
+{
+    /// <summary>The name of the file's single <c>app</c>.</summary>
+    public const string SingleName = "app";
+
+    public const string RootPath = "/";
+
+    /// <summary>Its lines in the preview log: <c>app</c> for the single app, <c>app &lt;name&gt;</c> otherwise.</summary>
+    public string LogSource => Name == SingleName ? "app" : $"app {Name}";
+
+    /// <summary>How the hub's messages name it: "The app" or "The app web".</summary>
+    public string Label => Name == SingleName ? "The app" : $"The app {Name}";
+}
 
 /// <param name="Command">Arguments for the image's own entrypoint (like compose's list form); null keeps the image's command.</param>
 /// <param name="HealthcheckCommand">A shell command Docker runs in the container; the app starts once it succeeds.</param>
@@ -108,7 +132,7 @@ internal sealed partial class PreviewDefinitionParser
         }
 
         IReadOnlyList<PreviewSetupStep> setup = [];
-        PreviewApp? app = null;
+        List<PreviewApp> apps = [];
         IReadOnlyList<PreviewService> services = [];
         var idleMinutes = PreviewDefinition.DefaultIdleMinutes;
         foreach (var (key, value) in Entries(mapping, ""))
@@ -119,7 +143,13 @@ internal sealed partial class PreviewDefinitionParser
                     setup = ParseSetup(value);
                     break;
                 case "app":
-                    app = ParseApp(value);
+                    if (ParseApp(PreviewApp.SingleName, "app", value, single: true) is { } app)
+                    {
+                        apps = [app];
+                    }
+                    break;
+                case "apps":
+                    apps = ParseApps(value);
                     break;
                 case "services":
                     services = ParseServices(value);
@@ -132,13 +162,22 @@ internal sealed partial class PreviewDefinitionParser
                     break;
             }
         }
-        if (!mapping.Children.Keys.OfType<YamlScalarNode>().Any(k => k.Value == "app"))
+        var keys = mapping.Children.Keys.OfType<YamlScalarNode>().Select(k => k.Value).ToHashSet();
+        if (keys.Contains("app") && keys.Contains("apps"))
         {
-            _errors.Add("app: required");
+            _errors.Add("app and apps: use one of them, not both (app is one app on /)");
         }
-        return _errors.Count > 0 || app is null
+        else if (!keys.Contains("app") && !keys.Contains("apps"))
+        {
+            _errors.Add("app or apps: required");
+        }
+        foreach (var app in apps.Where(a => a.Name != PreviewApp.SingleName && services.Any(s => s.Name == a.Name)))
+        {
+            _errors.Add($"apps.{app.Name}: also the name of a service; apps and services share the preview's network");
+        }
+        return _errors.Count > 0 || apps.Count == 0
             ? new PreviewDefinitionParse(null, _errors)
-            : new PreviewDefinitionParse(new PreviewDefinition(setup, app, services, idleMinutes), []);
+            : new PreviewDefinitionParse(new PreviewDefinition(setup, apps, services, idleMinutes), []);
     }
 
     private static string? Scan(string yaml)
@@ -208,52 +247,129 @@ internal sealed partial class PreviewDefinitionParser
         return steps;
     }
 
-    private PreviewApp? ParseApp(YamlNode node)
+    private List<PreviewApp> ParseApps(YamlNode node)
+    {
+        var apps = new List<PreviewApp>();
+        if (node is not YamlMappingNode mapping)
+        {
+            _errors.Add("apps: must be a mapping from a name to an app");
+            return apps;
+        }
+        if (mapping.Children.Count == 0)
+        {
+            _errors.Add("apps: at least one app");
+            return apps;
+        }
+        if (mapping.Children.Count > PreviewDefinition.MaxApps)
+        {
+            _errors.Add($"apps: at most {PreviewDefinition.MaxApps} apps");
+            return apps;
+        }
+        var valid = true;
+        foreach (var (name, value) in Entries(mapping, "apps."))
+        {
+            var path = $"apps.{name}";
+            if (!ServiceName().IsMatch(name) || name == "hub")
+            {
+                _errors.Add($"{path}: the name must be a lowercase host name (letters, digits, -) other than hub");
+                valid = false;
+                continue;
+            }
+            if (ParseApp(name, path, value, single: false) is { } app)
+            {
+                apps.Add(app);
+            }
+            else
+            {
+                valid = false;
+            }
+        }
+        foreach (var group in apps.GroupBy(a => a.Path, StringComparer.Ordinal).Where(g => g.Count() > 1))
+        {
+            var names = group.Select(a => a.Name).ToList();
+            _errors.Add($"apps.{names[1]}: its path {group.Key} is also the path of apps.{names[0]}; each app needs its own prefix (the default is /)");
+        }
+        // Only when every app was read: a broken one might be the one on /.
+        if (valid && !apps.Any(a => a.Path == PreviewApp.RootPath))
+        {
+            _errors.Add("apps: exactly one app must be on path / (the default)");
+        }
+        return apps;
+    }
+
+    /// <param name="single">The file's <c>app</c>: always on /, so it has no path.</param>
+    private PreviewApp? ParseApp(string name, string prefix, YamlNode node, bool single)
     {
         if (node is not YamlMappingNode app)
         {
-            _errors.Add("app: must be a mapping");
+            _errors.Add($"{prefix}: must be a mapping");
             return null;
         }
         string? image = null, command = null, healthcheck = null;
+        var appPath = PreviewApp.RootPath;
         int? port = null;
         IReadOnlyDictionary<string, string> environment = new Dictionary<string, string>();
         IReadOnlyList<string> generate = [];
-        foreach (var (key, value) in Entries(app, "app."))
+        var pathValid = true;
+        foreach (var (key, value) in Entries(app, prefix + "."))
         {
             switch (key)
             {
                 case "image":
-                    image = Image("app.image", value);
+                    image = Image($"{prefix}.image", value);
                     break;
                 case "command":
-                    command = Text("app.command", value);
+                    command = Text($"{prefix}.command", value);
                     break;
                 case "port":
-                    port = Number("app.port", value, 1, 65535);
+                    port = Number($"{prefix}.port", value, 1, 65535);
                     break;
                 case "environment":
-                    environment = Environment("app.environment", value);
+                    environment = Environment($"{prefix}.environment", value);
                     break;
                 case "generate":
-                    generate = Generate(value);
+                    generate = Generate($"{prefix}.generate", value);
                     break;
                 case "healthcheck":
-                    healthcheck = Healthcheck("app.healthcheck", value, "path", HealthcheckPath);
+                    healthcheck = Healthcheck($"{prefix}.healthcheck", value, "path", HealthcheckPath);
+                    break;
+                case "path" when single:
+                    _errors.Add($"{prefix}.path: not allowed; app is always on /, use apps for several path prefixes");
+                    break;
+                case "path":
+                    var read = PathPrefix($"{prefix}.path", value);
+                    pathValid = read is not null;
+                    appPath = read ?? appPath;
                     break;
                 default:
-                    _errors.Add($"app.{key}: {NotAllowed}");
+                    _errors.Add($"{prefix}.{key}: {NotAllowed}");
                     break;
             }
         }
-        var complete = Required("app.image", app, "image") & Required("app.command", app, "command") & Required("app.port", app, "port");
-        foreach (var name in generate.Where(environment.ContainsKey))
+        var complete = Required($"{prefix}.image", app, "image") & Required($"{prefix}.command", app, "command") & Required($"{prefix}.port", app, "port");
+        foreach (var variable in generate.Where(environment.ContainsKey))
         {
-            _errors.Add($"app.generate.{name}: also set in app.environment");
+            _errors.Add($"{prefix}.generate.{variable}: also set in {prefix}.environment");
         }
-        return complete && image is not null && command is not null && port is not null
-            ? new PreviewApp(image, command, port.Value, environment, generate, healthcheck)
+        return complete && pathValid && image is not null && command is not null && port is not null
+            ? new PreviewApp(name, appPath, image, command, port.Value, environment, generate, healthcheck)
             : null;
+    }
+
+    /// <summary>/ or /segment[/segment…], no trailing slash, no . or .. segments, nothing that needs encoding.</summary>
+    private string? PathPrefix(string path, YamlNode node)
+    {
+        var text = Text(path, node);
+        if (text is null)
+        {
+            return null;
+        }
+        if (text.Length > 200 || !PrefixPath().IsMatch(text) || text.Split('/').Any(s => s is "." or ".."))
+        {
+            _errors.Add($"{path}: must be / or a prefix like /api (segments of letters, digits, . _ ~ -, no trailing slash)");
+            return null;
+        }
+        return text;
     }
 
     private List<PreviewService> ParseServices(YamlNode node)
@@ -381,12 +497,12 @@ internal sealed partial class PreviewDefinitionParser
         return environment;
     }
 
-    private List<string> Generate(YamlNode node)
+    private List<string> Generate(string path, YamlNode node)
     {
         var names = new List<string>();
         if (node is not YamlSequenceNode list)
         {
-            _errors.Add("app.generate: must be a list of variable names");
+            _errors.Add($"{path}: must be a list of variable names");
             return names;
         }
         foreach (var item in list.Children)
@@ -394,7 +510,7 @@ internal sealed partial class PreviewDefinitionParser
             var name = item is YamlScalarNode scalar ? scalar.Value ?? "" : null;
             if (name is null || !VariableName().IsMatch(name))
             {
-                _errors.Add($"app.generate.{name ?? "?"}: not a variable name");
+                _errors.Add($"{path}.{name ?? "?"}: not a variable name");
             }
             else if (!names.Contains(name))
             {
@@ -518,4 +634,7 @@ internal sealed partial class PreviewDefinitionParser
 
     [GeneratedRegex(@"^/(?!/)[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,500}$")]
     private static partial Regex UrlPath();
+
+    [GeneratedRegex(@"^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$")]
+    private static partial Regex PrefixPath();
 }

@@ -63,8 +63,8 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
             "mkdir -p /preview/out && echo 'hello from setup' > /preview/out/greeting.txt && echo setup-done"), Sink, ct);
         var definition = new PreviewDefinition(
             [],
-            new PreviewApp(AgentHost.BaseImage, "node server.js", 8000,
-                new Dictionary<string, string> { ["SERVICE_URL"] = "http://echo:9000" }, ["SECRET_X"], "/health"),
+            [new PreviewApp("app", "/", AgentHost.BaseImage, "node server.js", 8000,
+                new Dictionary<string, string> { ["SERVICE_URL"] = "http://echo:9000" }, ["SECRET_X"], "/health")],
             [new PreviewService("echo", AgentHost.BaseImage, new Dictionary<string, string>(),
                 ["node", "-e", "require('http').createServer((q, s) => s.end('from-service')).listen(9000)"],
                 "curl -fsS http://localhost:9000")],
@@ -145,7 +145,7 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
         await environment.CloneAsync(previewId, RoundRef, (_, _) => Task.CompletedTask, ct);
 
         var definition = new PreviewDefinition([],
-            new PreviewApp(AgentHost.BaseImage, "echo cannot start; exit 7", 8000, new Dictionary<string, string>(), [], null), [], 30);
+            [new PreviewApp("app", "/", AgentHost.BaseImage, "echo cannot start; exit 7", 8000, new Dictionary<string, string>(), [], null)], [], 30);
         var error = await Assert.ThrowsAsync<PreviewStartException>(() => environment.StartAsync(previewId, definition, (lines, _) =>
         {
             log.AddRange(lines);
