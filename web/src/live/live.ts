@@ -14,6 +14,12 @@ type RunChange = { runId: string; projectSlug: string; ticketNumber: number }
 type AttentionChange = { itemId: string; projectSlug: string; ticketNumber: number }
 type ChangeSetChange = { changeSetId: string; projectSlug: string; ticketNumber: number }
 type RunEventsChange = { runId: string }
+type PreviewChange = {
+  previewId: string
+  changeSetId: string
+  projectSlug: string
+  ticketNumber: number
+}
 
 /** Wait before the next attempt: at once, 2 s, 5 s, 10 s, then every 30 s, for as long as it takes. */
 export const retryDelay = (previousRetryCount: number): number =>
@@ -21,7 +27,7 @@ export const retryDelay = (previousRetryCount: number): number =>
 
 /** The queries a change makes stale. The client re-reads them; the hub sends ids only. */
 export function staleKeys(
-  message: 'RunChanged' | 'AttentionChanged' | 'ChangeSetChanged',
+  message: 'RunChanged' | 'AttentionChanged' | 'ChangeSetChanged' | 'PreviewChanged',
   change: { projectSlug: string; ticketNumber: number; changeSetId?: string },
 ): unknown[][] {
   const ticket = ['projects', change.projectSlug, 'tickets', change.ticketNumber]
@@ -48,6 +54,9 @@ export function staleKeys(
         ['runs'],
         ['attention-items'],
       ]
+    case 'PreviewChanged':
+      // Its state or new log lines: the preview's line in the review (its log's key follows the last seq).
+      return [['change-set-preview', change.changeSetId]]
   }
 }
 
@@ -76,6 +85,7 @@ export const liveKeys: unknown[][] = [
   ['projects'],
   ['change-sets'],
   ['change-set-threads'],
+  ['change-set-preview'],
 ]
 
 type Watch = { method: 'WatchAll' | 'WatchProject' | 'WatchRun'; arg?: string; count: number }
@@ -122,6 +132,9 @@ class Live {
     )
     connection.on('ChangeSetChanged', (change: ChangeSetChange) =>
       this.invalidate(staleKeys('ChangeSetChanged', change)),
+    )
+    connection.on('PreviewChanged', (change: PreviewChange) =>
+      this.invalidate(staleKeys('PreviewChanged', change)),
     )
     connection.on('RunEvents', (change: RunEventsChange) =>
       this.runListeners.get(change.runId)?.forEach((listener) => listener()),

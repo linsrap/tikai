@@ -2,7 +2,7 @@
 // tikai-e2e on port 18092 with test settings (e2e.env). Plain Node, so it works the same in PowerShell, bash and CI.
 //   node e2e/stack.mjs          build images, start the stack, run Playwright, remove the stack (always)
 //   node e2e/stack.mjs --keep   the same, but leave the stack running (for debugging: npm run e2e:test)
-//   node e2e/stack.mjs down     remove the stack (containers, volumes including the runs volume, network)
+//   node e2e/stack.mjs down     remove the stack (containers, volumes including the runs and previews volumes, networks)
 //   node e2e/stack.mjs clean    remove the stack and the e2e images
 // Extra arguments go to Playwright (e.g. --headed).
 import { spawnSync } from 'node:child_process'
@@ -13,6 +13,7 @@ const web = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const root = path.resolve(web, '..')
 const project = 'tikai-e2e'
 const runsVolume = `${project}_runs`
+const previewsVolume = `${project}_previews`
 const images = [
   'tikai/hub:e2e',
   'tikai/agent-stub:e2e',
@@ -95,9 +96,20 @@ function down({ logs = false } = {}) {
     .stdout.split(/\r?\n/)
     .filter(Boolean)
   if (leftovers.length > 0) docker(['rm', '-f', ...leftovers], { check: false })
+  // Preview containers and networks carry the stack's previews volume as a label (services mount no volume).
+  const previewLabel = `label=tikai.previews=${previewsVolume}`
+  const previews = docker(['ps', '-aq', '--filter', previewLabel], { capture: true })
+    .stdout.split(/\r?\n/)
+    .filter(Boolean)
+  if (previews.length > 0) docker(['rm', '-f', ...previews], { check: false })
   if (logs) docker([...compose, 'logs', '--no-color', '--tail', '300', 'hub'], { check: false })
   docker([...compose, 'down', '-v', '--remove-orphans'], { check: false })
-  docker(['volume', 'rm', '-f', runsVolume], { check: false })
+  // The hub left them with compose down; now they have no endpoints.
+  const networks = docker(['network', 'ls', '-q', '--filter', previewLabel], { capture: true })
+    .stdout.split(/\r?\n/)
+    .filter(Boolean)
+  if (networks.length > 0) docker(['network', 'rm', ...networks], { check: false })
+  docker(['volume', 'rm', '-f', runsVolume, previewsVolume], { check: false })
 }
 
 async function main() {

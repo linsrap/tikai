@@ -357,3 +357,58 @@ test('a comment sent to the agent comes back answered, and the next round shows 
   expect(bundle.headers()['content-disposition']).toContain('app.bundle')
   expect((await bundle.body()).subarray(0, 16).toString()).toMatch(/^# v\d git bundle/)
 })
+
+test('a round is previewed at its own address and stopped', async ({ page, context }) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('ada@example.org')
+  await page.getByLabel('Password').fill('correct horse battery')
+  await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible()
+  const request = page.request
+  await post(request, context, '/api/projects', { name: 'Previews', slug: 'previews', key: 'PV' })
+  await post(request, context, '/api/projects/previews/repositories', { name: 'app' })
+  await post(request, context, '/api/projects/previews/llm-providers', {
+    name: 'Stub key',
+    defaultModel: 'claude-haiku-5-5',
+    apiKey: 'stub-key-not-used-0123456789',
+    baseUrl: fakeLlm,
+  })
+  // The stub commits a tiny node app with a tikai-preview.yml (setup step, app on port 8000).
+  await post(request, context, '/api/projects/previews/tickets', {
+    title: 'A page to click through',
+    description: 'Something to look at. stub:preview',
+    criteria: ['The page says hello'],
+  })
+  await post(request, context, '/api/projects/previews/tickets/1/runs', {})
+  await page.goto('/projects/previews/tickets/1')
+  await page.getByRole('link', { name: 'Review', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /A page to click through/ })).toBeVisible()
+
+  // Start: clone, setup, app; the log shows it as it happens.
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Preview' })
+  await panel.getByRole('button', { name: 'Start preview' }).click()
+  await expect(panel.getByText('Running', { exact: true })).toBeVisible({ timeout: 180_000 })
+  await expect(panel.getByRole('log', { name: 'Preview log' })).toContainText('Preview running')
+
+  // Open: a new tab on the preview's own host, entered with a one-time link.
+  const opened = context.waitForEvent('page')
+  await panel.getByRole('button', { name: 'Open preview' }).click()
+  const app = await opened
+  await expect(app.getByRole('heading', { name: 'Hello from the preview' })).toBeVisible()
+  await expect(app.getByText('built by setup')).toBeVisible()
+  const host = new URL(app.url()).host
+  expect(host).toMatch(/^[0-9a-f]{32}\.preview\.localhost:18092$/)
+  // That host has only its own session cookie; the hub's login stays with the hub.
+  const cookies = await context.cookies(app.url())
+  expect(cookies.map((c) => c.name)).toEqual(['tikai_preview'])
+  expect(cookies[0].domain).toBe(host.split(':')[0])
+  await app.close()
+
+  // Stop: the host refuses from then on.
+  await panel.getByRole('button', { name: 'Stop' }).click()
+  await expect(panel.getByText('Stopped', { exact: true })).toBeVisible()
+  await expect
+    .poll(async () => (await request.get(`http://${host}/`)).status(), { timeout: 10_000 })
+    .not.toBe(200)
+})
