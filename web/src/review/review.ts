@@ -590,3 +590,29 @@ export function useRetryAnalysis(id: string, roundNo: number) {
     onSuccess: (changeSet) => queryClient.setQueryData(changeSetQuery(id).queryKey, changeSet),
   })
 }
+
+/**
+ * Trying a round on one's own computer: the round's bundle, and the commands that fetch it into a branch and check
+ * that out as a worktree next to the person's own checkout. `$HOME/Downloads` works in PowerShell and POSIX shells.
+ */
+export function tryLocally(
+  changeSet: Pick<ChangeSet, 'id' | 'ticketKey' | 'repositoryName'>,
+  roundNo: number,
+) {
+  const fileName = `${changeSet.ticketKey}-round-${roundNo}.bundle`
+  const branch = `review/${changeSet.ticketKey}-r${roundNo}`
+  const folder = `${safeName(changeSet.repositoryName)}-${changeSet.ticketKey}-r${roundNo}`
+  const roundRef = `refs/tikai/rounds/${changeSet.id}/${roundNo}`
+  return {
+    url: `/api/change-sets/${encodeURIComponent(changeSet.id)}/rounds/${roundNo}/bundle`,
+    fileName,
+    commands: [
+      `git fetch $HOME/Downloads/${fileName} +${roundRef}:refs/heads/${branch}`,
+      `git worktree add ../${folder} ${branch}`,
+    ],
+  }
+}
+
+/** A name as a folder name: letters, digits, dot, dash and underscore. */
+const safeName = (name: string) =>
+  name.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[.-]+|[.-]+$/g, '') || 'repository'

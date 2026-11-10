@@ -206,6 +206,19 @@ public sealed partial class GitService(IProcessRunner runner, IOptions<GitOption
         return heads.OutputText.Split(' ', 2)[0].Trim();
     }
 
+    public async Task<string> CreateRefBundleAsync(string path, string reference, string outputFile, CancellationToken cancellationToken = default)
+    {
+        CheckRef(reference);
+        if (await ResolveCommitAsync(path, reference, cancellationToken) is null)
+        {
+            throw new GitException($"The ref \"{reference}\" does not exist.");
+        }
+        var bundle = Path.GetFullPath(outputFile);
+        await RunAsync(path, ["bundle", "create", "--quiet", bundle, reference], cancellationToken);
+        var heads = await RunAsync(path, ["bundle", "list-heads", bundle, reference], cancellationToken);
+        return heads.OutputText.Split(' ', 2)[0].Trim();
+    }
+
     public async Task<string> ImportBundleAsync(
         string path, string bundleFile, string branch, IReadOnlyList<string> targetRefs, CancellationToken cancellationToken = default)
     {

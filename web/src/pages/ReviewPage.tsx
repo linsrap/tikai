@@ -50,13 +50,14 @@ import {
 import { AnalysisPanel } from '../review/AnalysisPanel'
 import { SelfReport } from '../review/SelfReport'
 import { GeneralComments, NewThreadForm, ThreadView } from '../review/Threads'
+import { TryLocally } from '../review/TryLocally'
 import type { DiffZone, LineSelection } from '../review/DiffView'
 import { runStateLabel } from '../runs/runs'
 import { runStateTone } from '../runs/tones'
 import { Button } from '../ui/Button'
 import { cx } from '../ui/cx'
 import { ErrorText, Field, Hint, Textarea } from '../ui/form'
-import { ChevronRightIcon, CheckIcon, CommentIcon } from '../ui/icons'
+import { ChevronRightIcon, CheckIcon, CommentIcon, DownloadIcon } from '../ui/icons'
 import { CrumbSep, Kbd, Loading } from '../ui/layout'
 import { ConfirmDialog } from '../ui/overlay'
 import { Segmented } from '../ui/Segmented'
@@ -206,6 +207,7 @@ function Header({
   onRound: (no: number) => void
   onFull: (full: boolean) => void
 }) {
+  const [trying, setTrying] = useState(false)
   return (
     <header className="border-b border-line bg-surface px-4 pt-3.5 pb-3 sm:px-6">
       <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
@@ -253,6 +255,10 @@ function Header({
               ]}
             />
           )}
+          <Button size="sm" aria-expanded={trying} onClick={() => setTrying(!trying)}>
+            <DownloadIcon size={13} />
+            Try it locally
+          </Button>
         </div>
       </div>
       <p className="m-0 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
@@ -275,6 +281,7 @@ function Header({
           {shortSha(round.baseSha)}..{shortSha(round.headSha)}
         </span>
       </p>
+      {trying && <TryLocally changeSet={changeSet} roundNo={round.roundNo} />}
     </header>
   )
 }
