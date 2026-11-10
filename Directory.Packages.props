@@ -26,6 +26,7 @@
 
   <ItemGroup Label="Orchestrator">
     <PackageVersion Include="Docker.DotNet.Enhanced" Version="4.3.3" />
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
   <ItemGroup Label="Mcp">
@@ -37,6 +38,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.14" />
+    <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />
   </ItemGroup>
 
   <ItemGroup Label="Tests">

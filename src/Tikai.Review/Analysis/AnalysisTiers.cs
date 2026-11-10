@@ -38,6 +38,8 @@ public static class AnalysisTiers
     [
         "**/auth/**", "**/Auth/**", "**/security/**", "**/Security/**", "**/migrations/**", "**/Migrations/**",
         "**/*.sql", "**/Dockerfile", "**/compose*.yml", ".github/workflows/**", "**/.gitattributes",
+        // Says which images and commands a preview runs.
+        "tikai-preview.yml",
     ];
 
     public static readonly IReadOnlyList<string> LightGlobs =

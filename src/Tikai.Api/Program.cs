@@ -9,6 +9,7 @@ using Tikai.Api.Hosting;
 using Tikai.Api.Live;
 using Tikai.Api.Llm;
 using Tikai.Api.Mcp;
+using Tikai.Api.Previews;
 using Tikai.Api.Projects;
 using Tikai.Api.Reviews;
 using Tikai.Api.Runs;
@@ -36,6 +37,7 @@ builder.Services.AddScoped<TicketService>();
 builder.Services.AddTikaiMcp(builder.Configuration);
 builder.Services.AddTikaiRuns(builder.Configuration);
 builder.Services.AddTikaiReviews();
+builder.Services.AddTikaiPreviews(builder.Configuration);
 builder.Services.AddTikaiLive();
 builder.Services.AddProblemDetails();
 // Enums travel as snake_case strings ("https_token"), the same values the database stores.
@@ -65,6 +67,8 @@ if (!BuildTimeTools.IsGeneratingOpenApiDocument)
 }
 
 app.UseExceptionHandler();
+// Preview hosts are served before anything of the hub (static files, login, API).
+app.UseMiddleware<PreviewProxy>();
 app.UseStatusCodePages();
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -86,6 +90,7 @@ api.MapAttentionEndpoints();
 api.MapRunEndpoints();
 api.MapChangeSetEndpoints();
 api.MapThreadEndpoints();
+api.MapPreviewEndpoints();
 // Unknown API routes are 404s, not the web app's index.html.
 api.Map("/{**path}", () => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found"));
 

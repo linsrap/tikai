@@ -78,7 +78,7 @@ public sealed class TikaiApiFactory : WebApplicationFactory<Program>
             services.Configure<JobWorkerOptions>(o => o.PollInterval = TimeSpan.FromMilliseconds(100));
             if (_settings.GetValueOrDefault(ReconcilerSetting) != "on")
             {
-                foreach (var reconciler in services.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(RunReconciler)).ToList())
+                foreach (var reconciler in services.Where(d => d.ServiceType == typeof(IHostedService) && (d.ImplementationType == typeof(RunReconciler) || d.ImplementationType == typeof(Tikai.Orchestrator.Previews.PreviewReconciler))).ToList())
                 {
                     services.Remove(reconciler);
                 }

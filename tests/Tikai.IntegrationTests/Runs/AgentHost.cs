@@ -29,6 +29,8 @@ public sealed class AgentHost : IAsyncLifetime
 
     public string RunsVolume { get; } = "tikai-test-runs-" + Guid.NewGuid().ToString("N")[..12];
 
+    public string PreviewsVolume { get; } = "tikai-test-previews-" + Guid.NewGuid().ToString("N")[..12];
+
     public IDockerClient Docker { get; } = new DockerClientBuilder().WithEndpoint(new DockerOptions().Endpoint).Build();
 
     /// <summary>
@@ -47,9 +49,20 @@ public sealed class AgentHost : IAsyncLifetime
     {
         Llm = await FakeAnthropicServer.StartAsync(body: StubAnalysis);
         var root = RepoRoot();
-        await BuildAsync(Path.Combine(root, "images", "agent-base"), BaseImage, null);
-        await BuildAsync(Path.Combine(root, "tests", "agent-stub"), StubImage, BaseImage);
+        // Test classes start in parallel, and two builds of one image would share Testcontainers' tar file.
+        await _build.WaitAsync();
+        try
+        {
+            await BuildAsync(Path.Combine(root, "images", "agent-base"), BaseImage, null);
+            await BuildAsync(Path.Combine(root, "tests", "agent-stub"), StubImage, BaseImage);
+        }
+        finally
+        {
+            _build.Release();
+        }
     }
+
+    private static readonly SemaphoreSlim _build = new(1, 1);
 
     public async ValueTask DisposeAsync()
     {
@@ -63,12 +76,38 @@ public sealed class AgentHost : IAsyncLifetime
         {
             await Docker.Containers.RemoveContainerAsync(container.ID, new ContainerRemoveParameters { Force = true });
         }
-        try
+        // Preview containers and networks carry the previews volume as a label (services mount no volume).
+        var previews = new Dictionary<string, IDictionary<string, bool>>
         {
-            await Docker.Volumes.RemoveAsync(RunsVolume, force: true);
+            ["label"] = new Dictionary<string, bool> { [$"{DockerContainerRuntime.PreviewsLabel}={PreviewsVolume}"] = true },
+        };
+        foreach (var container in await Docker.Containers.ListContainersAsync(new ContainersListParameters { All = true, Filters = previews }))
+        {
+            await Docker.Containers.RemoveContainerAsync(container.ID, new ContainerRemoveParameters { Force = true });
         }
-        catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        foreach (var network in await Docker.Networks.ListNetworksAsync(new NetworksListParameters { Filters = previews }))
         {
+            if (Environment.GetEnvironmentVariable("TIKAI_TEST_HUB_HOST") is { } hub)
+            {
+                try
+                {
+                    await Docker.Networks.DisconnectNetworkAsync(network.ID, new NetworkDisconnectParameters { Container = hub, Force = true });
+                }
+                catch (DockerApiException)
+                {
+                }
+            }
+            await Docker.Networks.DeleteNetworkAsync(network.ID);
+        }
+        foreach (var volume in new[] { RunsVolume, PreviewsVolume })
+        {
+            try
+            {
+                await Docker.Volumes.RemoveAsync(volume, force: true);
+            }
+            catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+            {
+            }
         }
         Docker.Dispose();
         await Llm.DisposeAsync();
@@ -105,7 +144,16 @@ public sealed class AgentHost : IAsyncLifetime
             [TikaiApiFactory.ReconcilerSetting] = "on",
             // The providers point at the fake Messages API on the loopback.
             ["Tikai:Llm:AllowHttpBaseUrls"] = "true",
+            ["Tikai:Previews:PreviewsVolume"] = PreviewsVolume,
+            ["Tikai:Previews:MemoryBytes"] = (512L * 1024 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["Tikai:Previews:StartTimeout"] = "00:01:00",
+            // On the host the hub reaches previews through a loopback port; inside a container by joining their network.
+            ["Tikai:Previews:Upstream"] = NetworkOverride is null ? "Loopback" : "Network",
         };
+        if (NetworkOverride is not null)
+        {
+            settings["Tikai:Previews:HubContainer"] = HubHost;
+        }
         if (NetworkOverride is null)
         {
             // Docker Desktop knows the name already; on Linux it needs the gateway mapping.

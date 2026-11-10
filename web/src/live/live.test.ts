@@ -39,6 +39,12 @@ describe('live updates', () => {
     ])
   })
 
+  it('re-reads the review preview when a preview changes (its log key follows the last seq)', () => {
+    expect(
+      staleKeys('PreviewChanged', { projectSlug: 'hub', ticketNumber: 7, changeSetId: 'cs1' }),
+    ).toEqual([['change-set-preview', 'cs1']])
+  })
+
   it('re-reads the review, its threads and the links to it when a change set changes, not its files', () => {
     const keys = staleKeys('ChangeSetChanged', {
       projectSlug: 'hub',

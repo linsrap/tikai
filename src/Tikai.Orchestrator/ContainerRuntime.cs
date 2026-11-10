@@ -6,6 +6,7 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using Microsoft.Extensions.Options;
 using Tikai.Core.Agents;
+using Tikai.Orchestrator.Previews;
 using ContainerSpec = Tikai.Core.Agents.ContainerSpec;
 
 namespace Tikai.Orchestrator;
@@ -36,7 +37,8 @@ public enum SandboxRole
 public sealed record SandboxSpec(Guid RunId, SandboxRole Role, ContainerSpec Container, bool WithNetwork);
 
 /// <summary>A container as Docker reports it.</summary>
-public sealed record ContainerStatus(bool Running, long ExitCode, bool OomKilled);
+/// <param name="Health">Docker's health status (starting, healthy, unhealthy) when the container has a health check.</param>
+public sealed record ContainerStatus(bool Running, long ExitCode, bool OomKilled, string? Health = null);
 
 public enum LogStream
 {
@@ -48,7 +50,7 @@ public enum LogStream
 public sealed record LogLine(LogStream Stream, string Text, long? SkippedBytes = null);
 
 /// <summary>The Docker operations the orchestrator uses, with the sandbox rules applied in one place.</summary>
-public interface IContainerRuntime
+public partial interface IContainerRuntime
 {
     Task<bool> ImageExistsAsync(string image, CancellationToken cancellationToken);
 
@@ -97,7 +99,8 @@ public interface IContainerRuntime
 }
 
 /// <summary><see cref="IContainerRuntime"/> on Docker (Docker.DotNet.Enhanced, which has volume subpath mounts).</summary>
-public sealed class DockerContainerRuntime(IDockerClient docker, IOptions<OrchestratorOptions> options) : IContainerRuntime
+public sealed partial class DockerContainerRuntime(IDockerClient docker, IOptions<OrchestratorOptions> options, IOptions<PreviewOptions> previewOptions)
+    : IContainerRuntime
 {
     public const string RunIdLabel = "tikai.run-id";
     public const string RoleLabel = "tikai.role";
@@ -136,70 +139,64 @@ public sealed class DockerContainerRuntime(IDockerClient docker, IOptions<Orches
             WorkingDir = spec.Container.WorkingDirectory,
             User = $"{uid}:{uid}",
             Labels = Labels(spec.RunId, spec.Role),
-            HostConfig = new HostConfig
-            {
-                Mounts =
-                [
-                    // Exactly the run's directory, named by its GUID: a deeper subpath could be redirected by a symlink
-                    // the agent planted (spike Q6).
-                    new Mount
-                    {
-                        Type = "volume",
-                        Source = _options.RunsVolume,
-                        Target = RunLayout.Root,
-                        VolumeOptions = new VolumeOptions { Subpath = spec.RunId.ToString("D") },
-                    },
-                ],
-                ReadonlyRootfs = true,
-                Tmpfs = new Dictionary<string, string> { ["/tmp"] = $"rw,nosuid,nodev,size={_options.TmpSize},mode=1777" },
-                CapDrop = ["ALL"],
-                SecurityOpt = ["no-new-privileges"],
-                Privileged = false,
-                Init = true,
-                Memory = _options.MemoryBytes,
-                MemorySwap = _options.MemoryBytes,
-                NanoCPUs = (long)(_options.Cpus * 1_000_000_000),
-                PidsLimit = _options.PidsLimit,
-                NetworkMode = spec.WithNetwork ? _options.Network : "none",
-                ExtraHosts = spec.WithNetwork ? [.. _options.ExtraHosts] : [],
-                // Kept whole and unrotated: after a hub restart the log is read again from the start (see AgentRun.LogLinesRead).
-                LogConfig = new LogConfig { Type = "json-file", Config = new Dictionary<string, string>() },
-            },
+            // Exactly the run's directory, named by its GUID: a deeper subpath could be redirected by a symlink the
+            // agent planted (spike Q6).
+            HostConfig = Sandbox(
+                new Mount
+                {
+                    Type = "volume",
+                    Source = _options.RunsVolume,
+                    Target = RunLayout.Root,
+                    VolumeOptions = new VolumeOptions { Subpath = spec.RunId.ToString("D") },
+                },
+                spec.WithNetwork ? _options.Network : "none",
+                spec.WithNetwork ? [.. _options.ExtraHosts] : [],
+                new SandboxLimits(_options.MemoryBytes, _options.Cpus, _options.PidsLimit)),
         }, cancellationToken);
         return response.ID;
     }
 
-    public async Task<string> CreateSeedAsync(Guid runId, string image, CancellationToken cancellationToken)
+    public Task<string> CreateSeedAsync(Guid runId, string image, CancellationToken cancellationToken) =>
+        CreateSeedAsync(Name(SandboxRole.Seed, runId), Labels(runId, SandboxRole.Seed), _options.RunsVolume, "/runs", image, cancellationToken);
+
+    // rm does not follow symlinks the agent may have left; the path comes from the GUID only.
+    public Task<string> CreateCleanupAsync(Guid runId, string image, CancellationToken cancellationToken) =>
+        CreateCleanupAsync(Name(SandboxRole.Cleanup, runId), Labels(runId, SandboxRole.Cleanup), _options.RunsVolume, "/runs", runId, image, cancellationToken);
+
+    /// <summary>A never-started container with a whole volume mounted, only for archive uploads.</summary>
+    private async Task<string> CreateSeedAsync(
+        string name, Dictionary<string, string> labels, string volume, string target, string image, CancellationToken cancellationToken)
     {
         var response = await docker.Containers.CreateContainerAsync(new CreateContainerParameters
         {
-            Name = Name(SandboxRole.Seed, runId),
+            Name = name,
             Image = image,
             Entrypoint = ["true"],
-            Labels = Labels(runId, SandboxRole.Seed),
+            Labels = labels,
             HostConfig = new HostConfig
             {
-                Mounts = [new Mount { Type = "volume", Source = _options.RunsVolume, Target = "/runs" }],
+                Mounts = [new Mount { Type = "volume", Source = volume, Target = target }],
                 NetworkMode = "none",
             },
         }, cancellationToken);
         return response.ID;
     }
 
-    public async Task<string> CreateCleanupAsync(Guid runId, string image, CancellationToken cancellationToken)
+    /// <summary>Root with only CAP_DAC_OVERRIDE, no network, the whole volume, and <c>rm -rf -- target/id</c>.</summary>
+    private async Task<string> CreateCleanupAsync(
+        string name, Dictionary<string, string> labels, string volume, string target, Guid id, string image, CancellationToken cancellationToken)
     {
         var response = await docker.Containers.CreateContainerAsync(new CreateContainerParameters
         {
-            Name = Name(SandboxRole.Cleanup, runId),
+            Name = name,
             Image = image,
-            // rm does not follow symlinks the agent may have left; the path comes from the GUID only.
-            Entrypoint = ["rm", "-rf", "--", $"/runs/{runId:D}"],
+            Entrypoint = ["rm", "-rf", "--", $"{target}/{id:D}"],
             Cmd = [],
             User = "0:0",
-            Labels = Labels(runId, SandboxRole.Cleanup),
+            Labels = labels,
             HostConfig = new HostConfig
             {
-                Mounts = [new Mount { Type = "volume", Source = _options.RunsVolume, Target = "/runs" }],
+                Mounts = [new Mount { Type = "volume", Source = volume, Target = target }],
                 ReadonlyRootfs = true,
                 CapDrop = ["ALL"],
                 // The agent's directories may be read-only for root without it (it can chmod its own files).
@@ -278,7 +275,7 @@ public sealed class DockerContainerRuntime(IDockerClient docker, IOptions<Orches
         try
         {
             var state = (await docker.Containers.InspectContainerAsync(containerId, cancellationToken)).State;
-            return new ContainerStatus(state?.Running ?? false, state?.ExitCode ?? 0, state?.OOMKilled ?? false);
+            return new ContainerStatus(state?.Running ?? false, state?.ExitCode ?? 0, state?.OOMKilled ?? false, state?.Health?.Status);
         }
         catch (DockerContainerNotFoundException)
         {
@@ -336,6 +333,32 @@ public sealed class DockerContainerRuntime(IDockerClient docker, IOptions<Orches
         }
         return containers;
     }
+
+    /// <summary>
+    /// The sandbox of every container that runs agent-written code (agent, helpers, preview setup and app): the agent
+    /// uid is set by the caller; here a read-only root with a tmpfs /tmp, no capabilities, no new privileges, an init
+    /// process, memory, CPU and pid limits, and a json-file log kept whole.
+    /// </summary>
+    private HostConfig Sandbox(Mount? mount, string networkMode, IList<string> extraHosts, SandboxLimits limits) => new()
+    {
+        Mounts = mount is null ? [] : [mount],
+        ReadonlyRootfs = true,
+        Tmpfs = new Dictionary<string, string> { ["/tmp"] = $"rw,nosuid,nodev,size={_options.TmpSize},mode=1777" },
+        CapDrop = ["ALL"],
+        SecurityOpt = ["no-new-privileges"],
+        Privileged = false,
+        Init = true,
+        Memory = limits.MemoryBytes,
+        MemorySwap = limits.MemoryBytes,
+        NanoCPUs = (long)(limits.Cpus * 1_000_000_000),
+        PidsLimit = limits.PidsLimit,
+        NetworkMode = networkMode,
+        ExtraHosts = extraHosts,
+        // Kept whole and unrotated: after a hub restart the log is read again from the start (see AgentRun.LogLinesRead).
+        LogConfig = new LogConfig { Type = "json-file", Config = new Dictionary<string, string>() },
+    };
+
+    private sealed record SandboxLimits(long MemoryBytes, double Cpus, long PidsLimit);
 
     private static Dictionary<string, string> Labels(Guid runId, SandboxRole role) => new()
     {

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Tikai.Api.Attention;
 using Tikai.Api.Llm;
+using Tikai.Api.Previews;
 using Tikai.Api.Projects;
 using Tikai.Core.Agents;
 using Tikai.Core.Attention;
@@ -479,6 +480,7 @@ internal sealed class RunStore(
                     .ExecuteUpdateAsync(s => s.SetProperty(c => c.Status, ChangeSetStatus.Closed).SetProperty(c => c.UpdatedAt, now), cancellationToken);
                 foreach (var id in closed)
                 {
+                    await PreviewStops.ForChangeSetAsync(db, jobs, events, id, PreviewStops.ChangeSetEnded, now, cancellationToken);
                     await events.PublishAsync(ChangeSet.Topic, id, cancellationToken);
                 }
             }

@@ -20,6 +20,8 @@
 //                   before.txt, asks "Which word?" with the options alpha and beta and waits, prints <n> lines 250 ms
 //                   apart (stdout only, so a hub restart meanwhile loses nothing), then like wait; MCP calls after the
 //                   lines are retried for a minute (the browser test restarts the hub while they print)
+//   preview         commits a tiny node app (server.js) with a tikai-preview.yml on this stub's base image: one setup
+//                   step, the app on port 8000 with /health and /echo (the request's cookies and host), then submits
 //   fix             commits fix.txt and keep.txt, submits; resumed (or taken over from a summary) for requested
 //                   changes it reads get_review_comments, changes fix.txt, replies to every thread, commits, submits
 //   fix-rebase      like fix, but stays after its first submission until it is stopped, and the fix round first moves
@@ -503,6 +505,9 @@ async function main() {
   if (scenario.startsWith("fix")) {
     return fixStart(ticket, scenario);
   }
+  if (scenario === "preview") {
+    return previewApp(ticket);
+  }
   if (scenario === "no-commit") {
     let first = "accepted";
     try {
@@ -571,3 +576,42 @@ main().then(exitAfterFlush, (error) => {
   process.stderr.write(`stub failed: ${error.stack ?? error}\n`);
   exitAfterFlush(2);
 });
+
+const PREVIEW_SERVER = `const http = require("http");
+const fs = require("fs");
+http.createServer((req, res) => {
+  if (req.url === "/health") return res.end("ok");
+  if (req.url === "/echo") {
+    res.setHeader("content-type", "application/json");
+    return res.end(JSON.stringify({ cookie: req.headers.cookie ?? null, host: req.headers.host ?? null, forwardedHost: req.headers["x-forwarded-host"] ?? null }));
+  }
+  res.setHeader("content-type", "text/html");
+  res.end("<!doctype html><title>Stub app</title><h1>Hello from the preview</h1><p>" + fs.readFileSync("/preview/out/build.txt", "utf8").trim() + "</p>");
+}).listen(8000);
+console.log("stub app listening with " + process.env.APP_SECRET);
+`;
+
+async function previewApp(ticket) {
+  const image = process.env.TIKAI_STUB_BASE_IMAGE;
+  fs.writeFileSync("server.js", PREVIEW_SERVER);
+  fs.writeFileSync(
+    "tikai-preview.yml",
+    [
+      "setup:",
+      `  - image: ${image}`,
+      "    run: mkdir -p /preview/out && echo 'built by setup' > /preview/out/build.txt",
+      "app:",
+      `  image: ${image}`,
+      "  command: node server.js",
+      "  port: 8000",
+      "  generate: [APP_SECRET]",
+      "  healthcheck: { path: /health }",
+      "idle_minutes: 30",
+      "",
+    ].join("\n"),
+  );
+  bash("git add server.js tikai-preview.yml && git commit --quiet -m 'Add a previewable app'");
+  await submit(ticket);
+  result({ result: "Done.", total_cost_usd: 0.001 });
+  return 0;
+}

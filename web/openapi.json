@@ -2253,6 +2253,177 @@
           }
         }
       }
+    },
+    "/api/change-sets/{id}/preview": {
+      "get": {
+        "tags": [
+          "Previews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetPreviewInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/change-sets/{id}/previews": {
+      "post": {
+        "tags": [
+          "Previews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/previews/{id}/stop": {
+      "post": {
+        "tags": [
+          "Previews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/previews/{id}/entry": {
+      "post": {
+        "tags": [
+          "Previews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewEntryInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/previews/{id}/log": {
+      "get": {
+        "tags": [
+          "Previews"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "afterSeq",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PreviewLogLineInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2778,6 +2949,39 @@
           },
           "delivery": {
             "$ref": "#/components/schemas/DeliveryInfo"
+          }
+        }
+      },
+      "ChangeSetPreviewInfo": {
+        "required": [
+          "available",
+          "unavailableReason",
+          "definition",
+          "preview"
+        ],
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "unavailableReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "definition": {
+            "$ref": "#/components/schemas/PreviewDefinitionInfo"
+          },
+          "preview": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PreviewInfo"
+              }
+            ]
           }
         }
       },
@@ -3619,6 +3823,156 @@
             }
           }
         }
+      },
+      "PreviewDefinitionInfo": {
+        "required": [
+          "roundNo",
+          "found",
+          "errors"
+        ],
+        "type": "object",
+        "properties": {
+          "roundNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "found": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PreviewEntryInfo": {
+        "required": [
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "PreviewInfo": {
+        "required": [
+          "id",
+          "changeSetId",
+          "roundNo",
+          "headSha",
+          "state",
+          "error",
+          "stopReason",
+          "startedAt",
+          "runningAt",
+          "stoppedAt",
+          "idleMinutes",
+          "lastLogSeq",
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changeSetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "roundNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "headSha": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PreviewState"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "stopReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "runningAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "stoppedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "idleMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastLogSeq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PreviewLogLineInfo": {
+        "required": [
+          "seq",
+          "source",
+          "text",
+          "at"
+        ],
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PreviewState": {
+        "enum": [
+          "preparing",
+          "starting",
+          "running",
+          "stopped",
+          "failed"
+        ]
       },
       "ProjectInfo": {
         "required": [
@@ -5035,6 +5389,9 @@
     },
     {
       "name": "Runs"
+    },
+    {
+      "name": "Previews"
     }
   ]
 }

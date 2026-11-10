@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="Docker.DotNet.Enhanced" />
+    <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />

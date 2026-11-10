@@ -22,6 +22,7 @@ public class AnalysisTiersTests
     [InlineData("web/e2e/compose.e2e.yml")]
     [InlineData(".github/workflows/ci.yml")]
     [InlineData(".gitattributes")]
+    [InlineData("tikai-preview.yml")]
     public void A_file_in_a_strict_path_makes_the_change_strict(string path)
     {
         var choice = AnalysisTiers.Choose([File("README.md", 1), File(path, 1)]);
