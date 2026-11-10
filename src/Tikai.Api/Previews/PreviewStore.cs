@@ -154,11 +154,11 @@ internal sealed class PreviewStore(
     {
         var active = PreviewRules.Active.Select(s => JsonNamingPolicy.SnakeCaseLower.ConvertName(s.ToString())).ToArray();
         var rows = await db.Database.SqlQuery<ActiveRow>($"""
-            SELECT p.id AS "Id", p.state AS "State", c.status IN ('open', 'delivering') AS "ChangeSetOpen", p.upstreams::text AS "Upstreams",
-                   EXISTS (SELECT 1 FROM jobs j WHERE j.queue = {PreviewJob.StartQueue} AND j.dead_at IS NULL AND j.payload->>'preview_id' = p.id::text) AS "HasLiveStartJob",
-                   EXTRACT(EPOCH FROM now() - p.created_at)::float8 AS "AgeSeconds",
-                   EXTRACT(EPOCH FROM now() - COALESCE(p.last_request_at, p.running_at))::float8 AS "IdleSeconds",
-                   p.idle_minutes AS "IdleMinutes"
+            SELECT p.id AS id, p.state AS state, c.status IN ('open', 'delivering') AS change_set_open, p.upstreams::text AS upstreams,
+                   EXISTS (SELECT 1 FROM jobs j WHERE j.queue = {PreviewJob.StartQueue} AND j.dead_at IS NULL AND j.payload->>'preview_id' = p.id::text) AS has_live_start_job,
+                   EXTRACT(EPOCH FROM now() - p.created_at)::float8 AS age_seconds,
+                   EXTRACT(EPOCH FROM now() - COALESCE(p.last_request_at, p.running_at))::float8 AS idle_seconds,
+                   p.idle_minutes AS idle_minutes
             FROM previews p JOIN change_sets c ON c.id = p.change_set_id
             WHERE p.state = ANY({active})
             """).ToListAsync(cancellationToken);
