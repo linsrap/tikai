@@ -12,6 +12,7 @@ using Tikai.Core.Jobs;
 using Tikai.Core.Previews;
 using Tikai.Core.Reviews;
 using Tikai.Data;
+using Tikai.Orchestrator;
 using Tikai.Orchestrator.Previews;
 
 namespace Tikai.Api.Previews;
@@ -135,6 +136,7 @@ internal sealed class PreviewService(
     IEventPublisher events,
     MirrorPaths mirrors,
     IOptions<PreviewOptions> options,
+    IOptions<DockerOptions> docker,
     TimeProvider timeProvider)
 {
     /// <summary>Serializes starts, so two of them cannot both pass the limit.</summary>
@@ -183,6 +185,10 @@ internal sealed class PreviewService(
     /// <summary>Why previews cannot run for a hub opened at this request's host; null when they can.</summary>
     public string? Unavailable(HttpRequest request)
     {
+        if (!docker.Value.Enabled)
+        {
+            return DockerOptions.OffMessage;
+        }
         if (options.Value is { Upstream: PreviewUpstream.Network, HubContainer: null or "" })
         {
             return "Previews need Tikai:Previews:HubContainer (the hub's own container), so the hub can reach them. See docs/self-hosting.md.";

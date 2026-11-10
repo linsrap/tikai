@@ -80,10 +80,16 @@ public sealed partial class PreviewReconciler(
     IContainerRuntime containers,
     IOptions<OrchestratorOptions> agentOptions,
     IOptions<PreviewOptions> options,
+    IOptions<DockerOptions> docker,
     ILogger<PreviewReconciler> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // The run reconciler says so.
+        if (!docker.Value.Enabled)
+        {
+            return;
+        }
         while (!stoppingToken.IsCancellationRequested)
         {
             try

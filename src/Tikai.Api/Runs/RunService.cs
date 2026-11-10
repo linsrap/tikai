@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Tikai.Api.Attention;
 using Tikai.Api.Llm;
@@ -30,6 +31,7 @@ internal sealed class RunService(
     AttentionService attention,
     IJobQueue jobs,
     IEventPublisher events,
+    IOptions<DockerOptions> docker,
     TimeProvider timeProvider)
 {
     /// <summary>
@@ -42,6 +44,10 @@ internal sealed class RunService(
     public async Task<(AgentRun? Run, StartProblem? Problem)> StartAsync(
         Project project, Ticket ticket, Guid? repositoryId, Guid? providerId, Guid userId, CancellationToken cancellationToken)
     {
+        if (!docker.Value.Enabled)
+        {
+            return Problem(Conflict("Agent runs are off", DockerOptions.OffMessage));
+        }
         if (ticket.Status is not (TicketStatus.Open or TicketStatus.InProgress))
         {
             return Problem(Conflict("Ticket is not open", "Only an open or in-progress ticket can be assigned to an agent. Reopen it first."));

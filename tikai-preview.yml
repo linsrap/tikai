@@ -1,0 +1,28 @@
+# How Tikai starts a preview of a review round of this repository (see docs/self-hosting.md, "Previews").
+# Stock images only; the hub decides limits and network. Agents are off in a preview: it has no Docker access.
+setup:
+  - image: node:24-trixie-slim
+    run: npm ci --prefix web --no-audit --no-fund && npm run build --prefix web
+  - image: mcr.microsoft.com/dotnet/sdk:10.0
+    run: >-
+      DOTNET_CLI_TELEMETRY_OPTOUT=1 dotnet publish src/Tikai.Api/Tikai.Api.csproj -c Release -o /preview/out
+      -p:OpenApiGenerateDocuments=false && cp -r web/dist /preview/out/wwwroot
+app:
+  # The SDK image has git, which the hub needs for its repositories.
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  command: mkdir -p /preview/data && cd /preview/out && exec dotnet Tikai.Api.dll
+  port: 8080
+  environment:
+    ASPNETCORE_HTTP_PORTS: "8080"
+    DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    ConnectionStrings__Db: Host=db;Database=tikai;Username=tikai;Password=preview
+    Tikai__DataPath: /preview/data
+    Tikai__Docker__Enabled: "false"
+  generate: [Tikai__EncryptionSecret]
+  healthcheck: { path: /health/ready }
+services:
+  db:
+    image: postgres:17
+    environment: { POSTGRES_DB: tikai, POSTGRES_USER: tikai, POSTGRES_PASSWORD: preview }
+    healthcheck: { command: pg_isready -U tikai -d tikai }
+idle_minutes: 30

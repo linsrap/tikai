@@ -116,12 +116,18 @@ public sealed partial class RunReconciler(
     IContainerRuntime containers,
     RunMonitor monitor,
     IOptions<OrchestratorOptions> options,
+    IOptions<DockerOptions> docker,
     ILogger<RunReconciler> logger) : BackgroundService
 {
     private readonly OrchestratorOptions _options = options.Value;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!docker.Value.Enabled)
+        {
+            LogDockerOff(DockerOptions.OffMessage);
+            return;
+        }
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -241,6 +247,9 @@ public sealed partial class RunReconciler(
         await using var scope = scopes.CreateAsyncScope();
         await action(scope.ServiceProvider.GetRequiredService<IRunStore>());
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]
+    private partial void LogDockerOff(string message);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Reconciling runs and containers failed; trying again at the next interval")]
     private partial void LogPassFailed(Exception exception);

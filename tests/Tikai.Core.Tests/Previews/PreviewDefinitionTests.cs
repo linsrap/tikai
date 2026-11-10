@@ -339,6 +339,23 @@ public class PreviewDefinitionTests
         Assert.Equal([$"the file is larger than {PreviewDefinition.MaxBytes / 1024} KB"], Errors(yaml));
     }
 
+    [Fact]
+    public void Tikai_s_own_definition_starts_the_hub_with_its_database_and_agents_off()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!File.Exists(Path.Combine(root.FullName, "Tikai.slnx")))
+        {
+            root = root.Parent!;
+        }
+
+        var definition = Ok(File.ReadAllText(Path.Combine(root.FullName, PreviewDefinition.FileName)));
+
+        Assert.Equal(["db"], definition.Services.Select(s => s.Name));
+        Assert.Equal("false", definition.App.Environment["Tikai__Docker__Enabled"]);
+        Assert.Equal(["Tikai__EncryptionSecret"], definition.App.Generate);
+        Assert.Equal("/health/ready", definition.App.HealthcheckPath);
+    }
+
     private static PreviewDefinition Ok(string yaml)
     {
         var result = PreviewDefinition.Parse(yaml);

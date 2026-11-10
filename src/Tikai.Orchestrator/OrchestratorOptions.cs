@@ -83,5 +83,13 @@ public sealed class DockerOptions
     /// <summary>tcp://docker-proxy:2375 in compose; the local socket or named pipe by default.</summary>
     public string? Host { get; set; }
 
+    /// <summary>
+    /// False for a hub without Docker access (e.g. Tikai running as a preview of itself): agent runs and previews are
+    /// off, the hub says so when one is started, and nothing tries to reach Docker.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    public const string OffMessage = "This hub has no Docker access (Tikai:Docker:Enabled is false), so agent runs and previews are off.";
+
     public Uri Endpoint => new(Host ?? (OperatingSystem.IsWindows() ? "npipe://./pipe/docker_engine" : "unix:///var/run/docker.sock"));
 }
