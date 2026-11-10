@@ -22,6 +22,7 @@ import { StopIcon, TerminalIcon } from '../ui/icons'
 import { EmptyState, Loading, PageBody, PageHeader } from '../ui/layout'
 import { ConfirmDialog } from '../ui/overlay'
 import { Tag } from '../ui/Tag'
+import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 
 // State, ticket and step, branch, time, cost, actions; on narrow screens the row stacks.
@@ -32,6 +33,7 @@ const columns =
 export function BoardPage() {
   useWatch('WatchAll')
   const runs = useQuery(boardQuery)
+  usePageTitle('Board')
   const now = useNow()
   const active = runs.data?.filter((run) => isActive(run.state)).length ?? 0
 

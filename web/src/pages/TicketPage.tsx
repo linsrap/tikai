@@ -17,6 +17,7 @@ import { ErrorText, Hint } from '../ui/form'
 import { CrumbSep, Loading, PageBody, PageHeader } from '../ui/layout'
 import { ConfirmDialog } from '../ui/overlay'
 import { Tag } from '../ui/Tag'
+import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 import { RunsSection } from './RunsSection'
 import { TicketFormView } from './TicketForm'
@@ -30,6 +31,7 @@ export function TicketPage({ slug, number }: { slug: string; number: number }) {
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const t = ticket.data
+  usePageTitle(t ? `${t.key} ${t.title}` : `#${number}`)
 
   const crumbs = (
     <>
