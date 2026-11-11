@@ -63,10 +63,29 @@ public class ClaudeCodeAdapterTests
     {
         var prompt = ClaudeCodeAdapter.Prompt(Context());
 
-        Assert.Equal("run-start.v3", ClaudeCodeAdapter.PromptVersion);
+        Assert.Equal("run-start.v4", ClaudeCodeAdapter.PromptVersion);
         Assert.Contains("Whenever you changed it, call check_preview_definition", prompt, StringComparison.Ordinal);
         Assert.True(prompt.IndexOf("get_preview_spec", StringComparison.Ordinal) < prompt.IndexOf("check_preview_definition", StringComparison.Ordinal));
         Assert.True(prompt.IndexOf("check_preview_definition", StringComparison.Ordinal) < prompt.LastIndexOf("submit_for_review", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Fresh_sessions_know_the_sandbox_and_the_preview_file()
+    {
+        var start = ClaudeCodeAdapter.Prompt(Context());
+        var summary = ClaudeCodeAdapter.SummaryPrompt(Context(), new FreshSession(null, [], "", ""));
+
+        Assert.Equal("run-summary.v3", ClaudeCodeAdapter.SummaryPromptVersion);
+        foreach (var prompt in new[] { start, summary })
+        {
+            // Real runs installed SDKs into /tmp first (noexec) and probed for browsers and apt in every run.
+            Assert.Contains("without root, sudo or apt", prompt, StringComparison.Ordinal);
+            Assert.Contains("programs in /tmp cannot be started", prompt, StringComparison.Ordinal);
+            Assert.Contains("under $HOME, and never commit it", prompt, StringComparison.Ordinal);
+            Assert.Contains("no Docker and no browser", prompt, StringComparison.Ordinal);
+            Assert.Contains("Whenever you changed it, call check_preview_definition", prompt, StringComparison.Ordinal);
+            Assert.True(prompt.IndexOf("check_preview_definition", StringComparison.Ordinal) < prompt.LastIndexOf("submit_for_review", StringComparison.Ordinal));
+        }
     }
 
     [Fact]
