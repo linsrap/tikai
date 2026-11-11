@@ -21,7 +21,8 @@
 //                   apart (stdout only, so a hub restart meanwhile loses nothing), then like wait; MCP calls after the
 //                   lines are retried for a minute (the browser test restarts the hub while they print)
 //   preview         commits a tiny node app (server.js) with a tikai-preview.yml on this stub's base image: one setup
-//                   step, the app on port 8000 with /health and /echo (the request's cookies and host), then submits
+//                   step, the app on port 8000 with /health and /echo (the request's cookies and host); it checks a
+//                   broken draft and then the file with check_preview_definition (STUB_PREVIEW_CHECK), then submits
 //   preview-apps    like preview, but two apps: web (web.js, port 8000) on / and api (api.js, port 8001) on /api; each
 //                   answers with its name, the path it got and a hash of the generated SHARED value; web's /from-api
 //                   calls api by its name
@@ -620,6 +621,11 @@ async function previewApp(ticket) {
       "",
     ].join("\n"),
   );
+  // Like the start prompt asks: a broken draft first (the hub names the key and the line), then the real file.
+  const draft = JSON.parse(await tool("check_preview_definition", { content: "app:\n  image: node:24\n  ports: [8000]\n" }));
+  const check = JSON.parse(await tool("check_preview_definition", { content: fs.readFileSync("tikai-preview.yml", "utf8") }));
+  say("STUB_PREVIEW_CHECK " + JSON.stringify({ draft, check }));
+  if (check.result !== "valid") throw new Error(`tikai-preview.yml is ${check.result}`);
   bash("git add server.js tikai-preview.yml && git commit --quiet -m 'Add a previewable app'");
   await submit(ticket);
   result({ result: "Done.", total_cost_usd: 0.001 });

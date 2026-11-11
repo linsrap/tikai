@@ -59,6 +59,17 @@ public class ClaudeCodeAdapterTests
     }
 
     [Fact]
+    public void The_prompt_asks_for_a_check_of_a_changed_preview_file_before_the_submission()
+    {
+        var prompt = ClaudeCodeAdapter.Prompt(Context());
+
+        Assert.Equal("run-start.v3", ClaudeCodeAdapter.PromptVersion);
+        Assert.Contains("Whenever you changed it, call check_preview_definition", prompt, StringComparison.Ordinal);
+        Assert.True(prompt.IndexOf("get_preview_spec", StringComparison.Ordinal) < prompt.IndexOf("check_preview_definition", StringComparison.Ordinal));
+        Assert.True(prompt.IndexOf("check_preview_definition", StringComparison.Ordinal) < prompt.LastIndexOf("submit_for_review", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Fresh_sessions_are_told_to_keep_what_humans_read_short()
     {
         var start = ClaudeCodeAdapter.Prompt(Context());

@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Tikai.Api.Previews;
 using Tikai.Core.Previews;
+using Tikai.Core.Runs;
 using Tikai.Data;
 using Tikai.IntegrationTests.Auth;
 using Tikai.IntegrationTests.Runs;
@@ -21,6 +23,24 @@ public sealed class PreviewApiTests(PostgresFixture postgres, AgentHost agents) 
     {
         await using var hub = await agents.StartHubAsync(postgres);
         var changeSetId = await SubmittedAsync(hub, "preview");
+
+        // The agent checked its file before it submitted: the tool calls went through, with the hub's answers.
+        var runId = await RunIdAsync(hub, changeSetId);
+        var events = await hub.EventsAsync(runId);
+        var calls = events
+            .Where(e => e.Kind == RunEventKind.ToolCall && e.Payload.GetProperty("name").GetString() == "mcp__tikai__check_preview_definition")
+            .Select(e => e.Payload.GetProperty("id").GetString())
+            .ToList();
+        Assert.Equal(2, calls.Count);
+        Assert.All(calls, id => Assert.Contains(events, e =>
+            e.Kind == RunEventKind.ToolResult && e.Payload.GetProperty("tool_use_id").GetString() == id && !e.Payload.GetProperty("is_error").GetBoolean()));
+        var message = (await hub.MessagesAsync(runId)).Single(t => t.StartsWith("STUB_PREVIEW_CHECK ", StringComparison.Ordinal));
+        var checks = JsonDocument.Parse(message["STUB_PREVIEW_CHECK ".Length..]).RootElement;
+        Assert.Equal("valid", checks.GetProperty("check").GetProperty("result").GetString());
+        Assert.Equal("invalid", checks.GetProperty("draft").GetProperty("result").GetString());
+        Assert.Equal(
+            [("app.ports", 3), ("app.command", 1), ("app.port", 1)],
+            checks.GetProperty("draft").GetProperty("errors").EnumerateArray().Select(e => (e.GetProperty("key").GetString()!, e.GetProperty("line").GetInt32())));
 
         var before = await GetAsync(hub, changeSetId);
         Assert.True(before.Available);
@@ -189,6 +209,12 @@ public sealed class PreviewApiTests(PostgresFixture postgres, AgentHost agents) 
             Assert.True(DateTime.UtcNow < deadline, $"Preview is {row.State} ({row.Error})");
             await Task.Delay(250, TestContext.Current.CancellationToken);
         }
+    }
+
+    private static async Task<Guid> RunIdAsync(AgentHub hub, Guid changeSetId)
+    {
+        await using var scope = hub.Factory.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<TikaiDbContext>().ChangeSets.Where(c => c.Id == changeSetId).Select(c => c.RunId).SingleAsync();
     }
 
     private static async Task<Preview> PreviewRowAsync(AgentHub hub, Guid previewId)
