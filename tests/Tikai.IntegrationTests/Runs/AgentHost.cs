@@ -39,7 +39,7 @@ public sealed class AgentHost : IAsyncLifetime
     /// </summary>
     internal FakeAnthropicServer Llm { get; private set; } = null!;
 
-    public static readonly string StubAnalysis = FakeAnthropicServer.TextReply("""{"summary":"Stub analysis.","coverage":[],"groups":[],"files":[]}""");
+    public static readonly string StubAnalysis = FakeAnthropicServer.TextReply("""{"headline":"Stub headline.","look_at":[],"summary":"Stub analysis.","coverage":[],"groups":[],"files":[]}""");
 
     private static string? NetworkOverride => Environment.GetEnvironmentVariable("TIKAI_TEST_AGENT_NETWORK");
 

@@ -2,6 +2,7 @@ import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query
 import { api, ensureAntiforgery } from '../api/client'
 import type { components } from '../api/schema'
 import { unwrap } from '../api/result'
+import { verdictLine } from '../review/review'
 
 export type AttentionItem = components['schemas']['AttentionItemInfo']
 export type AttentionKind = components['schemas']['AttentionKind']
@@ -54,17 +55,12 @@ export function selfReportLine(
     .join(' · ')
 }
 
-/** The review analysis in one line for the inbox card. */
+/** The review analysis in one line for the inbox card; when it is done, the verdict line. */
 export function analysisLine(brief: AnalysisBrief): string {
   if (brief.status === 'pending') return 'Analysis: running…'
   if (brief.status === 'failed')
     return `Analysis unavailable${brief.error ? `: ${brief.error}` : ''}`
-  const coverage = (['covered', 'partial', 'missing'] as const)
-    .filter((status) => brief[status] > 0)
-    .map((status) => `${brief[status]} ${status}`)
-    .join(', ')
-  const risk = brief.highRisk === 1 ? '1 high-risk file' : `${brief.highRisk} high-risk files`
-  return `Analysis: ${coverage || 'no criteria assessed'} · ${risk}`
+  return verdictLine(brief)
 }
 
 /** "Round 2 · the agent answered 3 of 4 threads", for a later round; null for the first. */

@@ -1,7 +1,7 @@
 // Stands in for the Anthropic Messages API in the browser test's stack (service fake-llm in compose.e2e.yml), so
 // review analyses run without a key or the internet. It answers from what the hub sent: every criterion id in the
 // message is covered (the last one partially), the listed files form one story group, and the first file is high
-// risk; an interdiff analysis says so in its summary. A model whose id starts with "e2e-missing" gets the API's
+// risk and the one place to look at; an interdiff analysis says so in its headline. A model whose id starts with "e2e-missing" gets the API's
 // "model not found" error instead.
 import http from 'node:http'
 
@@ -15,7 +15,10 @@ function analysis(message) {
     .map((line) => line.replace(/^[AMDRT] (?:.* -> )?/, '').replace(/ \(\+.*$| \[.*$/, ''))
   const first = files[0]
   return {
-    summary: `Changes ${files.length} file${files.length === 1 ? '' : 's'} (fake ${message.includes('<previous_analysis') ? 'interdiff ' : ''}analysis).`,
+    headline: `Changes ${files.length} file${files.length === 1 ? '' : 's'} (fake ${message.includes('<previous_analysis') ? 'interdiff ' : ''}analysis).`,
+    look_at: first
+      ? [{ path: first, line: 1, reason: 'The fake analysis looks at the first line.' }]
+      : [],
     coverage: ids.map((id, i) => ({
       criterion_id: id,
       status: i === ids.length - 1 && ids.length > 1 ? 'partial' : 'covered',
@@ -28,6 +31,7 @@ function analysis(message) {
     files: first
       ? [{ path: first, risk: 'high', reason: 'The fake analysis rates the first file high.' }]
       : [],
+    summary: 'The details of the fake analysis.',
   }
 }
 

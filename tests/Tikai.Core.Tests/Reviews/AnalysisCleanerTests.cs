@@ -106,7 +106,7 @@ public class AnalysisCleanerTests
     }
 
     [Fact]
-    public void Risks_keep_the_first_entry_per_known_file()
+    public void Risks_keep_the_first_medium_or_high_entry_per_known_file()
     {
         var clean = Clean(new AnalysisAnswer
         {
@@ -118,12 +118,47 @@ public class AnalysisCleanerTests
                 new() { Path = "src/old.cs", Risk = "Medium", Reason = new string('a', 500) },
                 new() { Path = "package-lock.json", Risk = "high" },
                 new() { Path = "tests/LoginTests.cs", Risk = "extreme" },
+                new() { Path = "src/Data/User.cs", Risk = "low", Reason = "Low is the default and not kept." },
             ],
         });
 
         Assert.Equal([("src/Api/Login.cs", FileRisk.High), ("src/new.cs", FileRisk.Medium)], clean.Risks.Select(r => (r.Path, r.Risk)));
         Assert.Equal(AnalysisCleaner.MaxNoteLength, clean.Risks[1].Reason.Length);
         Assert.EndsWith("…", clean.Risks[1].Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Headline_is_one_line_and_look_at_keeps_three_known_lines()
+    {
+        var clean = Clean(new AnalysisAnswer
+        {
+            Headline = " Adds a\nlogin. " + new string('x', 200),
+            LookAt =
+            [
+                new() { Path = "nowhere.cs", Line = 1, Reason = "unknown" },
+                new() { Path = "src/gone.cs", Line = 1, Reason = "deleted" },
+                new() { Path = "package-lock.json", Line = 1, Reason = "lock file" },
+                new() { Path = "src/Api/Login.cs", Line = 0, Reason = "no line" },
+                new() { Path = "src/Api/Login.cs", Line = 12, Reason = "Checks the password." },
+                new() { Path = "src/Api/Login.cs", Line = 12, Reason = "twice" },
+                new() { Path = "src/old.cs", Line = 3, Reason = new string('r', 300) },
+                null,
+                new() { Path = "tests/LoginTests.cs", Line = 7, Reason = "No negative case." },
+                new() { Path = "src/Data/User.cs", Line = 1, Reason = "a fourth" },
+            ],
+        });
+
+        Assert.StartsWith("Adds a login. x", clean.Headline, StringComparison.Ordinal);
+        Assert.True(clean.Headline.Length <= AnalysisCleaner.MaxHeadlineLength);
+        Assert.Equal([("src/Api/Login.cs", 12), ("src/new.cs", 3), ("tests/LoginTests.cs", 7)], clean.LookAt.Select(l => (l.Path, l.Line)));
+        Assert.Equal("Checks the password.", clean.LookAt[0].Reason);
+        Assert.Equal(AnalysisCleaner.MaxLookAtReasonLength, clean.LookAt[1].Reason.Length);
+    }
+
+    [Fact]
+    public void A_headline_alone_is_usable()
+    {
+        Assert.NotNull(AnalysisCleaner.Clean(new AnalysisAnswer { Headline = "Small fix." }, _files, [_first]));
     }
 
     [Fact]

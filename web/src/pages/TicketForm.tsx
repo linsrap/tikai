@@ -1,6 +1,16 @@
 import { useState, type FormEvent } from 'react'
 import { MarkdownView } from '../tickets/MarkdownView'
 import {
+  criterionSuggestion,
+  dropCriterion,
+  dropDescription,
+  dropLine,
+  dropTitle,
+  linesInDescription,
+  titleSuggestion,
+  type Refined,
+} from '../tickets/refine'
+import {
   addCriterion,
   changeCriterion,
   moveCriterion,
@@ -15,7 +25,7 @@ import { Button } from '../ui/Button'
 import { ErrorText, Field, Hint, Input, Select, Textarea } from '../ui/form'
 import { ChevronDownIcon, PlusIcon, XIcon } from '../ui/icons'
 import { Segmented } from '../ui/Segmented'
-import { RefinePanel } from './RefinePanel'
+import { RefinePanel, Suggestion } from './RefinePanel'
 
 const iconButton =
   'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-subtle hover:bg-hover hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent'
@@ -42,6 +52,13 @@ export function TicketFormView({
 }) {
   const [form, setForm] = useState(initial)
   const [preview, setPreview] = useState(false)
+  // A refine proposal written into the form: its changes are marked until dropped, edited or undone.
+  const [refined, setRefined] = useState<Refined | null>(null)
+  const apply = (next: { form: TicketForm; refined: Refined | null }) => {
+    setForm(next.form)
+    setRefined(next.refined)
+  }
+  const lines = linesInDescription(form, refined)
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -50,6 +67,13 @@ export function TicketFormView({
 
   return (
     <form onSubmit={submit} className="flex max-w-3xl flex-col gap-6">
+      <RefinePanel
+        slug={slug}
+        form={form}
+        refined={refined}
+        onRefine={(next, nextRefined) => apply({ form: next, refined: nextRefined })}
+      />
+
       <div className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4">
         <Field label="Title">
           <Input
@@ -59,6 +83,13 @@ export function TicketFormView({
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
           />
+          {refined && titleSuggestion(form, refined) && (
+            <Suggestion
+              was={refined.before.title}
+              label="Put the old title back"
+              onDrop={() => apply(dropTitle(form, refined))}
+            />
+          )}
         </Field>
         <div className="flex flex-wrap gap-4">
           {withStatus && (
@@ -117,9 +148,31 @@ export function TicketFormView({
               aria-label="Description (markdown)"
               value={form.description}
               placeholder="What should be done, and why? Constraints, non-goals, links."
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              onChange={(e) => {
+                setForm({ ...form, description: e.target.value })
+                // Edited by hand: the description is the person's now, so "put back" would lose their edit.
+                if (refined?.description) setRefined({ ...refined, description: false })
+              }}
             />
           )}
+          {refined?.description && (
+            <Suggestion
+              label="Put the old description back"
+              onDrop={() => apply(dropDescription(form, refined))}
+            >
+              Rewrote the description.
+            </Suggestion>
+          )}
+          {refined &&
+            lines.map((line) => (
+              <Suggestion
+                key={line}
+                label={`Remove “${line}”`}
+                onDrop={() => apply(dropLine(form, refined, line))}
+              >
+                {line}
+              </Suggestion>
+            ))}
         </div>
       </div>
 
@@ -130,53 +183,77 @@ export function TicketFormView({
         )}
         {form.criteria.length > 0 && (
           <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
-            {form.criteria.map((c, i) => (
-              <li key={c.key} className="flex items-center gap-1.5">
-                <span className="w-6 shrink-0 text-right text-sm text-fg-subtle tabular-nums">
-                  {i + 1}.
-                </span>
-                <Input
-                  aria-label={`Criterion ${i + 1}`}
-                  maxLength={1000}
-                  className="min-w-0 flex-1"
-                  value={c.text}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      criteria: changeCriterion(form.criteria, i, e.target.value),
-                    })
-                  }
-                />
-                <button
-                  type="button"
-                  className={iconButton}
-                  aria-label={`Move criterion ${i + 1} up`}
-                  disabled={i === 0}
-                  onClick={() =>
-                    setForm({ ...form, criteria: moveCriterion(form.criteria, i, -1) })
-                  }
-                >
-                  <ChevronDownIcon size={14} className="rotate-180" />
-                </button>
-                <button
-                  type="button"
-                  className={iconButton}
-                  aria-label={`Move criterion ${i + 1} down`}
-                  disabled={i === form.criteria.length - 1}
-                  onClick={() => setForm({ ...form, criteria: moveCriterion(form.criteria, i, 1) })}
-                >
-                  <ChevronDownIcon size={14} />
-                </button>
-                <button
-                  type="button"
-                  className={`${iconButton} hover:bg-bad-bg hover:text-bad`}
-                  aria-label={`Remove criterion ${i + 1}`}
-                  onClick={() => setForm({ ...form, criteria: removeCriterion(form.criteria, i) })}
-                >
-                  <XIcon size={14} />
-                </button>
-              </li>
-            ))}
+            {form.criteria.map((c, i) => {
+              const suggestion = criterionSuggestion(refined, c)
+              return (
+                <li key={c.key} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-6 shrink-0 text-right text-sm text-fg-subtle tabular-nums">
+                      {i + 1}.
+                    </span>
+                    <Input
+                      aria-label={`Criterion ${i + 1}`}
+                      maxLength={1000}
+                      className="min-w-0 flex-1"
+                      value={c.text}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          criteria: changeCriterion(form.criteria, i, e.target.value),
+                        })
+                      }
+                    />
+                    <button
+                      type="button"
+                      className={iconButton}
+                      aria-label={`Move criterion ${i + 1} up`}
+                      disabled={i === 0}
+                      onClick={() =>
+                        setForm({ ...form, criteria: moveCriterion(form.criteria, i, -1) })
+                      }
+                    >
+                      <ChevronDownIcon size={14} className="rotate-180" />
+                    </button>
+                    <button
+                      type="button"
+                      className={iconButton}
+                      aria-label={`Move criterion ${i + 1} down`}
+                      disabled={i === form.criteria.length - 1}
+                      onClick={() =>
+                        setForm({ ...form, criteria: moveCriterion(form.criteria, i, 1) })
+                      }
+                    >
+                      <ChevronDownIcon size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${iconButton} hover:bg-bad-bg hover:text-bad`}
+                      aria-label={`Remove criterion ${i + 1}`}
+                      onClick={() =>
+                        setForm({ ...form, criteria: removeCriterion(form.criteria, i) })
+                      }
+                    >
+                      <XIcon size={14} />
+                    </button>
+                  </div>
+                  {refined && suggestion && (
+                    <div className="ml-[30px] pr-[90px]">
+                      <Suggestion
+                        was={suggestion.was ?? undefined}
+                        label={
+                          suggestion.was != null
+                            ? `Put criterion ${i + 1} back`
+                            : `Remove suggested criterion ${i + 1}`
+                        }
+                        onDrop={() => apply(dropCriterion(form, refined, c.key))}
+                      >
+                        {suggestion.was == null && 'New criterion.'}
+                      </Suggestion>
+                    </div>
+                  )}
+                </li>
+              )
+            })}
           </ol>
         )}
         <div>
@@ -191,8 +268,6 @@ export function TicketFormView({
           </Button>
         </div>
       </fieldset>
-
-      <RefinePanel slug={slug} form={form} onChange={setForm} />
 
       {error && <ErrorText>{error.message}</ErrorText>}
       <div className="flex flex-wrap gap-2 border-t border-line pt-4">

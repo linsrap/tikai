@@ -5,16 +5,26 @@ using Tikai.Core.Reviews;
 
 namespace Tikai.Review.Analysis;
 
-/// <summary>The usable part of the model's answer: coverage, groups and risks that fit the ticket and the diff.</summary>
-public sealed record CleanAnalysis(string Summary, IReadOnlyList<AnalysisCoverage> Coverage, IReadOnlyList<StoryGroup> Groups, IReadOnlyList<AnalysisFileRisk> Risks);
+/// <summary>The usable part of the model's answer: headline, places to look at, coverage, groups and risks that fit the ticket and the diff.</summary>
+public sealed record CleanAnalysis(
+    string Headline,
+    IReadOnlyList<LookAt> LookAt,
+    string Summary,
+    IReadOnlyList<AnalysisCoverage> Coverage,
+    IReadOnlyList<StoryGroup> Groups,
+    IReadOnlyList<AnalysisFileRisk> Risks);
 
 /// <summary>
 /// Checks the model's answer against the diff and the ticket. Unknown criterion ids and paths are dropped, every
 /// reviewable file ends up in exactly one group ("Other changes" for the rest), lock and generated files in none (the
-/// review screen keeps them apart), and texts become single trimmed lines of bounded length. Nothing here calls the model.
+/// review screen keeps them apart), look_at points at lines of files that exist after the change, a low risk is left out
+/// (low is the default), and texts become single trimmed lines of bounded length. Nothing here calls the model.
 /// </summary>
 public static partial class AnalysisCleaner
 {
+    public const int MaxHeadlineLength = 160;
+    public const int MaxLookAt = 3;
+    public const int MaxLookAtReasonLength = 160;
     public const int MaxSummaryLength = 1_500;
     public const int MaxNoteLength = 400;
     public const int MaxTitleLength = 100;
@@ -22,7 +32,7 @@ public static partial class AnalysisCleaner
     public const int MaxRefsPerCriterion = 8;
     public const string OtherTitle = "Other changes";
 
-    /// <returns>Null when the answer has nothing usable (no summary, no coverage, no groups).</returns>
+    /// <returns>Null when the answer has nothing usable (no headline, summary, coverage or groups).</returns>
     public static CleanAnalysis? Clean(AnalysisAnswer answer, IReadOnlyList<AnalysisFile> files, IReadOnlyList<Guid> criterionIds)
     {
         var reviewable = files.Where(f => f.Reviewable).ToList();
@@ -37,15 +47,17 @@ public static partial class AnalysisCleaner
             byPath.TryAdd(file.OldPath!, file);
         }
 
+        var headline = Text(answer.Headline, MaxHeadlineLength);
         var summary = Text(answer.Summary, MaxSummaryLength);
         var coverage = Coverage(answer.Coverage, byPath, criterionIds);
         var groups = Groups(answer.Groups, byPath, reviewable);
         var risks = Risks(answer.Files, byPath);
-        if (summary.Length == 0 && coverage.Count == 0 && !groups.Any(g => g.Title != OtherTitle))
+        var lookAt = LookAts(answer.LookAt, byPath);
+        if (headline.Length == 0 && summary.Length == 0 && coverage.Count == 0 && !groups.Any(g => g.Title != OtherTitle))
         {
             return null;
         }
-        return new CleanAnalysis(summary, coverage, groups, risks);
+        return new CleanAnalysis(headline, lookAt, summary, coverage, groups, risks);
     }
 
     private static List<AnalysisCoverage> Coverage(List<AnswerCoverage?>? items, Dictionary<string, AnalysisFile> byPath, IReadOnlyList<Guid> criterionIds)
@@ -69,6 +81,16 @@ public static partial class AnalysisCleaner
         // In the ticket's order; a criterion the model left out has no entry ("not assessed").
         return [.. criterionIds.Where(found.ContainsKey).Select(id => found[id])];
     }
+
+    /// <summary>At most <see cref="MaxLookAt"/> lines of text files that exist after the change, each place once.</summary>
+    private static List<LookAt> LookAts(List<AnswerLookAt?>? items, Dictionary<string, AnalysisFile> byPath) =>
+        [.. (items ?? []).OfType<AnswerLookAt>()
+            .Select(item => Ref(new AnswerRef { Path = item.Path, LineStart = item.Line, LineEnd = item.Line }, byPath) is { } at
+                ? new LookAt(at.Path, at.LineStart, Text(item.Reason, MaxLookAtReasonLength))
+                : null)
+            .OfType<LookAt>()
+            .DistinctBy(l => (l.Path, l.Line))
+            .Take(MaxLookAt)];
 
     /// <summary>A ref to lines of a file that exists after the change; reversed ranges are turned around.</summary>
     private static CodeRef? Ref(AnswerRef? item, Dictionary<string, AnalysisFile> byPath)
@@ -119,7 +141,7 @@ public static partial class AnalysisCleaner
         var risks = new Dictionary<string, AnalysisFileRisk>(StringComparer.Ordinal);
         foreach (var item in (items ?? []).OfType<AnswerFile>())
         {
-            if (item.Path is { } path && byPath.TryGetValue(path.Trim(), out var file) && Risk(item.Risk) is { } risk)
+            if (item.Path is { } path && byPath.TryGetValue(path.Trim(), out var file) && Risk(item.Risk) is { } risk && risk != FileRisk.Low)
             {
                 risks.TryAdd(file.Path, new AnalysisFileRisk(file.Path, risk, Text(item.Reason, MaxNoteLength)));
             }

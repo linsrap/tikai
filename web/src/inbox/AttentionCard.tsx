@@ -8,6 +8,7 @@ import { eventSummary, runStateLabel } from '../runs/runs'
 import { Button } from '../ui/Button'
 import { ErrorText, Hint } from '../ui/form'
 import { RetryIcon, TerminalIcon } from '../ui/icons'
+import { Disclosure } from '../ui/layout'
 import { Tag, type Tone } from '../ui/Tag'
 import { PlanAnswer, QuestionAnswer } from './AnswerForms'
 import {
@@ -242,6 +243,8 @@ function ReviewReport({
 }) {
   const dismiss = useDismiss(id)
   const roundText = roundLine(round)
+  // With a done analysis, its headline and places lead; the agent's report is one click away.
+  const done = analysis?.status === 'done'
   return (
     <div className="flex flex-col gap-3">
       {deliveryError && (
@@ -249,12 +252,39 @@ function ReviewReport({
           Approved, but it did not get through: {deliveryError}
         </p>
       )}
-      <SelfReport
-        summary={review.summary}
-        coverage={coverage}
-        openConcerns={review.openConcerns}
-        collapsed
-      />
+      {done ? (
+        <div className="flex flex-col gap-2">
+          {analysis.headline && (
+            <p className="m-0 font-medium [overflow-wrap:anywhere]">{analysis.headline}</p>
+          )}
+          {(analysis.lookAt ?? []).length > 0 && (
+            <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-sm" aria-label="Look at">
+              {(analysis.lookAt ?? []).map((place) => (
+                <li key={`${place.path}:${place.line}`}>
+                  <span className="font-mono text-mono text-fg-muted">
+                    {place.path}:{place.line}
+                  </span>{' '}
+                  <span className="text-fg-2">{place.reason}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Disclosure summary="The agent’s report">
+            <SelfReport
+              summary={review.summary}
+              coverage={coverage}
+              openConcerns={review.openConcerns}
+            />
+          </Disclosure>
+        </div>
+      ) : (
+        <SelfReport
+          summary={review.summary}
+          coverage={coverage}
+          openConcerns={review.openConcerns}
+          collapsed
+        />
+      )}
       {(roundText || analysis) && (
         <p className="m-0 flex flex-wrap gap-x-1.5 text-sm text-fg-muted">
           {roundText && <span className="round-line">{roundText}</span>}

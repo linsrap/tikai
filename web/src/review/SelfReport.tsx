@@ -36,21 +36,27 @@ export function SelfReport({
     <div className="flex flex-col gap-3">
       <p className="m-0 [overflow-wrap:anywhere] whitespace-pre-wrap text-fg-2">{summary}</p>
       {collapsed ? line && <Disclosure summary={line}>{details}</Disclosure> : details}
-      {uncommitted.length > 0 && (
-        <div className="rounded-md border border-wait-bg bg-wait-bg px-4 py-3" role="note">
-          <h3 className="m-0 text-sm font-semibold text-wait">
-            Left out: {uncommitted.length} uncommitted file{uncommitted.length === 1 ? '' : 's'}
-          </h3>
-          <p className="mt-0.5 mb-2 text-sm text-fg-2">
-            The agent did not commit these, so they are not part of this review.
-          </p>
-          <ul className="m-0 list-none space-y-0.5 p-0 font-mono text-mono text-fg-2">
-            {uncommitted.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <Uncommitted files={uncommitted} />
+    </div>
+  )
+}
+
+/** Files the agent left uncommitted: not part of the review, so always in sight. */
+export function Uncommitted({ files }: { files: readonly string[] }) {
+  if (files.length === 0) return null
+  return (
+    <div className="rounded-md border border-wait-bg bg-wait-bg px-4 py-3" role="note">
+      <h3 className="m-0 text-sm font-semibold text-wait">
+        Left out: {files.length} uncommitted file{files.length === 1 ? '' : 's'}
+      </h3>
+      <p className="mt-0.5 mb-2 text-sm text-fg-2">
+        The agent did not commit these, so they are not part of this review.
+      </p>
+      <ul className="m-0 list-none space-y-0.5 p-0 font-mono text-mono text-fg-2">
+        {files.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
     </div>
   )
 }

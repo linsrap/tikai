@@ -17,7 +17,8 @@ public sealed class ReviewAnalyzerTests
     public async Task The_prompt_message_and_a_schema_with_required_lists_reach_the_provider_and_the_answer_is_parsed()
     {
         var answer = """
-            {"summary":"Adds login.","coverage":[{"criterion_id":"c1","status":"covered","note":"Login.cs","refs":[{"path":"src/Login.cs","line_start":3,"line_end":9}]}],
+            {"headline":"Adds login; meets the ticket.","look_at":[{"path":"src/Login.cs","line":4,"reason":"Compares passwords."}],
+             "summary":"Adds login.","coverage":[{"criterion_id":"c1","status":"covered","note":"Login.cs","refs":[{"path":"src/Login.cs","line_start":3,"line_end":9}]}],
              "groups":[{"title":"Endpoint","layer":"api","note":"The endpoint.","files":["src/Login.cs"]}],
              "files":[{"path":"src/Login.cs","risk":"high","reason":"Checks passwords."}]}
             """;
@@ -28,7 +29,9 @@ public sealed class ReviewAnalyzerTests
         Assert.Null(result.Error);
         Assert.Equal((1234L, 321L), (result.InputTokens, result.OutputTokens));
         var parsed = result.Answer!;
-        Assert.Equal("Adds login.", parsed.Summary);
+        Assert.Equal(("Adds login; meets the ticket.", "Adds login."), (parsed.Headline, parsed.Summary));
+        var lookAt = Assert.Single(parsed.LookAt!)!;
+        Assert.Equal(("src/Login.cs", 4, "Compares passwords."), (lookAt.Path, lookAt.Line, lookAt.Reason));
         var coverage = Assert.Single(parsed.Coverage!)!;
         Assert.Equal(("c1", "covered", 3, 9), (coverage.CriterionId, coverage.Status, coverage.Refs![0]!.LineStart, coverage.Refs[0]!.LineEnd));
         Assert.Equal("api", parsed.Groups![0]!.Layer);
@@ -41,7 +44,7 @@ public sealed class ReviewAnalyzerTests
         Assert.StartsWith("You help a human reviewer check a code change", body.GetProperty("system")[0].GetProperty("text").GetString(), StringComparison.Ordinal);
         Assert.Equal("Ticket: HUB-1 — Login", body.GetProperty("messages")[0].GetProperty("content")[0].GetProperty("text").GetString());
         var schema = body.GetProperty("output_config").GetProperty("format").GetProperty("schema");
-        Assert.Equal(["summary", "coverage", "groups", "files"], schema.GetProperty("required").EnumerateArray().Select(e => e.GetString()));
+        Assert.Equal(["headline", "look_at", "coverage", "groups", "files", "summary"], schema.GetProperty("required").EnumerateArray().Select(e => e.GetString()));
         // Every object in the schema lists its required properties, or the SDK would drop it.
         Assert.All(Objects(schema), o => Assert.True(o.TryGetProperty("required", out _)));
     }

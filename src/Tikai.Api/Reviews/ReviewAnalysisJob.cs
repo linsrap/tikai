@@ -187,7 +187,9 @@ internal sealed partial class ReviewAnalysisJobHandler(
             result.InputTokens,
             result.OutputTokens,
             (int)result.Duration.TotalMilliseconds,
-            previous?.Round.RoundNo);
+            previous?.Round.RoundNo,
+            clean.Headline.Length > 0 ? clean.Headline : null,
+            clean.LookAt);
         var now = timeProvider.GetUtcNow();
         var stored = await db.ReviewRounds.Where(r => r.Id == roundId && r.AnalysisStatus == AnalysisStatus.Pending)
             .ExecuteUpdateAsync(s => s

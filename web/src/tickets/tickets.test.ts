@@ -1,16 +1,14 @@
 import {
   addCriterion,
-  addProposedCriterion,
-  appendQuestions,
-  replaceCriteria,
-  takeProposedDescription,
-  takeProposedTitle,
-  toRefineSpecRequest,
+  appendAssumptions,
   changeCriterion,
   emptyTicketForm,
+  largerSize,
   moveCriterion,
+  refinedCriterionKeys,
   removeCriterion,
   toCreateTicketRequest,
+  toRefineSpecRequest,
   toTicketForm,
   toUpdateTicketRequest,
   type CriterionDraft,
@@ -106,6 +104,7 @@ describe('ticket requests', () => {
 
 describe('refine spec', () => {
   const form = toTicketForm(ticket)
+  const keys = refinedCriterionKeys(form)
 
   it('sends the form as it is on screen, without empty rows', () => {
     const draft = { ...form, criteria: addCriterion(form.criteria) }
@@ -116,39 +115,26 @@ describe('refine spec', () => {
       providerId: null,
     })
     expect(toRefineSpecRequest(draft, 'p1').providerId).toBe('p1')
+    expect(toRefineSpecRequest(draft, null, 'large').minSize).toBe('large')
+    expect(refinedCriterionKeys(draft)).toEqual(keys)
   })
 
-  it('takes over title and description one at a time', () => {
-    const titled = takeProposedTitle(form, 'Add a login page')
-    expect(titled).toEqual({ ...form, title: 'Add a login page' })
-    expect(takeProposedDescription(titled, '## Goal')).toEqual({
-      ...titled,
-      description: '## Goal',
-    })
-    expect(form.title).toBe('Login page')
-  })
-
-  it('adds one proposed criterion as new and keeps the saved ones', () => {
-    const added = addProposedCriterion(form, 'fourth')
-    expect(added.criteria.map((c) => c.id)).toEqual(['a', 'b', 'c', null])
-    expect(texts(added.criteria)).toEqual(['first', 'second', 'third', 'fourth'])
-  })
-
-  it('replaces all criteria with new ones', () => {
-    const replaced = replaceCriteria(form, ['x', 'y'])
-    expect(replaced.criteria.map((c) => [c.id, c.text])).toEqual([
-      [null, 'x'],
-      [null, 'y'],
+  it('asks one size larger for more detail', () => {
+    expect([largerSize('small'), largerSize('medium'), largerSize('large')]).toEqual([
+      'medium',
+      'large',
+      null,
     ])
-    expect(new Set(replaced.criteria.map((c) => c.key)).size).toBe(2)
   })
 
-  it('appends open questions to the description as a list', () => {
-    expect(appendQuestions(form, ['Which IdP?', 'Session length?']).description).toBe(
-      '# Goal\n\n## Open questions\n\n- Which IdP?\n- Session length?\n',
+  it('adds to an existing assumptions section, before the next section', () => {
+    expect(appendAssumptions('## Goal\n\nX\n\n## Assumptions\n\n- Assumed: A\n', ['B'])).toBe(
+      '## Goal\n\nX\n\n## Assumptions\n\n- Assumed: A\n- B\n',
     )
-    expect(appendQuestions({ ...form, description: '  ' }, ['Q?']).description).toBe(
-      '## Open questions\n\n- Q?\n',
+    expect(appendAssumptions('## Assumptions\n\n- A\n\n## Out of scope\n\nY', ['B'])).toBe(
+      '## Assumptions\n\n- A\n- B\n\n## Out of scope\n\nY\n',
     )
+    expect(appendAssumptions('', ['B'])).toBe('## Assumptions\n\n- B\n')
+    expect(appendAssumptions('Text', [])).toBe('Text')
   })
 })
