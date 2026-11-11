@@ -180,6 +180,7 @@ function facts() {
     sees_data: fs.existsSync("/data") || fs.existsSync("/runs"),
     // The base image's python3: its major version and a JSON round trip, then an import of a module of its own.
     python: sh(`echo '{"n": 41}' | python3 -c 'import json, sys; print(sys.version_info[0], json.load(sys.stdin)["n"] + 1)'`),
+    python_alias: sh("python -c 'import sys; print(sys.version_info[0])'"),
     python_import: sh("mkdir -p /tmp/stub-py && cd /tmp/stub-py && echo 'WORD = \"imported\"' > stubmod.py && python3 -c 'import stubmod; print(stubmod.WORD)'"),
     python_pycache: fs.existsSync("/tmp/stub-py/__pycache__"),
   };
