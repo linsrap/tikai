@@ -129,4 +129,4 @@ apps:
 - The frontend calls the API at an absolute `localhost` URL instead of a relative `/api/...`.
 - The API under `/api` expects the prefix to be stripped. Tikai keeps the path as it is.
 
-**For agents:** you cannot start a preview yourself, so check the file against this page before you submit. When a preview needs something the file cannot express (a private image, internet at runtime, more than 5 apps or services), ask with `ask_human` instead of working around it.
+**For agents:** this page is what `get_preview_spec` returns. You cannot start a preview yourself, so call `check_preview_definition` with the file's text before you submit, and compare what it cannot see (commands, ports, what is installed where) with this page. When a preview needs something the file cannot express (a private image, internet at runtime, more than 5 apps or services), ask with `ask_human` instead of working around it.

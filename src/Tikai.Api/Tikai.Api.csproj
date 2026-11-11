@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- What get_preview_spec returns: the page people read, not a copy of it. -->
+    <EmbeddedResource Include="..\..\docs\preview-file.md" Link="Previews\preview-file.md" LogicalName="Tikai.Api.Previews.preview-file.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Tikai.IntegrationTests" />
   </ItemGroup>
 

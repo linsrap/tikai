@@ -33,7 +33,25 @@ public interface IRunTools
 
     /// <summary>Adds the agent's reply to a thread it can see; null when there is no such thread.</summary>
     Task<string?> ReplyToThreadAsync(RunScope run, Guid threadId, string body, CancellationToken cancellationToken);
+
+    /// <summary>The format of the preview file, as people read it (docs/preview-file.md).</summary>
+    string PreviewSpec();
+
+    /// <summary>Runs the hub's own parser on the text of a preview file; nothing is stored or started.</summary>
+    PreviewCheckResult CheckPreviewDefinition(string content);
 }
+
+/// <param name="Result">"valid" or "invalid".</param>
+/// <param name="Errors">Every problem found; empty when valid.</param>
+public sealed record PreviewCheckResult(string Result, IReadOnlyList<PreviewCheckError> Errors)
+{
+    public const string Valid = "valid";
+    public const string Invalid = "invalid";
+}
+
+/// <param name="Key">Where in the file (app.port, setup[1].run); null when it is about the whole file.</param>
+/// <param name="Line">The line of that key; for a missing key the line of the mapping it belongs in. Null when unknown.</param>
+public sealed record PreviewCheckError(string? Key, int? Line, string Message);
 
 /// <summary>A review thread as get_review_comments returns it.</summary>
 /// <param name="ThreadId">For reply_to_thread.</param>

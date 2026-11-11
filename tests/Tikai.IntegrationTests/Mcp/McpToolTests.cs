@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Tikai.Api.Attention;
@@ -35,7 +37,7 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
         var tools = await agent.ListToolsAsync(cancellationToken: McpTestKit.Timeout());
 
         Assert.Equal(
-            ["ask_human", "get_review_comments", "get_ticket", "propose_plan", "reply_to_thread", "report_progress", "submit_for_review"],
+            ["ask_human", "check_preview_definition", "get_preview_spec", "get_review_comments", "get_ticket", "propose_plan", "reply_to_thread", "report_progress", "submit_for_review"],
             tools.Select(t => t.Name).Order());
         string[] Arguments(string tool) => [.. tools.Single(t => t.Name == tool).JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name)];
         Assert.Equal(["question", "options", "recommended", "context"], Arguments("ask_human"));
@@ -43,6 +45,8 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Equal(["summary", "criteria_mapping", "open_concerns"], Arguments("submit_for_review"));
         Assert.Equal(["thread_id", "body"], Arguments("reply_to_thread"));
         Assert.Empty(Arguments("get_ticket"));
+        Assert.Empty(Arguments("get_preview_spec"));
+        Assert.Equal(["content"], Arguments("check_preview_definition"));
         var mapping = tools.Single(t => t.Name == "submit_for_review").JsonSchema.GetProperty("properties").GetProperty("criteria_mapping").ToString();
         Assert.Contains("criterion_id", mapping, StringComparison.Ordinal);
         Assert.Contains("\"covered\"", mapping, StringComparison.Ordinal);
@@ -137,6 +141,61 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Equal(0, comments.GetProperty("threads").GetArrayLength());
         Assert.Contains("get_review_comments", (await agent.CallAsync("reply_to_thread", new { thread_id = "t1", body = "Fixed." })).Error(), StringComparison.Ordinal);
         Assert.Contains("get_review_comments", (await agent.CallAsync("reply_to_thread", new { thread_id = Guid.NewGuid(), body = "Fixed." })).Error(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Get_preview_spec_returns_the_page_people_read_and_its_examples_pass_the_check()
+    {
+        var ticket = await McpTestKit.CreateTicketAsync(_browser, "hub", "HUB", "Ticket");
+        var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
+        await using var agent = await McpTestKit.ConnectAsync(_factory, token);
+
+        var spec = (await agent.CallAsync("get_preview_spec")).Text();
+
+        Assert.StartsWith("# tikai-preview.yml", spec, StringComparison.Ordinal);
+        // Format, rules and the agent's own part.
+        Assert.Contains("| `idle_minutes` | no | 5 to 240, default 30.", spec, StringComparison.Ordinal);
+        Assert.Contains("Unknown keys are errors", spec, StringComparison.Ordinal);
+        Assert.Contains("check_preview_definition", spec, StringComparison.Ordinal);
+        // The page cannot drift from the parser: every example on it is a file the hub accepts.
+        var examples = Regex.Matches(spec, "```yaml\n(.*?)```", RegexOptions.Singleline);
+        Assert.Equal(3, examples.Count);
+        foreach (Match example in examples)
+        {
+            var check = (await agent.CallAsync("check_preview_definition", new { content = example.Groups[1].Value })).Json();
+            Assert.True(check.GetProperty("result").GetString() == "valid", $"{check}\n{example.Groups[1].Value}");
+            Assert.Equal(0, check.GetProperty("errors").GetArrayLength());
+        }
+    }
+
+    [Fact]
+    public async Task Check_preview_definition_returns_the_parser_s_errors_with_key_and_line()
+    {
+        var ticket = await McpTestKit.CreateTicketAsync(_browser, "hub", "HUB", "Ticket");
+        var (_, token) = await McpTestKit.StartRunAsync(_factory, ticket.Id);
+        await using var agent = await McpTestKit.ConnectAsync(_factory, token);
+
+        var check = (await agent.CallAsync("check_preview_definition", new
+        {
+            content = "app:\n  image: node:24\n  command: node server.js\n  ports: [8000]\nservices:\n  db:\n    image: postgres:17\n    volumes: [data]\n",
+        })).Json();
+
+        // An invalid file is the check's answer, not a failed call.
+        Assert.Equal("invalid", check.GetProperty("result").GetString());
+        Assert.Equal(
+            [("app.ports", 4), ("app.port", 1), ("services.db.volumes", 8)],
+            check.GetProperty("errors").EnumerateArray().Select(e => (e.GetProperty("key").GetString()!, e.GetProperty("line").GetInt32())));
+        Assert.Equal("required", check.GetProperty("errors")[1].GetProperty("message").GetString());
+        Assert.StartsWith("not allowed", check.GetProperty("errors")[0].GetProperty("message").GetString(), StringComparison.Ordinal);
+
+        // A problem with the whole file has no key.
+        var broken = (await agent.CallAsync("check_preview_definition", new { content = "app: { image: a" })).Json();
+        Assert.Equal("invalid", broken.GetProperty("result").GetString());
+        var error = Assert.Single(broken.GetProperty("errors").EnumerateArray());
+        Assert.False(error.TryGetProperty("key", out var key) && key.ValueKind != JsonValueKind.Null);
+        Assert.StartsWith($"not valid YAML (line {error.GetProperty("line").GetInt32()},", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+
+        Assert.True((await agent.CallAsync("check_preview_definition")).IsError);
     }
 
     [Fact]
