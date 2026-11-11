@@ -83,6 +83,7 @@ public class ClaudeCodeAdapterTests
             Assert.Contains("programs in /tmp cannot be started", prompt, StringComparison.Ordinal);
             Assert.Contains("under $HOME, and never commit it", prompt, StringComparison.Ordinal);
             Assert.Contains("no Docker and no browser", prompt, StringComparison.Ordinal);
+            Assert.Contains("pkill -f also matches the command line of your own shell", prompt, StringComparison.Ordinal);
             Assert.Contains("Whenever you changed it, call check_preview_definition", prompt, StringComparison.Ordinal);
             Assert.True(prompt.IndexOf("check_preview_definition", StringComparison.Ordinal) < prompt.LastIndexOf("submit_for_review", StringComparison.Ordinal));
         }
