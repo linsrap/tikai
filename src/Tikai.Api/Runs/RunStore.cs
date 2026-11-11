@@ -460,14 +460,16 @@ internal sealed class RunStore(
         {
             // No agent will ever get these answers: they leave the open list, and answering one is refused.
             await attention.DismissOpenBlockingAsync(runId, cancellationToken);
-            // A merge conflict of an ended run has nothing left to rebase.
-            var conflicts = await db.AttentionItems.Where(i => i.RunId == runId && i.Kind == AttentionKind.Conflict && i.Status == AttentionStatus.Open)
+            // A merge conflict of an ended run has nothing left to rebase, and its review takes no verdict any more
+            // (a cancel from the board or the ticket page does not go through the review screen).
+            var settled = await db.AttentionItems
+                .Where(i => i.RunId == runId && (i.Kind == AttentionKind.Conflict || i.Kind == AttentionKind.Review) && i.Status == AttentionStatus.Open)
                 .Select(i => i.Id).ToListAsync(cancellationToken);
-            await db.AttentionItems.Where(i => conflicts.Contains(i.Id))
+            await db.AttentionItems.Where(i => settled.Contains(i.Id))
                 .ExecuteUpdateAsync(s => s.SetProperty(i => i.Status, AttentionStatus.Dismissed).SetProperty(i => i.UpdatedAt, now), cancellationToken);
-            foreach (var conflict in conflicts)
+            foreach (var item in settled)
             {
-                await events.PublishAsync(AttentionItem.Topic, conflict, cancellationToken);
+                await events.PublishAsync(AttentionItem.Topic, item, cancellationToken);
             }
             // Its directory goes; the work is in the mirror (the run branch and the round refs).
             await RunCleanups.EnqueueAsync(jobs, runId, cancellationToken);

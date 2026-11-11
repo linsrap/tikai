@@ -2584,6 +2584,7 @@ export interface components {
             round?: null | components["schemas"]["RoundBrief"];
             conflict?: null | components["schemas"]["ConflictPayload"];
             deliveryError?: null | string;
+            changeSetStatus?: null | components["schemas"]["ChangeSetStatus"];
         };
         /** @enum {unknown} */
         AttentionKind: "question" | "permission" | "plan_approval" | "review" | "conflict" | "failure";
@@ -2627,7 +2628,7 @@ export interface components {
             preview: null | components["schemas"]["PreviewInfo"];
         };
         /** @enum {unknown} */
-        ChangeSetStatus: "open" | "delivering" | "merged" | "pushed" | "closed";
+        ChangeSetStatus: "open" | "delivering" | "merged" | "pushed" | "closed" | null;
         CodeRef: {
             path: string;
             /** Format: int32 */

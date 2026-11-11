@@ -2832,6 +2832,16 @@
               "null",
               "string"
             ]
+          },
+          "changeSetStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChangeSetStatus"
+              }
+            ]
           }
         }
       },
@@ -3016,7 +3026,8 @@
           "delivering",
           "merged",
           "pushed",
-          "closed"
+          "closed",
+          null
         ]
       },
       "CodeRef": {
