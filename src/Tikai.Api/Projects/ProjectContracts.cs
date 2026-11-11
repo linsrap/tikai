@@ -4,10 +4,15 @@ using Tikai.Core.Reviews;
 
 namespace Tikai.Api.Projects;
 
-public sealed record ProjectInfo(Guid Id, string Name, string Slug, string Key, DateTimeOffset CreatedAt)
+/// <param name="ArchivedAt">Set while the project is archived: hidden, read-only, nothing can be started in it.</param>
+/// <param name="Deleting">Being deleted with everything in it; it disappears once its runs and previews are gone.</param>
+public sealed record ProjectInfo(Guid Id, string Name, string Slug, string Key, DateTimeOffset CreatedAt, DateTimeOffset? ArchivedAt = null, bool Deleting = false)
 {
-    internal static ProjectInfo From(Project p) => new(p.Id, p.Name, p.Slug, p.Key, p.CreatedAt);
+    internal static ProjectInfo From(Project p) => new(p.Id, p.Name, p.Slug, p.Key, p.CreatedAt, p.ArchivedAt, p.DeletingAt is not null);
 }
+
+/// <param name="Name">The project's name, typed to confirm.</param>
+public sealed record DeleteProjectRequest(string Name);
 
 public sealed record CreateProjectRequest(string Name, string Slug, string Key);
 

@@ -51,6 +51,10 @@ internal static class TicketEndpoints
         {
             return ProjectEndpoints.NotFound();
         }
+        if (ProjectEndpoints.Closed(project) is { } closed)
+        {
+            return closed;
+        }
         var ticket = await service.CreateAsync(project, request, cancellationToken);
         return TypedResults.Created(
             $"/api/projects/{project.Slug}/tickets/{ticket.Number.ToString(CultureInfo.InvariantCulture)}",

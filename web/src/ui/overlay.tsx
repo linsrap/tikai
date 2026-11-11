@@ -1,13 +1,15 @@
 import { AlertDialog, Tooltip as RadixTooltip } from 'radix-ui'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button } from './Button'
 import { cx } from './cx'
+import { Field, Input } from './form'
 
 const surface = 'rounded-lg bg-surface text-fg shadow-overlay'
 
 /**
  * Asks before something that cannot be undone (stop a run, reject a change). Radix keeps the focus inside, closes on
- * Escape and gives the focus back to the trigger.
+ * Escape and gives the focus back to the trigger. With `typeToConfirm` the action stays off until that text is typed
+ * (deleting a project with everything in it).
  */
 export function ConfirmDialog({
   trigger,
@@ -16,6 +18,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel = 'Cancel',
   danger = false,
+  typeToConfirm,
   onConfirm,
 }: {
   trigger: ReactNode
@@ -24,10 +27,13 @@ export function ConfirmDialog({
   confirmLabel: string
   cancelLabel?: string
   danger?: boolean
+  typeToConfirm?: string
   onConfirm: () => void
 }) {
+  const [typed, setTyped] = useState('')
+  const confirmed = typeToConfirm === undefined || typed.trim() === typeToConfirm.trim()
   return (
-    <AlertDialog.Root>
+    <AlertDialog.Root onOpenChange={() => setTyped('')}>
       <AlertDialog.Trigger asChild>{trigger}</AlertDialog.Trigger>
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-[rgb(20_20_18/0.35)]" />
@@ -43,6 +49,18 @@ export function ConfirmDialog({
               {description}
             </AlertDialog.Description>
           )}
+          {typeToConfirm !== undefined && (
+            <div className="mt-4">
+              <Field label={`Type “${typeToConfirm}” to confirm`}>
+                <Input
+                  value={typed}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setTyped(e.target.value)}
+                />
+              </Field>
+            </div>
+          )}
           <div className="mt-5 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
               <Button>{cancelLabel}</Button>
@@ -50,6 +68,7 @@ export function ConfirmDialog({
             <AlertDialog.Action asChild>
               <Button
                 variant="primary"
+                disabled={!confirmed}
                 className={cx(
                   danger && 'border-bad-solid bg-bad-solid hover:border-bad hover:bg-bad',
                 )}

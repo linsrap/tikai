@@ -98,6 +98,7 @@ export function AttentionCard({ item }: { item: AttentionItem }) {
           review={item.review}
           coverage={item.reviewCoverage}
           changeSetId={item.changeSetId}
+          changeSetOpen={item.changeSetStatus == null || item.changeSetStatus === 'open'}
           analysis={item.analysis}
           round={item.round ?? null}
           deliveryError={item.deliveryError ?? null}
@@ -221,7 +222,8 @@ function ConflictActions({
 }
 
 /**
- * The agent's self-report, and the way to the review screen. A review from before change sets existed has no
+ * The agent's self-report, and the way to the review screen. A review whose change set is no longer open (its run
+ * ended without a verdict) takes none: it can be looked at and dismissed. One from before change sets existed has no
  * review screen and can only be dismissed.
  */
 function ReviewReport({
@@ -229,6 +231,7 @@ function ReviewReport({
   review,
   coverage,
   changeSetId,
+  changeSetOpen,
   analysis,
   round,
   deliveryError,
@@ -237,6 +240,7 @@ function ReviewReport({
   review: ReviewPayload
   coverage: AttentionItem['reviewCoverage']
   changeSetId: string | null
+  changeSetOpen: boolean
   analysis: AttentionItem['analysis']
   round: RoundBrief | null
   deliveryError: string | null
@@ -296,7 +300,7 @@ function ReviewReport({
           )}
         </p>
       )}
-      {changeSetId ? (
+      {changeSetId && changeSetOpen ? (
         <div>
           <Button variant="primary" asChild>
             <Link to="/reviews/$id" params={{ id: changeSetId }}>
@@ -306,11 +310,20 @@ function ReviewReport({
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
+          {changeSetId && (
+            <Button asChild>
+              <Link to="/reviews/$id" params={{ id: changeSetId }}>
+                Open review
+              </Link>
+            </Button>
+          )}
           <Button variant="ghost" disabled={dismiss.isPending} onClick={() => dismiss.mutate()}>
             Dismiss
           </Button>
           <Hint>
-            Submitted before the review screen existed; the work is on the run&apos;s branch.
+            {changeSetId
+              ? 'The run has ended, so this change takes no verdict any more; the work is on the run’s branch.'
+              : 'Submitted before the review screen existed; the work is on the run’s branch.'}
           </Hint>
         </div>
       )}

@@ -15,7 +15,9 @@ internal static class ProjectEndpoints
         projects.MapPost("/", CreateAsync);
         projects.MapGet("/{slug}", GetAsync);
         projects.MapPut("/{slug}", UpdateAsync);
-        projects.MapDelete("/{slug}", DeleteAsync);
+        projects.MapPost("/{slug}/archive", ArchiveAsync);
+        projects.MapPost("/{slug}/restore", RestoreAsync);
+        projects.MapPost("/{slug}/delete", DeleteAsync);
         projects.MapGet("/{slug}/settings", GetSettingsAsync);
         projects.MapPut("/{slug}/settings", UpdateSettingsAsync);
 
@@ -126,31 +128,88 @@ internal static class ProjectEndpoints
 
     private static string? Empty(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteAsync(string slug, TikaiDbContext db, CancellationToken cancellationToken)
+    /// <summary>
+    /// Hides the project and keeps its history. Its active runs are cancelled and its previews stopped first; nothing
+    /// can be started in it until it is restored. Refused (409) while an approved change is being merged or pushed.
+    /// </summary>
+    private static async Task<Results<Ok<ProjectInfo>, ProblemHttpResult>> ArchiveAsync(
+        string slug, TikaiDbContext db, ProjectLifecycle lifecycle, CancellationToken cancellationToken)
     {
         var project = await FindAsync(db, slug, cancellationToken);
         if (project is null)
         {
             return NotFound();
         }
-        if (await db.Repositories.AnyAsync(r => r.ProjectId == project.Id, cancellationToken))
+        if (project.DeletingAt is not null)
         {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "The project still has repositories",
-                detail: "Delete its repositories first.");
+            return Closed(project)!;
         }
-        if (await db.Tickets.AnyAsync(t => t.ProjectId == project.Id, cancellationToken))
+        if (await lifecycle.IsDeliveringAsync(project.Id, cancellationToken))
         {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "The project still has tickets",
-                detail: "Only a project without tickets can be deleted; close tickets you no longer need.");
+            return Delivering();
         }
-        db.Projects.Remove(project);
-        await db.SaveChangesAsync(cancellationToken);
-        return TypedResults.NoContent();
+        await lifecycle.ArchiveAsync(project.Id, cancellationToken);
+        return TypedResults.Ok(ProjectInfo.From(await db.Projects.AsNoTracking().SingleAsync(p => p.Id == project.Id, cancellationToken)));
     }
+
+    private static async Task<Results<Ok<ProjectInfo>, ProblemHttpResult>> RestoreAsync(
+        string slug, TikaiDbContext db, ProjectLifecycle lifecycle, CancellationToken cancellationToken)
+    {
+        var project = await FindAsync(db, slug, cancellationToken);
+        if (project is null)
+        {
+            return NotFound();
+        }
+        if (project.DeletingAt is not null)
+        {
+            return Closed(project)!;
+        }
+        await lifecycle.RestoreAsync(project.Id, cancellationToken);
+        return TypedResults.Ok(ProjectInfo.From(await db.Projects.AsNoTracking().SingleAsync(p => p.Id == project.Id, cancellationToken)));
+    }
+
+    /// <summary>
+    /// Deletes the project with everything in it: tickets, runs, change sets, previews, repositories and the hub's
+    /// mirrors (a git remote is never touched). The request repeats the project's name. Active runs are cancelled and
+    /// previews stopped; the rows go once their containers and directories are gone, so the project shows as
+    /// <see cref="ProjectInfo.Deleting"/> for a moment. Refused (409) while an approved change is being merged or pushed.
+    /// </summary>
+    private static async Task<Results<Accepted<ProjectInfo>, ValidationProblem, ProblemHttpResult>> DeleteAsync(
+        string slug, DeleteProjectRequest request, TikaiDbContext db, ProjectLifecycle lifecycle, CancellationToken cancellationToken)
+    {
+        var project = await FindAsync(db, slug, cancellationToken);
+        if (project is null)
+        {
+            return NotFound();
+        }
+        if (!string.Equals(request.Name?.Trim(), project.Name, StringComparison.Ordinal))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["name"] = ["Type the project's name exactly to confirm."] });
+        }
+        if (await lifecycle.IsDeliveringAsync(project.Id, cancellationToken))
+        {
+            return Delivering();
+        }
+        await lifecycle.RequestDeleteAsync(project.Id, cancellationToken);
+        return TypedResults.Accepted($"/api/projects/{slug}", ProjectInfo.From(project) with { Deleting = true });
+    }
+
+    private static ProblemHttpResult Delivering() => TypedResults.Problem(
+        statusCode: StatusCodes.Status409Conflict,
+        title: "A change is being delivered",
+        detail: "An approved change of this project is being merged or pushed. Try again when it is done.");
+
+    /// <summary>Why nothing can be started or added in the project (it is archived or being deleted); null when it is open.</summary>
+    internal static ProblemHttpResult? Closed(Project project) => ClosedReason(project) is var (title, detail)
+        ? TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: title, detail: detail)
+        : null;
+
+    internal static (string Title, string Detail)? ClosedReason(Project project) => project switch
+    {
+        { DeletingAt: not null } => ("The project is being deleted", "Nothing can be started or changed in it any more."),
+        { ArchivedAt: not null } => ("The project is archived", "Restore it on its settings page to work in it again."),
+        _ => null,
+    };
 
     internal static Task<Project?> FindAsync(TikaiDbContext db, string slug, CancellationToken cancellationToken) =>
         db.Projects.SingleOrDefaultAsync(p => p.Slug == slug, cancellationToken);

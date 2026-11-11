@@ -90,10 +90,16 @@ export function toCreateRepositoryRequest(form: RepositoryForm): CreateRepositor
   }
 }
 
+/** Every project, also archived ones and those being deleted (see `isOpen`). */
 export const projectsQuery = queryOptions({
   queryKey: ['projects'],
   queryFn: () => unwrap(api.GET('/api/projects'), 'load the projects'),
+  // A project that is being deleted disappears once its runs and previews are gone.
+  refetchInterval: (query) => (query.state.data?.some((p) => p.deleting) ? 2000 : false),
 })
+
+/** Not archived and not being deleted: work can start in it, and it shows in the lists. */
+export const isOpen = (project: ProjectInfo) => !project.archivedAt && !project.deleting
 
 export const projectQuery = (slug: string) =>
   queryOptions({
@@ -148,11 +154,33 @@ export const useCreateProject = () =>
     ['projects'],
   )
 
-export const useDeleteProject = (slug: string) =>
+/** Hides the project and keeps its history; its runs are cancelled and its previews stopped. */
+export const useArchiveProject = (slug: string) =>
   useProjectMutation(
     () =>
       unwrap(
-        api.DELETE('/api/projects/{slug}', { params: { path: { slug } } }),
+        api.POST('/api/projects/{slug}/archive', { params: { path: { slug } } }),
+        'archive the project',
+      ),
+    ['projects'],
+  )
+
+export const useRestoreProject = (slug: string) =>
+  useProjectMutation(
+    () =>
+      unwrap(
+        api.POST('/api/projects/{slug}/restore', { params: { path: { slug } } }),
+        'restore the project',
+      ),
+    ['projects'],
+  )
+
+/** Deletes the project with everything in it; `name` is the project's name as the person typed it. */
+export const useDeleteProject = (slug: string) =>
+  useProjectMutation(
+    (name: string) =>
+      unwrap(
+        api.POST('/api/projects/{slug}/delete', { params: { path: { slug } }, body: { name } }),
         'delete the project',
       ),
     ['projects'],

@@ -1,17 +1,29 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
-import { projectsQuery, suggestKey, suggestSlug, useCreateProject } from '../projects/projects'
+import {
+  isOpen,
+  projectsQuery,
+  suggestKey,
+  suggestSlug,
+  useCreateProject,
+  type ProjectInfo,
+} from '../projects/projects'
 import { Button } from '../ui/Button'
-import { ErrorText, Field, Input } from '../ui/form'
+import { Check, ErrorText, Field, Input } from '../ui/form'
 import { ChevronRightIcon } from '../ui/icons'
 import { EmptyState, FormPanel, Loading, PageBody, PageHeader, SectionLabel } from '../ui/layout'
+import { Tag } from '../ui/Tag'
 import { usePageTitle } from '../ui/title'
 import { AppShell } from './AppShell'
 
 export function ProjectsPage() {
   const projects = useQuery(projectsQuery)
   usePageTitle('Projects')
+  const [showArchived, setShowArchived] = useState(false)
+  const open = projects.data?.filter(isOpen) ?? []
+  // Archived projects and those being deleted: out of the way, one switch away.
+  const closed = projects.data?.filter((p) => !isOpen(p)) ?? []
 
   return (
     <AppShell>
@@ -19,33 +31,51 @@ export function ProjectsPage() {
       <PageBody>
         {projects.isPending && <Loading />}
         {projects.error && <ErrorText>{projects.error.message}</ErrorText>}
-        {projects.data?.length === 0 && (
-          <EmptyState title="No projects yet">Create the first one below.</EmptyState>
+        {projects.data && open.length === 0 && (
+          <EmptyState title={closed.length === 0 ? 'No projects yet' : 'No active projects'}>
+            Create one below.
+          </EmptyState>
         )}
-        {projects.data && projects.data.length > 0 && (
-          <ul className="m-0 list-none rounded-lg border border-line bg-surface p-0">
-            {projects.data.map((p) => (
-              <li key={p.id} className="border-t border-line-soft first:border-t-0">
-                <Link
-                  to="/projects/$slug/tickets"
-                  params={{ slug: p.slug }}
-                  className="group flex items-center gap-3 px-4 py-3 text-fg hover:bg-bg hover:no-underline"
-                >
-                  <span className="w-12 shrink-0 font-mono text-mono text-fg-muted">{p.key}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold">{p.name}</span>
-                    <span className="block text-sm text-fg-subtle">/{p.slug}</span>
-                  </span>
-                  <ChevronRightIcon className="text-fg-faint group-hover:text-fg-muted" />
-                </Link>
-              </li>
-            ))}
-          </ul>
+        {open.length > 0 && <ProjectList projects={open} />}
+        {closed.length > 0 && (
+          <div className="mt-4 flex flex-col gap-3">
+            <Check
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              label={`Show archived (${closed.length})`}
+            />
+            {showArchived && <ProjectList projects={closed} label="Archived projects" />}
+          </div>
         )}
         <SectionLabel className="mt-10">New project</SectionLabel>
         <CreateProjectForm />
       </PageBody>
     </AppShell>
+  )
+}
+
+function ProjectList({ projects, label }: { projects: ProjectInfo[]; label?: string }) {
+  return (
+    <ul aria-label={label} className="m-0 list-none rounded-lg border border-line bg-surface p-0">
+      {projects.map((p) => (
+        <li key={p.id} className="border-t border-line-soft first:border-t-0">
+          <Link
+            to="/projects/$slug/tickets"
+            params={{ slug: p.slug }}
+            className="group flex items-center gap-3 px-4 py-3 text-fg hover:bg-bg hover:no-underline"
+          >
+            <span className="w-12 shrink-0 font-mono text-mono text-fg-muted">{p.key}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">{p.name}</span>
+              <span className="block text-sm text-fg-subtle">/{p.slug}</span>
+            </span>
+            {p.deleting ? <Tag tone="bad">Deleting…</Tag> : p.archivedAt && <Tag>Archived</Tag>}
+            <ChevronRightIcon className="text-fg-faint group-hover:text-fg-muted" />
+          </Link>
+        </li>
+      ))}
+    </ul>
   )
 }
 

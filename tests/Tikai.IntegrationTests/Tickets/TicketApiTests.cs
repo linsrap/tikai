@@ -185,18 +185,24 @@ public sealed class TicketApiTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_project_with_tickets_cannot_be_deleted_but_can_be_renamed()
+    public async Task A_project_with_tickets_can_be_renamed_and_takes_no_new_tickets_while_it_is_archived()
     {
         using var browser = await AdminWithProjectAsync();
         await CreateAsync(browser, "hub", "Keep me");
 
-        using var delete = await browser.DeleteAsync("/api/projects/hub");
         using var rename = await browser.PutAsync("/api/projects/hub", new { name = "Renamed" });
-
-        Assert.Equal(HttpStatusCode.Conflict, delete.StatusCode);
-        Assert.Contains("still has tickets", await delete.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
         Assert.Equal("HUB-2", (await CreateAsync(browser, "hub", "Still counting")).Key);
+
+        (await browser.PostAsync("/api/projects/hub/archive")).EnsureSuccessStatusCode();
+        using var refused = await browser.PostAsync("/api/projects/hub/tickets", new { title = "Too late", description = "", criteria = Array.Empty<string>() });
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Contains("The project is archived", await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        // Its tickets can still be read.
+        Assert.Equal(2, (await browser.GetJsonAsync<List<TicketSummary>>("/api/projects/hub/tickets")).Count);
+
+        (await browser.PostAsync("/api/projects/hub/restore")).EnsureSuccessStatusCode();
+        Assert.Equal("HUB-3", (await CreateAsync(browser, "hub", "Back again")).Key);
     }
 
     [Fact]

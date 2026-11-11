@@ -35,9 +35,16 @@ internal static class AttentionEndpoints
         items.MapPost("/{id:guid}/retry", RetryAsync);
     }
 
-    /// <summary>Open items of all projects: those an agent waits for first, then the rest, each newest first.</summary>
+    /// <summary>
+    /// Open items of all projects: those an agent waits for first, then the rest, each newest first. An archived
+    /// project's items (failures; its runs were cancelled) stay out until it is restored.
+    /// </summary>
     private static async Task<Ok<List<AttentionItemInfo>>> ListOpenAsync(TikaiDbContext db, CancellationToken cancellationToken) =>
-        TypedResults.Ok(await QueryAsync(db, db.AttentionItems.Where(i => i.Status == AttentionStatus.Open), cancellationToken));
+        TypedResults.Ok(await QueryAsync(
+            db,
+            db.AttentionItems.Where(i => i.Status == AttentionStatus.Open && db.Tickets.Any(
+                t => t.Id == i.TicketId && db.Projects.Any(p => p.Id == t.ProjectId && p.ArchivedAt == null && p.DeletingAt == null))),
+            cancellationToken));
 
     private static async Task<Results<Ok<AttentionItemInfo>, ProblemHttpResult>> GetAsync(Guid id, TikaiDbContext db, CancellationToken cancellationToken) =>
         (await QueryAsync(db, db.AttentionItems.Where(i => i.Id == id), cancellationToken)) is [var item]
@@ -76,7 +83,7 @@ internal static class AttentionEndpoints
     /// <summary>
     /// Closes a failure, a merge conflict or a submitted review without acting on it. Questions and plans are not
     /// dismissed: an agent waits for them (cancel the run instead). A dismissed conflict leaves the change open for a
-    /// verdict on the review screen.
+    /// verdict on the review screen. A review is dismissed only when its change set takes no verdict (none, or not open).
     /// </summary>
     private static async Task<Results<Ok<AttentionItemInfo>, ProblemHttpResult>> DismissAsync(
         Guid id, ClaimsPrincipal user, TikaiDbContext db, AttentionService attention, CancellationToken cancellationToken)
@@ -154,6 +161,7 @@ internal static class AttentionEndpoints
             .Select(c => new { c.RunId, c.Id, c.Status, c.DeliveryError })
             .ToListAsync(cancellationToken);
         var changeSets = changeSetRows.ToDictionary(c => c.RunId, c => c.Id);
+        var changeSetStatuses = changeSetRows.ToDictionary(c => c.RunId, c => c.Status);
         var deliveryErrors = changeSetRows.Where(c => c.Status == ChangeSetStatus.Open).ToDictionary(c => c.RunId, c => c.DeliveryError);
         var changeSetIds = changeSets.Values.ToList();
         var latest = await db.ReviewRounds.AsNoTracking()
@@ -222,7 +230,9 @@ internal static class AttentionEndpoints
                     ? roundBriefs.GetValueOrDefault(roundedSet) : null,
                 item.Kind == AttentionKind.Conflict ? AttentionJson.Deserialize<ConflictPayload>(item.Payload) : null,
                 item.Kind == AttentionKind.Review && item.Status == AttentionStatus.Open && item.RunId is { } delivered
-                    ? deliveryErrors.GetValueOrDefault(delivered) : null));
+                    ? deliveryErrors.GetValueOrDefault(delivered) : null,
+                item.Kind is AttentionKind.Review or AttentionKind.Conflict && item.RunId is { } changed && changeSetStatuses.TryGetValue(changed, out var changeSetStatus)
+                    ? changeSetStatus : null));
         }
         return [.. result.OrderByDescending(i => i.Blocking).ThenByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id)];
     }

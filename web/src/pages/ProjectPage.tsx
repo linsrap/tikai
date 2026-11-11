@@ -10,11 +10,14 @@ import {
   toCreateRepositoryRequest,
   toCredentialInput,
   useCreateRepository,
+  useArchiveProject,
   useDeleteProject,
+  useRestoreProject,
   useConnectRemote,
   useDeleteRepository,
   useFetchRepository,
   useSetCredential,
+  type ProjectInfo,
   type RepositoryForm,
   type RepositoryInfo,
 } from '../projects/projects'
@@ -36,8 +39,6 @@ export function ProjectPage({ slug }: { slug: string }) {
   const project = useQuery(projectQuery(slug))
   usePageTitle(`Settings · ${project.data?.name ?? slug}`)
   const repositories = useQuery(repositoriesQuery(slug))
-  const deleteProject = useDeleteProject(slug)
-  const navigate = useNavigate()
 
   return (
     <AppShell>
@@ -47,6 +48,12 @@ export function ProjectPage({ slug }: { slug: string }) {
           <ErrorText>{project.error.message}</ErrorText>
         ) : (
           <>
+            {project.data?.archivedAt && !project.data.deleting && (
+              <p className="m-0 mb-6 rounded-md bg-neutral-bg px-3 py-2 text-sm text-fg-2">
+                This project is archived: its history is kept, and nothing can be started in it.
+                Restore it below to work in it again.
+              </p>
+            )}
             <SettingsSection
               title="Repositories"
               description="Agents clone a repository's default branch for each run; approved changes go back into it."
@@ -79,40 +86,84 @@ export function ProjectPage({ slug }: { slug: string }) {
             >
               <AnalysisSettings slug={slug} />
             </SettingsSection>
-            {repositories.data?.length === 0 && (
-              <SettingsSection
-                title="Delete project"
-                description="Possible while the project has no repositories and no tickets."
-              >
-                <div className="flex flex-wrap items-center gap-3">
-                  <ConfirmDialog
-                    trigger={
-                      <Button
-                        variant="danger"
-                        className="border-line-strong"
-                        disabled={deleteProject.isPending}
-                      >
-                        Delete project
-                      </Button>
-                    }
-                    title={`Delete ${project.data?.name ?? 'this project'}?`}
-                    description="This cannot be undone."
-                    confirmLabel="Delete project"
-                    danger
-                    onConfirm={() =>
-                      deleteProject.mutate(undefined, {
-                        onSuccess: () => navigate({ to: '/projects' }),
-                      })
-                    }
-                  />
-                  {deleteProject.error && <ErrorText>{deleteProject.error.message}</ErrorText>}
-                </div>
-              </SettingsSection>
-            )}
+            {project.data && <ArchiveAndDelete slug={slug} project={project.data} />}
           </>
         )}
       </PageBody>
     </AppShell>
+  )
+}
+
+/**
+ * The two ways to put a project away. Archive keeps everything and can be undone; delete removes the project with all
+ * it holds, after the person typed its name. Both cancel what still runs.
+ */
+function ArchiveAndDelete({ slug, project }: { slug: string; project: ProjectInfo }) {
+  const archive = useArchiveProject(slug)
+  const restore = useRestoreProject(slug)
+  const remove = useDeleteProject(slug)
+  const navigate = useNavigate()
+  const busy = archive.isPending || restore.isPending || remove.isPending
+  const error = archive.error ?? restore.error ?? remove.error
+
+  if (project.deleting) {
+    return (
+      <SettingsSection
+        title="Deleting this project"
+        description="Its runs are cancelled and its previews stopped; it disappears once their containers and directories are gone."
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="danger"
+            className="border-line-strong"
+            disabled={busy}
+            onClick={() => remove.mutate(project.name)}
+          >
+            Try again
+          </Button>
+          <Hint>Only needed when it stays here for more than a few minutes.</Hint>
+        </div>
+        {error && <ErrorText>{error.message}</ErrorText>}
+      </SettingsSection>
+    )
+  }
+  return (
+    <SettingsSection
+      title="Archive or delete"
+      description="Archive hides the project and keeps its history. Delete removes it with everything in it."
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        {project.archivedAt ? (
+          <Button disabled={busy} onClick={() => restore.mutate(undefined)}>
+            Restore project
+          </Button>
+        ) : (
+          <ConfirmDialog
+            trigger={<Button disabled={busy}>Archive project</Button>}
+            title={`Archive ${project.name}?`}
+            description="Running agents are cancelled (their changes are closed without a verdict) and previews are stopped. Tickets, runs and reviews are kept, and you can restore the project later."
+            confirmLabel="Archive project"
+            onConfirm={() => archive.mutate(undefined)}
+          />
+        )}
+        <ConfirmDialog
+          trigger={
+            <Button variant="danger" className="border-line-strong" disabled={busy}>
+              Delete everything
+            </Button>
+          }
+          title={`Delete ${project.name} with everything in it?`}
+          description="Its tickets, runs, change sets, previews, providers and repositories are removed from Tikai, with the hub's copies of the repositories. Running agents are cancelled. A git remote is not touched. This cannot be undone."
+          confirmLabel="Delete everything"
+          danger
+          typeToConfirm={project.name}
+          onConfirm={() =>
+            remove.mutate(project.name, { onSuccess: () => navigate({ to: '/projects' }) })
+          }
+        />
+      </div>
+      {error && <ErrorText>{error.message}</ErrorText>}
+    </SettingsSection>
   )
 }
 
@@ -191,7 +242,7 @@ function RepositoryCard({ slug, repository: r }: { slug: string; repository: Rep
               </Button>
             }
             title={`Delete the repository “${r.name}” from Tikai?`}
-            description="The hub's copy is removed. A remote repository itself is not touched."
+            description="The hub's copy is removed. A remote repository itself is not touched. A repository that agents have worked in cannot be deleted on its own."
             confirmLabel="Delete repository"
             danger
             onConfirm={() => remove.mutate(r.id)}

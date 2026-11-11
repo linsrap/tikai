@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Tikai.Api.Attention;
 using Tikai.Api.Projects;
 using Tikai.Api.Reviews;
@@ -11,6 +13,7 @@ using Tikai.Core.Projects;
 using Tikai.Core.Reviews;
 using Tikai.Core.Runs;
 using Tikai.Core.Tickets;
+using Tikai.Data;
 using Tikai.IntegrationTests.Git;
 using Tikai.IntegrationTests.Llm;
 using Tikai.IntegrationTests.Runs;
@@ -144,6 +147,41 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
         }
         // The work stays in the mirror.
         Assert.Equal(round.HeadSha, await TestGit.TryResolveAsync(mirror, ReviewRules.RoundRef(changeSet.Id, 1)));
+    }
+
+    [Fact]
+    public async Task Cancelling_a_run_in_review_closes_its_review_item_and_one_left_open_can_be_dismissed()
+    {
+        await using var hub = await agents.StartHubAsync(postgres);
+        var ticket = await hub.CreateTicketAsync("ok");
+        await hub.MirrorAsync(ticket);
+        var run = await hub.WaitForEndAsync((await hub.AssignAsync(ticket)).Id);
+        Assert.Equal(AgentRunState.InReview, run.State);
+        var item = (await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items")).Single(i => i.RunId == run.Id && i.Kind == AttentionKind.Review);
+        Assert.Equal(ChangeSetStatus.Open, item.ChangeSetStatus);
+
+        // Cancelled from the board, not rejected on the review screen.
+        using (var cancel = await hub.Browser.PostAsync($"/api/runs/{run.Id}/cancel", new { }))
+        {
+            Assert.True(cancel.StatusCode == HttpStatusCode.Accepted, await cancel.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        }
+        await hub.WaitForAsync(run.Id, r => r.State == AgentRunState.Cancelled);
+        Assert.Equal(ChangeSetStatus.Closed, (await hub.Browser.GetJsonAsync<ChangeSetInfo>($"/api/change-sets/{run.ChangeSetId}")).Status);
+        Assert.DoesNotContain(await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items"), i => i.RunId == run.Id);
+        Assert.Equal(AttentionStatus.Dismissed, (await hub.Browser.GetJsonAsync<AttentionItemInfo>($"/api/attention-items/{item.Id}")).Status);
+
+        // An item that was left open before this was fixed: the inbox sees that its change set is closed, and it can be dismissed.
+        await using (var scope = hub.Factory.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<TikaiDbContext>().AttentionItems.Where(i => i.Id == item.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.Status, AttentionStatus.Open), TestContext.Current.CancellationToken);
+        }
+        var stuck = (await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items")).Single(i => i.Id == item.Id);
+        Assert.Equal((run.ChangeSetId, ChangeSetStatus.Closed), (stuck.ChangeSetId, stuck.ChangeSetStatus));
+        using (var dismiss = await hub.Browser.PostAsync($"/api/attention-items/{item.Id}/dismiss", new { }))
+        {
+            Assert.True(dismiss.StatusCode == HttpStatusCode.OK, await dismiss.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        }
     }
 
     [Fact]

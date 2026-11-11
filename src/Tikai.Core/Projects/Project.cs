@@ -15,4 +15,10 @@ public class Project : Entity
 
     /// <summary>JSON of the <see cref="ProjectSettings"/>; "{}" means all defaults.</summary>
     public string Settings { get; set; } = "{}";
+
+    /// <summary>Archived: hidden, its history kept, and nothing can be started in it until it is restored.</summary>
+    public DateTimeOffset? ArchivedAt { get; set; }
+
+    /// <summary>Someone asked to delete the project with everything in it; it goes once nothing of it runs any more.</summary>
+    public DateTimeOffset? DeletingAt { get; set; }
 }

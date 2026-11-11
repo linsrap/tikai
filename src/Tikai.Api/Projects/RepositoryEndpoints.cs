@@ -53,6 +53,10 @@ internal static class RepositoryEndpoints
         {
             return ProjectEndpoints.NotFound();
         }
+        if (ProjectEndpoints.Closed(project) is { } closed)
+        {
+            return closed;
+        }
 
         var errors = new Dictionary<string, string[]>();
         var name = request.Name?.Trim() ?? "";
@@ -153,6 +157,10 @@ internal static class RepositoryEndpoints
         {
             return NotReady(repository);
         }
+        if (await ClosedAsync(db, repository, cancellationToken) is { } closed)
+        {
+            return closed;
+        }
         var errors = new Dictionary<string, string[]>();
         GitRemoteUrl? remote = null;
         ProjectEndpoints.AddError(errors, "remoteUrl", string.IsNullOrWhiteSpace(request.RemoteUrl)
@@ -232,6 +240,10 @@ internal static class RepositoryEndpoints
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "This repository has no remote to fetch from");
         }
+        if (await ClosedAsync(db, repository, cancellationToken) is { } closed)
+        {
+            return closed;
+        }
         await service.RequestFetchAsync(repository, cancellationToken);
         return TypedResults.Accepted($"/api/projects/{slug}/repositories/{id}", RepositoryInfo.From(repository));
     }
@@ -244,9 +256,34 @@ internal static class RepositoryEndpoints
         {
             return ProjectEndpoints.NotFound("Repository");
         }
-        await service.DeleteAsync(repository, cancellationToken);
+        // Runs and change sets keep pointing at their repository (and the review reads its mirror).
+        if (await HasHistoryAsync(db, id, cancellationToken))
+        {
+            return HasHistory();
+        }
+        try
+        {
+            await service.DeleteAsync(repository, cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.ForeignKeyViolation })
+        {
+            return HasHistory(); // a run started in between
+        }
         return TypedResults.NoContent();
     }
+
+    private static async Task<bool> HasHistoryAsync(TikaiDbContext db, Guid repositoryId, CancellationToken cancellationToken) =>
+        await db.AgentRuns.AnyAsync(r => r.RepositoryId == repositoryId, cancellationToken)
+        || await db.ChangeSets.AnyAsync(c => c.RepositoryId == repositoryId, cancellationToken);
+
+    private static ProblemHttpResult HasHistory() => TypedResults.Problem(
+        statusCode: StatusCodes.Status409Conflict,
+        title: "The repository has history",
+        detail: "Agent runs or change sets belong to this repository, so it cannot be deleted on its own. "
+            + "Archive the project to keep its history, or delete the project with everything in it.");
+
+    private static async Task<ProblemHttpResult?> ClosedAsync(TikaiDbContext db, Repository repository, CancellationToken cancellationToken) =>
+        ProjectEndpoints.Closed(await db.Projects.AsNoTracking().SingleAsync(p => p.Id == repository.ProjectId, cancellationToken));
 
     private static string? RemoteError(string input, GitOptions options, out GitRemoteUrl? remote)
     {

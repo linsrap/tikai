@@ -2,6 +2,8 @@
 
 **Preview** on the review screen starts a round in containers, using `tikai-preview.yml` at the repository root. Agents can write and maintain the file. The hub checks it strictly: when something is wrong, the review screen lists the errors instead of starting a preview. Tikai's own [`tikai-preview.yml`](../tikai-preview.yml) is a working example.
 
+A preview is for apps served over HTTP: a person opens it in the browser. A project with nothing to serve (a desktop app such as WPF, a mobile app, a command line tool, a library) gets no `tikai-preview.yml`; the reviewer uses **Try locally** on the review screen and builds the round on their own machine.
+
 ## How a preview starts
 
 1. The round is checked out to `/preview/src`. This is the working directory of every setup step and app.
@@ -129,4 +131,4 @@ apps:
 - The frontend calls the API at an absolute `localhost` URL instead of a relative `/api/...`.
 - The API under `/api` expects the prefix to be stripped. Tikai keeps the path as it is.
 
-**For agents:** this page is what `get_preview_spec` returns. You cannot start a preview yourself, so call `check_preview_definition` with the file's text before you submit, and compare what it cannot see (commands, ports, what is installed where) with this page. When a preview needs something the file cannot express (a private image, internet at runtime, more than 5 apps or services), ask with `ask_human` instead of working around it.
+**For agents:** this page is what `get_preview_spec` returns. You cannot start a preview yourself, so call `check_preview_definition` with the file's text before you submit, and compare what it cannot see (commands, ports, what is installed where) with this page. Do not write the file for a project that serves nothing over HTTP: the check would pass, but the preview fails because no app answers. When a preview needs something the file cannot express (a private image, internet at runtime, more than 5 apps or services), ask with `ask_human` instead of working around it.
