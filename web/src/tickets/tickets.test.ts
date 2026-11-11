@@ -1,20 +1,17 @@
 import {
   addCriterion,
   appendAssumptions,
-  applyProposal,
   changeCriterion,
   emptyTicketForm,
   largerSize,
   moveCriterion,
   refinedCriterionKeys,
   removeCriterion,
-  selectAll,
   toCreateTicketRequest,
   toRefineSpecRequest,
   toTicketForm,
   toUpdateTicketRequest,
   type CriterionDraft,
-  type SpecProposal,
   type TicketInfo,
 } from './tickets'
 
@@ -108,22 +105,6 @@ describe('ticket requests', () => {
 describe('refine spec', () => {
   const form = toTicketForm(ticket)
   const keys = refinedCriterionKeys(form)
-  const proposal: SpecProposal = {
-    size: 'medium',
-    title: 'Add a login page',
-    description: '## Goal\n\nPeople log in.',
-    criteria: [
-      { replaces: 1, was: 'second', text: 'second, sharper' },
-      { replaces: null, was: null, text: 'fourth' },
-    ],
-    assumptions: ['Sessions last a day', 'Cookies only'],
-    questions: [{ question: 'Which IdP?', options: ['GitHub', 'Google'], recommended: 'GitHub' }],
-    promptVersion: 'refine-spec.v2',
-    providerId: 'p1',
-    providerName: 'Team key',
-    model: 'claude-opus-5-5',
-    durationMs: 1000,
-  }
 
   it('sends the form as it is on screen, without empty rows', () => {
     const draft = { ...form, criteria: addCriterion(form.criteria) }
@@ -144,43 +125,6 @@ describe('refine spec', () => {
       'large',
       null,
     ])
-  })
-
-  it('takes over everything ticked: a rewrite keeps its id, assumptions go into the description', () => {
-    const next = applyProposal(
-      form,
-      proposal,
-      { ...selectAll(proposal), decisions: [{ question: 'Which IdP?', option: 'GitHub' }] },
-      keys,
-    )
-    expect(next.title).toBe('Add a login page')
-    expect(next.criteria.map((c) => [c.id, c.text])).toEqual([
-      ['a', 'first'],
-      ['b', 'second, sharper'],
-      ['c', 'third'],
-      [null, 'fourth'],
-    ])
-    expect(next.description).toBe(
-      '## Goal\n\nPeople log in.\n\n## Assumptions\n\n- Assumed: Sessions last a day\n- Assumed: Cookies only\n- Decided: Which IdP? → GitHub\n',
-    )
-    expect(form.title).toBe('Login page')
-  })
-
-  it('leaves out what is unticked, and adds a rewrite of a removed criterion as new', () => {
-    const edited = { ...form, criteria: form.criteria.filter((c) => c.id !== 'b') }
-    const next = applyProposal(
-      edited,
-      proposal,
-      { title: false, description: false, criteria: [0], assumptions: [1], decisions: [] },
-      keys,
-    )
-    expect(next.title).toBe('Login page')
-    expect(next.criteria.map((c) => [c.id, c.text])).toEqual([
-      ['a', 'first'],
-      ['c', 'third'],
-      [null, 'second, sharper'],
-    ])
-    expect(next.description).toBe('# Goal\n\n## Assumptions\n\n- Assumed: Cookies only\n')
   })
 
   it('adds to an existing assumptions section, before the next section', () => {

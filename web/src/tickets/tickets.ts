@@ -50,7 +50,7 @@ export type TicketForm = {
 }
 
 let nextDraftKey = 0
-const draftKey = () => `new-${++nextDraftKey}`
+export const draftKey = () => `new-${++nextDraftKey}`
 
 export const emptyTicketForm = (): TicketForm => ({
   title: '',
@@ -144,66 +144,6 @@ export const refinedCriterionKeys = (form: TicketForm) => filled(form.criteria).
 /** "More detail": one size larger, or null when the proposal is large already. */
 export function largerSize(size: SpecSize): SpecSize | null {
   return size === 'small' ? 'medium' : size === 'medium' ? 'large' : null
-}
-
-/** What the person ticked in a proposal; criteria and assumptions by their place in the proposal. */
-export type RefineSelection = {
-  title: boolean
-  description: boolean
-  criteria: readonly number[]
-  assumptions: readonly number[]
-  decisions: readonly { question: string; option: string }[]
-}
-
-/** Everything ticked: a proposal's parts count as accepted unless the person unticks them. */
-export function selectAll(proposal: SpecProposal): RefineSelection {
-  return {
-    title: proposal.title != null,
-    description: proposal.description != null,
-    criteria: proposal.criteria.map((_, i) => i),
-    assumptions: proposal.assumptions.map((_, i) => i),
-    decisions: [],
-  }
-}
-
-/**
- * Takes over the ticked parts of a proposal. Only the form changes; nothing is saved until "Save". A rewritten criterion
- * keeps its id (its text changes); when it was removed from the form since, the rewrite is added as new. Assumptions
- * and decisions go under "## Assumptions" in the description, where the agent reads them.
- * `keys`: {@link refinedCriterionKeys} of the form the proposal was asked for.
- */
-export function applyProposal(
-  form: TicketForm,
-  proposal: SpecProposal,
-  selection: RefineSelection,
-  keys: readonly string[],
-): TicketForm {
-  let criteria = form.criteria
-  for (const i of selection.criteria) {
-    const change = proposal.criteria[i]
-    if (!change) continue
-    const key = change.replaces != null ? keys[change.replaces] : undefined
-    if (key && criteria.some((c) => c.key === key)) {
-      criteria = criteria.map((c) => (c.key === key ? { ...c, text: change.text } : c))
-    } else {
-      criteria = [...criteria, { key: draftKey(), id: null, text: change.text }]
-    }
-  }
-  const lines = [
-    ...selection.assumptions
-      .map((i) => proposal.assumptions[i])
-      .filter((a) => a !== undefined)
-      .map((a) => `Assumed: ${a}`),
-    ...selection.decisions.map((d) => `Decided: ${d.question} → ${d.option}`),
-  ]
-  const description =
-    selection.description && proposal.description != null ? proposal.description : form.description
-  return {
-    ...form,
-    title: selection.title && proposal.title != null ? proposal.title : form.title,
-    description: appendAssumptions(description, lines),
-    criteria,
-  }
 }
 
 /** Adds list lines to the "## Assumptions" section of a description, or starts that section at the end. */
