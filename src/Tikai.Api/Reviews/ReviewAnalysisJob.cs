@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Tikai.Api.Attention;
 using Tikai.Api.Llm;
 using Tikai.Api.Projects;
 using Tikai.Core.Attention;
@@ -144,7 +145,8 @@ internal sealed partial class ReviewAnalysisJobHandler(
             files,
             previous is { } before
                 ? new InterdiffContext(before.Round.RoundNo, before.Analysis, interdiffFiles!, await ThreadsAsync(round.ChangeSetId, cancellationToken))
-                : null);
+                : null,
+            await DecisionsAsync(row.ChangeSet.RunId, cancellationToken));
         var (message, omitted) = AnalysisInput.Build(context, patches);
         var prompt = previous is null ? ReviewAnalyzer.PromptName : ReviewAnalyzer.InterdiffPromptName;
 
@@ -215,6 +217,35 @@ internal sealed partial class ReviewAnalysisJobHandler(
         return previous is { AnalysisStatus: AnalysisStatus.Done, Analysis: { } json } && previous.BaseSha == round.BaseSha
             ? (previous, AttentionJson.Deserialize<ReviewAnalysis>(json))
             : null;
+    }
+
+    /// <summary>
+    /// What people decided during the run: its answered questions and plans, oldest first (dismissed ones are left
+    /// out). <see cref="AnalysisInput"/> keeps the newest and cuts the texts.
+    /// </summary>
+    private async Task<IReadOnlyList<DecisionText>> DecisionsAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var items = await db.AttentionItems.AsNoTracking()
+            .Where(i => i.RunId == runId && i.Status == AttentionStatus.Answered
+                && (i.Kind == AttentionKind.Question || i.Kind == AttentionKind.PlanApproval))
+            .OrderBy(i => i.CreatedAt).ThenBy(i => i.Id)
+            .ToListAsync(cancellationToken);
+        return [.. items.Select(Decision).OfType<DecisionText>()];
+    }
+
+    private static DecisionText? Decision(AttentionItem item)
+    {
+        if (AttentionService.AnswerOf(item) is not { } answer)
+        {
+            return null;
+        }
+        if (item.Kind == AttentionKind.Question)
+        {
+            return new DecisionText(AttentionJson.Deserialize<QuestionPayload>(item.Payload).Question, answer.Text ?? "");
+        }
+        var plan = AttentionJson.Deserialize<PlanPayload>(item.Payload);
+        // Plans from before step 20 have no summary: their steps stand in for it.
+        return new DecisionText(plan.Summary ?? string.Join("; ", plan.Steps), answer.Text ?? "", answer.Decision ?? PlanDecision.Approve);
     }
 
     /// <summary>The threads the agent was asked to act on: comments sent to it and its replies, oldest first.</summary>
