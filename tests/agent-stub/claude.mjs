@@ -183,6 +183,8 @@ function facts() {
     python_alias: sh("python -c 'import sys; print(sys.version_info[0])'"),
     python_import: sh("mkdir -p /tmp/stub-py && cd /tmp/stub-py && echo 'WORD = \"imported\"' > stubmod.py && python3 -c 'import stubmod; print(stubmod.WORD)'"),
     python_pycache: fs.existsSync("/tmp/stub-py/__pycache__"),
+    // procps from the base image: pkill stops a process of the agent user without any capability.
+    pkill: sh("sleep 300 >/dev/null 2>&1 & pkill -x sleep && echo stopped"),
   };
 }
 

@@ -79,6 +79,7 @@ public sealed class AgentRunTests(PostgresFixture postgres, AgentHost agents) : 
         Assert.Equal("3", facts.GetProperty("python_alias").GetString());
         Assert.Equal("imported", facts.GetProperty("python_import").GetString());
         Assert.False(facts.GetProperty("python_pycache").GetBoolean());
+        Assert.Equal("stopped", facts.GetProperty("pkill").GetString());
         Assert.Equal("/run/claude", facts.GetProperty("claude_config_dir").GetString());
         Assert.Contains("ANTHROPIC_API_KEY", facts.GetProperty("env_names").EnumerateArray().Select(e => e.GetString()));
         var argv = facts.GetProperty("argv").EnumerateArray().Select(e => e.GetString()).ToList();
