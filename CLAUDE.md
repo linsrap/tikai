@@ -88,7 +88,7 @@ web/                          React + TypeScript (Vite, TanStack Router + Query 
   openapi.json                API description, written by `dotnet build` of Tikai.Api (committed; CI checks it is current)
   src/api/schema.d.ts         typed API client types from openapi.json (`npm run api:generate`; committed; CI checks it)
 images/hub/Dockerfile         hub image: web build → API publish → aspnet runtime with git, serves the SPA from wwwroot
-images/agent-base/            agent base image (node:24 trixie slim, git, uid 1000)
+images/agent-base/            agent base image (node:24 trixie slim, git, curl, Debian's python3 without pip and venv, `PYTHONDONTWRITEBYTECODE=1`, uid 1000)
 images/agent-claude-code/     Claude Code on agent-base, version pinned by ARG CLAUDE_CODE_VERSION
 docs/                         contributing.md, self-hosting.md (start, settings, restart and re-login checklist), preview-file.md (the `tikai-preview.yml` format, for people and agents, who get it from `get_preview_spec`; keep it in line with `PreviewDefinition`: a test checks its yaml examples)
 compose.yml                   self-hosting: hub, db (Postgres 17), docker-proxy (containers, images, networks; no build), agent images (profile `agents`, build only); networks default, agents; volumes data, pg (the runs and previews volumes are made by Docker with the first run and preview)

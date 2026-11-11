@@ -35,7 +35,7 @@
 // Like Claude Code it keeps a session file in $CLAUDE_CONFIG_DIR/projects/-run-work/<session>.jsonl, continues it with
 // --resume <session> (the answer comes in the -p message; a missing file is "No conversation found", exit 1), and
 // takes over from a summary prompt in a fresh session. It reports what it sees from the inside (uid, branch, hook,
-// what it can write, how it was started, the git log) as a "STUB_FACTS {json}" message.
+// what it can write, whether python3 works, how it was started, the git log) as a "STUB_FACTS {json}" message.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -178,6 +178,10 @@ function facts() {
     can_write_home: can(() => fs.writeFileSync(`${process.env.HOME}/stub-was-here`, "x")),
     run_root: sh("ls -lan /run"),
     sees_data: fs.existsSync("/data") || fs.existsSync("/runs"),
+    // The base image's python3: its major version and a JSON round trip, then an import of a module of its own.
+    python: sh(`echo '{"n": 41}' | python3 -c 'import json, sys; print(sys.version_info[0], json.load(sys.stdin)["n"] + 1)'`),
+    python_import: sh("mkdir -p /tmp/stub-py && cd /tmp/stub-py && echo 'WORD = \"imported\"' > stubmod.py && python3 -c 'import stubmod; print(stubmod.WORD)'"),
+    python_pycache: fs.existsSync("/tmp/stub-py/__pycache__"),
   };
 }
 
