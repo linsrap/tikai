@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Tikai.Api.Projects;
+using Tikai.Data;
 using Tikai.IntegrationTests.Auth;
 
 namespace Tikai.IntegrationTests.Projects;
@@ -26,7 +29,7 @@ public sealed class ProjectApiTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Projects_can_be_created_listed_renamed_and_deleted()
+    public async Task Projects_can_be_created_listed_renamed_archived_restored_and_deleted()
     {
         using var browser = await AdminAsync();
 
@@ -43,8 +46,33 @@ public sealed class ProjectApiTests(PostgresFixture postgres) : IAsyncLifetime
         }
         Assert.Equal("The Hub", (await browser.GetJsonAsync<ProjectInfo>("/api/projects/hub")).Name);
 
-        Assert.Equal(HttpStatusCode.NoContent, (await browser.DeleteAsync("/api/projects/hub")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync("/api/projects/hub")).StatusCode);
+        // Archived: still listed (the web hides it), marked, and restorable.
+        using (var archived = await browser.PostAsync("/api/projects/hub/archive"))
+        {
+            Assert.Equal(HttpStatusCode.OK, archived.StatusCode);
+            Assert.NotNull((await archived.Content.ReadFromJsonAsync<ProjectInfo>(TikaiJson.Options, TestContext.Current.CancellationToken))!.ArchivedAt);
+        }
+        Assert.NotNull(Assert.Single(await browser.GetJsonAsync<List<ProjectInfo>>("/api/projects")).ArchivedAt);
+        using (var refused = await browser.PostAsync("/api/projects/hub/repositories", new { name = "api" }))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        }
+        (await browser.PostAsync("/api/projects/hub/archive")).EnsureSuccessStatusCode(); // twice is fine
+        using (var restored = await browser.PostAsync("/api/projects/hub/restore"))
+        {
+            Assert.Equal(HttpStatusCode.OK, restored.StatusCode);
+            Assert.Null((await restored.Content.ReadFromJsonAsync<ProjectInfo>(TikaiJson.Options, TestContext.Current.CancellationToken))!.ArchivedAt);
+        }
+
+        // Deleting asks for the project's name.
+        using (var wrong = await browser.PostAsync("/api/projects/hub/delete", new { name = "hub" }))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/api/projects/hub")).StatusCode);
+        await browser.DeleteProjectAsync("hub");
+        Assert.Empty(await browser.GetJsonAsync<List<ProjectInfo>>("/api/projects"));
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.PostAsync("/api/projects/hub/archive")).StatusCode);
     }
 
     [Fact]
@@ -70,16 +98,48 @@ public sealed class ProjectApiTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_project_with_repositories_cannot_be_deleted()
+    public async Task A_project_is_deleted_with_its_repositories_tickets_and_providers_and_others_stay()
     {
         using var browser = await AdminAsync();
         (await browser.PostAsync("/api/projects", NewProject())).EnsureSuccessStatusCode();
-        (await browser.PostAsync("/api/projects/hub/repositories", new { name = "api" })).EnsureSuccessStatusCode();
+        (await browser.PostAsync("/api/projects", new { name = "Other", slug = "other", key = "OTH" })).EnsureSuccessStatusCode();
+        foreach (var slug in new[] { "hub", "other" })
+        {
+            (await browser.PostAsync($"/api/projects/{slug}/repositories", new { name = "api" })).EnsureSuccessStatusCode();
+            (await browser.PostAsync($"/api/projects/{slug}/tickets", new { title = "A ticket", description = "", criteria = new[] { "Works" } })).EnsureSuccessStatusCode();
+            (await browser.PostAsync($"/api/projects/{slug}/llm-providers", new { name = "Team", defaultModel = "claude-haiku-5-5", apiKey = "team-key-0123456789" })).EnsureSuccessStatusCode();
+        }
+        string hubMirrors, otherMirrors;
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
+            var paths = scope.ServiceProvider.GetRequiredService<MirrorPaths>();
+            var ids = await db.Projects.ToDictionaryAsync(p => p.Slug, p => p.Id, TestContext.Current.CancellationToken);
+            (hubMirrors, otherMirrors) = (Path.Combine(paths.Root, ids["hub"].ToString("D")), Path.Combine(paths.Root, ids["other"].ToString("D")));
+        }
+        Assert.True(Directory.Exists(hubMirrors));
 
-        using var response = await browser.DeleteAsync("/api/projects/hub");
+        await browser.DeleteProjectAsync("hub");
 
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Contains("still has repositories", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
+            Assert.Equal(["other"], await db.Projects.Select(p => p.Slug).ToListAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(1, await db.Repositories.CountAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(1, await db.Tickets.CountAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(1, await db.AcceptanceCriteria.CountAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(1, await db.LlmProviders.CountAsync(TestContext.Current.CancellationToken));
+        }
+        // The mirrors go through the git queue.
+        var until = DateTimeOffset.UtcNow.AddSeconds(30);
+        while (Directory.Exists(hubMirrors) && DateTimeOffset.UtcNow < until)
+        {
+            await Task.Delay(100, TestContext.Current.CancellationToken);
+        }
+        Assert.False(Directory.Exists(hubMirrors));
+        Assert.True(Directory.Exists(otherMirrors));
+        // The slug and the key are free again.
+        Assert.Equal(HttpStatusCode.Created, (await browser.PostAsync("/api/projects", NewProject())).StatusCode);
     }
 
     private async Task<BrowserClient> AdminAsync()

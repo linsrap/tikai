@@ -12,7 +12,10 @@ namespace Tikai.IntegrationTests;
 /// <summary>One Postgres 17 container for the whole test run, migrated once. Tests isolate themselves by unique queue and topic names.</summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
+    // Test classes run in parallel, each hub with its own pool and one polling loop per job queue; the default of
+    // 100 connections ran out when a test opened many at once ("too many clients already").
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17")
+        .WithCommand("-c", "max_connections=300")
         .Build();
 
     public string ConnectionString => _container.GetConnectionString();

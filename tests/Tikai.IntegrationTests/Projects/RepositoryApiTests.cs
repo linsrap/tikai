@@ -162,7 +162,7 @@ public sealed class RepositoryApiTests(PostgresFixture postgres) : IAsyncLifetim
 
         Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"{Repos}/{created.Id}")).StatusCode);
         await WaitUntilAsync(() => Task.FromResult(!Directory.Exists(path)));
-        Assert.Equal(HttpStatusCode.NoContent, (await browser.DeleteAsync("/api/projects/hub")).StatusCode);
+        await browser.DeleteProjectAsync("hub");
     }
 
     [Theory]

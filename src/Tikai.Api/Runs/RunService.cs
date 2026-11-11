@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Tikai.Api.Attention;
 using Tikai.Api.Llm;
+using Tikai.Api.Projects;
 using Tikai.Core.Events;
 using Tikai.Core.Jobs;
 using Tikai.Core.Projects;
@@ -47,6 +48,10 @@ internal sealed class RunService(
         if (!docker.Value.Enabled)
         {
             return Problem(Conflict("Agent runs are off", DockerOptions.OffMessage));
+        }
+        if (ProjectEndpoints.ClosedReason(project) is var (closedTitle, closedDetail))
+        {
+            return Problem(Conflict(closedTitle, closedDetail));
         }
         if (ticket.Status is not (TicketStatus.Open or TicketStatus.InProgress))
         {
@@ -92,6 +97,14 @@ internal sealed class RunService(
 
         AgentRun run;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Archive and delete set their flag and then cancel what runs: with the row locked, this start either commits
+        // before the flag (and is cancelled with the rest) or sees it.
+        var open = await db.Database.SqlQuery<bool>(
+            $"SELECT (archived_at IS NULL AND deleting_at IS NULL) AS \"Value\" FROM projects WHERE id = {project.Id} FOR SHARE").ToListAsync(cancellationToken);
+        if (open is not [true])
+        {
+            return Problem(Conflict("The project is archived", "Nothing can be started in an archived project or one that is being deleted."));
+        }
         try
         {
             run = await CreateAsync(new NewRun(ticket.Id, TicketKey.Format(project.Key, ticket.Number), repository.Id, provider.Id, provider.DefaultModel, userId),

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { authStatusQuery, useLogout } from '../auth/auth'
 import { inboxQuery, waitingCount } from '../inbox/inbox'
 import { live, useLiveConnection, useLiveStatus, useWatch, type LiveStatus } from '../live/live'
-import { projectsQuery } from '../projects/projects'
+import { isOpen, projectsQuery } from '../projects/projects'
 import { cx } from '../ui/cx'
 import {
   BoardIcon,
@@ -164,7 +164,7 @@ function Sidebar({
               Projects
             </Link>
           </div>
-          {projects.data?.map((project) => (
+          {projects.data?.filter(isOpen).map((project) => (
             <Link
               key={project.id}
               to="/projects/$slug/tickets"

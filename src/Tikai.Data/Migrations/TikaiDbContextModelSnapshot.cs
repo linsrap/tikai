@@ -594,9 +594,17 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("DeletingAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleting_at");
 
                     b.Property<string>("Key")
                         .IsRequired()

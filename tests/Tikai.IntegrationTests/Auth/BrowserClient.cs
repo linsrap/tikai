@@ -40,6 +40,27 @@ public sealed class BrowserClient(HttpClient http) : IDisposable
 
     public Task<HttpResponseMessage> DeleteAsync(string path) => Http.DeleteAsync(new Uri(path, UriKind.Relative));
 
+    /// <summary>Deletes the project with everything in it (its name typed to confirm) and waits until it is gone.</summary>
+    public async Task DeleteProjectAsync(string slug, int seconds = 60)
+    {
+        var name = (await GetJsonAsync<Tikai.Api.Projects.ProjectInfo>($"/api/projects/{slug}")).Name;
+        using (var accepted = await PostAsync($"/api/projects/{slug}/delete", new { name }))
+        {
+            Assert.True(accepted.StatusCode == System.Net.HttpStatusCode.Accepted, $"{(int)accepted.StatusCode} {await accepted.Content.ReadAsStringAsync()}");
+        }
+        var until = DateTimeOffset.UtcNow.AddSeconds(seconds);
+        while (true)
+        {
+            using var response = await GetAsync($"/api/projects/{slug}");
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return;
+            }
+            Assert.True(DateTimeOffset.UtcNow < until, $"The project {slug} was not deleted within {seconds} s.");
+            await Task.Delay(200);
+        }
+    }
+
     /// <summary>Signs up the first (admin) user and keeps the session, ready for API calls.</summary>
     public async Task SignUpAdminAsync()
     {

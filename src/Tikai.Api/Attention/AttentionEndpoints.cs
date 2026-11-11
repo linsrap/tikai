@@ -35,9 +35,16 @@ internal static class AttentionEndpoints
         items.MapPost("/{id:guid}/retry", RetryAsync);
     }
 
-    /// <summary>Open items of all projects: those an agent waits for first, then the rest, each newest first.</summary>
+    /// <summary>
+    /// Open items of all projects: those an agent waits for first, then the rest, each newest first. An archived
+    /// project's items (failures; its runs were cancelled) stay out until it is restored.
+    /// </summary>
     private static async Task<Ok<List<AttentionItemInfo>>> ListOpenAsync(TikaiDbContext db, CancellationToken cancellationToken) =>
-        TypedResults.Ok(await QueryAsync(db, db.AttentionItems.Where(i => i.Status == AttentionStatus.Open), cancellationToken));
+        TypedResults.Ok(await QueryAsync(
+            db,
+            db.AttentionItems.Where(i => i.Status == AttentionStatus.Open && db.Tickets.Any(
+                t => t.Id == i.TicketId && db.Projects.Any(p => p.Id == t.ProjectId && p.ArchivedAt == null && p.DeletingAt == null))),
+            cancellationToken));
 
     private static async Task<Results<Ok<AttentionItemInfo>, ProblemHttpResult>> GetAsync(Guid id, TikaiDbContext db, CancellationToken cancellationToken) =>
         (await QueryAsync(db, db.AttentionItems.Where(i => i.Id == id), cancellationToken)) is [var item]

@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { projectQuery } from '../projects/projects'
 import { CrumbSep, PageHeader } from '../ui/layout'
+import { Tag } from '../ui/Tag'
 
 const tab =
   'border-b-2 border-transparent pt-2 pb-2.5 font-medium whitespace-nowrap text-fg-muted hover:text-fg hover:no-underline data-[status=active]:border-fg data-[status=active]:text-fg'
@@ -22,9 +23,16 @@ export function ProjectHeader({ slug, actions }: { slug: string; actions?: React
       title={project.data?.name ?? slug}
       titleExtra={
         project.data && (
-          <span className="rounded-[4px] bg-neutral-bg px-1.5 font-mono text-xs leading-5 text-fg-muted">
-            {project.data.key}
-          </span>
+          <>
+            <span className="rounded-[4px] bg-neutral-bg px-1.5 font-mono text-xs leading-5 text-fg-muted">
+              {project.data.key}
+            </span>
+            {project.data.deleting ? (
+              <Tag tone="bad">Deleting…</Tag>
+            ) : (
+              project.data.archivedAt && <Tag>Archived</Tag>
+            )}
+          </>
         )
       }
       actions={actions}

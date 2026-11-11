@@ -153,7 +153,7 @@ public sealed class LlmProviderApiTests(PostgresFixture postgres) : IAsyncLifeti
         Assert.Empty(await browser.GetJsonAsync<List<LlmProviderInfo>>("/api/llm-providers"));
         Assert.True((await TestAsync(browser, provider.Id)).Ok);
 
-        Assert.Equal(HttpStatusCode.NoContent, (await browser.DeleteAsync("/api/projects/hub")).StatusCode);
+        await browser.DeleteProjectAsync("hub");
         Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"/api/llm-providers/{provider.Id}")).StatusCode);
     }
 

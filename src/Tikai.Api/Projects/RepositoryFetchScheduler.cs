@@ -6,7 +6,7 @@ using Tikai.Data;
 namespace Tikai.Api.Projects;
 
 /// <summary>
-/// Queues a fetch for every remote repository whose next fetch is due. Claiming (moving next_fetch_at on)
+/// Queues a fetch for every remote repository whose next fetch is due (not in an archived project). Claiming (moving next_fetch_at on)
 /// and enqueueing happen in one transaction with the database clock, so a repository is never queued twice per period.
 /// </summary>
 internal sealed partial class RepositoryFetchScheduler(
@@ -49,6 +49,7 @@ internal sealed partial class RepositoryFetchScheduler(
             $"""
             UPDATE repositories SET next_fetch_at = now() + make_interval(secs => {seconds})
             WHERE remote_url IS NOT NULL AND status = 'ready' AND (next_fetch_at IS NULL OR next_fetch_at <= now())
+              AND project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL OR deleting_at IS NOT NULL)
             RETURNING id, project_id
             """).ToListAsync(cancellationToken);
         foreach (var repository in due)

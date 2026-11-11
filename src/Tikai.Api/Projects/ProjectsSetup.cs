@@ -44,6 +44,8 @@ internal static class ProjectsSetup
         services.AddSingleton<RepositoryCredentials>();
         services.AddScoped<RepositoryService>();
         services.AddJobHandler<GitJobHandler>(GitJob.Queue);
+        services.AddScoped<ProjectLifecycle>();
+        services.AddJobHandler<ProjectDeletionHandler>(ProjectJob.Queue);
         services.AddHostedService<RepositoryFetchScheduler>();
         return services;
     }
