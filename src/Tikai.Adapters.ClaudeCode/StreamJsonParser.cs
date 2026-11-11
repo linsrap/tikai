@@ -64,6 +64,11 @@ public sealed class StreamJsonParser : IAgentOutputParser
             // Claude Code's echo of the hub's 30 s progress notification while a blocking tool waits: one line per
             // heartbeat for hours says nothing new (the attention item shows the wait).
             ("tool_progress", _) when message["heartbeat"] is JsonValue h && h.TryGetValue<bool>(out var heartbeat) && heartbeat => [],
+            // Bookkeeping lines without anything to read: a running count of thinking tokens (a quarter of all events
+            // in real runs) and the list of background tasks, whose start and end come as their own lines.
+            ("system", "thinking_tokens" or "background_tasks_changed" or "task_updated") => [],
+            ("system", "task_started") => [BackgroundTask("started", message["description"])],
+            ("system", "task_notification") => [BackgroundTask(Text(message["status"]) ?? "ended", message["summary"])],
             _ => [new(RunEventKind.Log, new JsonObject
             {
                 ["source"] = "agent",
@@ -184,6 +189,13 @@ public sealed class StreamJsonParser : IAgentOutputParser
 
     private static long Tokens(JsonObject usage) =>
         _tokenFields.Sum(name => usage[name] is JsonValue v && v.TryGetValue<long>(out var n) ? n : 0);
+
+    /// <summary>A background task of the agent (a dev server, a long build) started or ended, as one line of text.</summary>
+    private static ParsedEvent BackgroundTask(string what, JsonNode? description) => new(RunEventKind.Log, new JsonObject
+    {
+        ["source"] = "agent",
+        ["text"] = RunEventPayload.Cut($"Background task {what}: {Text(description) ?? "(no description)"}", 500),
+    });
 
     public static ParsedEvent Log(string stream, string text) =>
         new(RunEventKind.Log, new JsonObject { ["source"] = "agent", ["stream"] = stream, ["text"] = text });
