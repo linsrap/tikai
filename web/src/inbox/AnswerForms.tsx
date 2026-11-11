@@ -2,8 +2,9 @@ import { useState } from 'react'
 import type { components } from '../api/schema'
 import { MarkdownView } from '../tickets/MarkdownView'
 import { Button } from '../ui/Button'
-import { ErrorText, Field, Input, Textarea } from '../ui/form'
+import { ErrorText, Field, Hint, Textarea } from '../ui/form'
 import { CheckIcon } from '../ui/icons'
+import { submitOnEnter } from '../ui/keys'
 import { Disclosure } from '../ui/layout'
 import { filesByFolder, orderedOptions, planDetails, planHeadline, useAnswer } from './inbox'
 
@@ -27,7 +28,9 @@ export function PlanAnswer({ id, plan }: { id: string; plan: PlanPayload }) {
           className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault()
-            answer.mutate({ decision: 'revise', text: notes })
+            if (!answer.isPending && notes.trim() !== '') {
+              answer.mutate({ decision: 'revise', text: notes })
+            }
           }}
         >
           <Field label="What should change?">
@@ -35,10 +38,12 @@ export function PlanAnswer({ id, plan }: { id: string; plan: PlanPayload }) {
               rows={3}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              onKeyDown={submitOnEnter}
               autoFocus
               required
             />
           </Field>
+          <Hint>Enter sends, Shift+Enter starts a new line.</Hint>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="submit"
@@ -160,27 +165,35 @@ export function QuestionAnswer({ id, question }: { id: string; question: Questio
       )}
       {writing && (
         <form
-          className="flex flex-wrap gap-2"
+          className="flex flex-col gap-2"
           onSubmit={(e) => {
             e.preventDefault()
-            answer.mutate({ text })
+            if (!answer.isPending && text.trim() !== '') {
+              answer.mutate({ text })
+            }
           }}
         >
-          <Input
-            className="min-w-48 flex-1"
+          {/* Several lines are allowed: answers are often longer than the options (real runs cut one at the first Enter). */}
+          <Textarea
+            className="field-sizing-content max-h-60 min-h-16"
+            rows={2}
             aria-label="Answer"
             placeholder={options.length > 0 ? 'Your own answer' : 'Answer'}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onKeyDown={submitOnEnter}
             autoFocus={options.length > 0}
           />
-          <Button
-            type="submit"
-            variant={options.length > 0 ? 'secondary' : 'primary'}
-            disabled={answer.isPending || text.trim() === ''}
-          >
-            Send answer
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="submit"
+              variant={options.length > 0 ? 'secondary' : 'primary'}
+              disabled={answer.isPending || text.trim() === ''}
+            >
+              Send answer
+            </Button>
+            <Hint>Enter sends, Shift+Enter starts a new line.</Hint>
+          </div>
         </form>
       )}
       {answer.error && <ErrorText>{answer.error.message}</ErrorText>}
