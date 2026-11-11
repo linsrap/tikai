@@ -6,10 +6,8 @@ import { cx } from '../ui/cx'
 import { ErrorText } from '../ui/form'
 import { Dot } from '../ui/Tag'
 import type { RunEventInfo } from './logBuffer'
+import { logTime } from './logTime'
 import { useRunLog } from './useRunLog'
-
-const time = (iso: string) =>
-  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 const kindLabel: Record<RunEventInfo['kind'], string> = {
   system: 'system',
@@ -112,17 +110,26 @@ export function RunLog({ runId }: { runId: string }) {
 function LogLine({ event }: { event: RunEventInfo }) {
   return (
     <details className={cx('group', `event ${event.kind}`)}>
-      <summary className="flex cursor-pointer list-none gap-3 px-3 hover:bg-hover [&::-webkit-details-marker]:hidden">
-        <span className="w-9 shrink-0 text-right text-fg-faint tabular-nums">{event.seq}</span>
-        <span className="w-[4.5rem] shrink-0 text-fg-subtle tabular-nums max-sm:hidden">
-          {time(event.createdAt)}
+      {/* Fixed columns are sized in characters of the mono font and never wrap; only the summary is cut. */}
+      <summary className="flex cursor-pointer list-none gap-3 px-3 whitespace-nowrap hover:bg-hover [&::-webkit-details-marker]:hidden">
+        <span className="min-w-[5ch] shrink-0 text-right text-fg-faint tabular-nums">
+          {event.seq}
         </span>
-        <span className={cx('w-16 shrink-0', kindColor[event.kind])}>{kindLabel[event.kind]}</span>
+        <time
+          dateTime={event.createdAt}
+          title={new Date(event.createdAt).toLocaleString()}
+          className="w-[8ch] shrink-0 text-fg-subtle tabular-nums max-sm:hidden"
+        >
+          {logTime(event.createdAt)}
+        </time>
+        <span className={cx('w-[8ch] shrink-0', kindColor[event.kind])}>
+          {kindLabel[event.kind]}
+        </span>
         <span className="min-w-0 truncate text-fg-2 group-open:[overflow-wrap:anywhere] group-open:whitespace-pre-wrap">
           {eventSummary(event)}
         </span>
       </summary>
-      <pre className="m-0 mx-3 mb-2 ml-[3.75rem] overflow-x-auto rounded-md border border-line bg-surface p-2 text-[11px] leading-4 [overflow-wrap:anywhere] whitespace-pre-wrap text-fg-2">
+      <pre className="m-0 mx-3 mb-2 ml-[calc(5ch+1.5rem)] overflow-x-auto rounded-md border border-line bg-surface p-2 text-[11px] leading-4 [overflow-wrap:anywhere] whitespace-pre-wrap text-fg-2">
         {JSON.stringify(event.payload, null, 2)}
       </pre>
     </details>
