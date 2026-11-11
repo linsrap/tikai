@@ -90,7 +90,19 @@ public sealed record PreviewService(
     string? HealthcheckCommand);
 
 /// <summary>Either a definition or the reasons there is none.</summary>
-public sealed record PreviewDefinitionParse(PreviewDefinition? Definition, IReadOnlyList<string> Errors);
+public sealed record PreviewDefinitionParse(PreviewDefinition? Definition, IReadOnlyList<PreviewProblem> Problems)
+{
+    /// <summary>The problems as people read them: "app.port: required".</summary>
+    public IReadOnlyList<string> Errors { get; } = [.. Problems.Select(p => p.Text)];
+}
+
+/// <summary>One reason a file cannot be used.</summary>
+/// <param name="Key">Where in the file (<c>app.port</c>, <c>setup[1].run</c>); null when it is about the whole file.</param>
+/// <param name="Line">The line of that key (1 is the first); for a missing key the line of the mapping it belongs in. Null when unknown.</param>
+public sealed record PreviewProblem(string? Key, int? Line, string Message)
+{
+    public string Text => Key is null ? Message : $"{Key}: {Message}";
+}
 
 internal sealed partial class PreviewDefinitionParser
 {
@@ -98,7 +110,10 @@ internal sealed partial class PreviewDefinitionParser
 
     private static readonly HashSet<string> _reservedNames = ["app", "hub"];
 
-    private readonly List<string> _errors = [];
+    private readonly List<PreviewProblem> _errors = [];
+
+    /// <summary>The line of every key and list item read so far, by its path.</summary>
+    private readonly Dictionary<string, int> _lines = new(StringComparer.Ordinal);
 
     public PreviewDefinitionParse Parse(string yaml)
     {
@@ -122,9 +137,11 @@ internal sealed partial class PreviewDefinitionParser
         catch (YamlException ex)
         {
             var message = ex.InnerException is YamlException inner ? inner.Message : ex.Message;
-            return Fail(message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
-                ? $"duplicate key (line {ex.Start.Line}, column {ex.Start.Column})"
-                : $"not valid YAML (line {ex.Start.Line}, column {ex.Start.Column}): {message}");
+            return Fail(
+                message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+                    ? $"duplicate key (line {ex.Start.Line}, column {ex.Start.Column})"
+                    : $"not valid YAML (line {ex.Start.Line}, column {ex.Start.Column}): {message}",
+                (int)ex.Start.Line);
         }
         if (root is null || root is YamlScalarNode { Value: null or "" })
         {
@@ -162,22 +179,22 @@ internal sealed partial class PreviewDefinitionParser
                     idleMinutes = Number("idle_minutes", value, PreviewDefinition.MinIdleMinutes, PreviewDefinition.MaxIdleMinutes) ?? idleMinutes;
                     break;
                 default:
-                    _errors.Add($"{key}: {NotAllowed}");
+                    Add(key, NotAllowed);
                     break;
             }
         }
         var keys = mapping.Children.Keys.OfType<YamlScalarNode>().Select(k => k.Value).ToHashSet();
         if (keys.Contains("app") && keys.Contains("apps"))
         {
-            _errors.Add("app and apps: use one of them, not both (app is one app on /)");
+            Add("app and apps", "use one of them, not both (app is one app on /)");
         }
         else if (!keys.Contains("app") && !keys.Contains("apps"))
         {
-            _errors.Add("app or apps: required");
+            Add("app or apps", "required");
         }
         foreach (var app in apps.Where(a => a.Name != PreviewApp.SingleName && services.Any(s => s.Name == a.Name)))
         {
-            _errors.Add($"apps.{app.Name}: also the name of a service; apps and services share the preview's network");
+            Add($"apps.{app.Name}", "also the name of a service; apps and services share the preview's network");
         }
         return _errors.Count > 0 || apps.Count == 0
             ? new PreviewDefinitionParse(null, _errors)
@@ -211,20 +228,21 @@ internal sealed partial class PreviewDefinitionParser
         var steps = new List<PreviewSetupStep>();
         if (node is not YamlSequenceNode list)
         {
-            _errors.Add("setup: must be a list");
+            Add("setup", "must be a list");
             return steps;
         }
         if (list.Children.Count > PreviewDefinition.MaxSetupSteps)
         {
-            _errors.Add($"setup: at most {PreviewDefinition.MaxSetupSteps} steps");
+            Add("setup", $"at most {PreviewDefinition.MaxSetupSteps} steps");
             return steps;
         }
         for (var i = 0; i < list.Children.Count; i++)
         {
             var path = $"setup[{i}]";
+            _lines[path] = (int)list.Children[i].Start.Line;
             if (list.Children[i] is not YamlMappingNode step)
             {
-                _errors.Add($"{path}: must be a mapping with image and run");
+                Add(path, "must be a mapping with image and run");
                 continue;
             }
             string? image = null, run = null;
@@ -239,7 +257,7 @@ internal sealed partial class PreviewDefinitionParser
                         run = Text($"{path}.run", value);
                         break;
                     default:
-                        _errors.Add($"{path}.{key}: {NotAllowed}");
+                        Add($"{path}.{key}", NotAllowed);
                         break;
                 }
             }
@@ -256,17 +274,17 @@ internal sealed partial class PreviewDefinitionParser
         var apps = new List<PreviewApp>();
         if (node is not YamlMappingNode mapping)
         {
-            _errors.Add("apps: must be a mapping from a name to an app");
+            Add("apps", "must be a mapping from a name to an app");
             return apps;
         }
         if (mapping.Children.Count == 0)
         {
-            _errors.Add("apps: at least one app");
+            Add("apps", "at least one app");
             return apps;
         }
         if (mapping.Children.Count > PreviewDefinition.MaxApps)
         {
-            _errors.Add($"apps: at most {PreviewDefinition.MaxApps} apps");
+            Add("apps", $"at most {PreviewDefinition.MaxApps} apps");
             return apps;
         }
         var valid = true;
@@ -275,7 +293,7 @@ internal sealed partial class PreviewDefinitionParser
             var path = $"apps.{name}";
             if (!ServiceName().IsMatch(name) || name == "hub")
             {
-                _errors.Add($"{path}: the name must be a lowercase host name (letters, digits, -) other than hub");
+                Add(path, "the name must be a lowercase host name (letters, digits, -) other than hub");
                 valid = false;
                 continue;
             }
@@ -291,12 +309,12 @@ internal sealed partial class PreviewDefinitionParser
         foreach (var group in apps.GroupBy(a => a.Path, StringComparer.Ordinal).Where(g => g.Count() > 1))
         {
             var names = group.Select(a => a.Name).ToList();
-            _errors.Add($"apps.{names[1]}: its path {group.Key} is also the path of apps.{names[0]}; each app needs its own prefix (the default is /)");
+            Add($"apps.{names[1]}", $"its path {group.Key} is also the path of apps.{names[0]}; each app needs its own prefix (the default is /)");
         }
         // Only when every app was read: a broken one might be the one on /.
         if (valid && !apps.Any(a => a.Path == PreviewApp.RootPath))
         {
-            _errors.Add("apps: exactly one app must be on path / (the default)");
+            Add("apps", "exactly one app must be on path / (the default)");
         }
         return apps;
     }
@@ -306,7 +324,7 @@ internal sealed partial class PreviewDefinitionParser
     {
         if (node is not YamlMappingNode app)
         {
-            _errors.Add($"{prefix}: must be a mapping");
+            Add(prefix, "must be a mapping");
             return null;
         }
         string? image = null, command = null, healthcheck = null;
@@ -338,7 +356,7 @@ internal sealed partial class PreviewDefinitionParser
                     healthcheck = Healthcheck($"{prefix}.healthcheck", value, "path", HealthcheckPath);
                     break;
                 case "path" when single:
-                    _errors.Add($"{prefix}.path: not allowed; app is always on /, use apps for several path prefixes");
+                    Add($"{prefix}.path", "not allowed; app is always on /, use apps for several path prefixes");
                     break;
                 case "path":
                     var read = PathPrefix($"{prefix}.path", value);
@@ -346,14 +364,14 @@ internal sealed partial class PreviewDefinitionParser
                     appPath = read ?? appPath;
                     break;
                 default:
-                    _errors.Add($"{prefix}.{key}: {NotAllowed}");
+                    Add($"{prefix}.{key}", NotAllowed);
                     break;
             }
         }
         var complete = Required($"{prefix}.image", app, "image") & Required($"{prefix}.command", app, "command") & Required($"{prefix}.port", app, "port");
         foreach (var variable in generate.Where(environment.ContainsKey))
         {
-            _errors.Add($"{prefix}.generate.{variable}: also set in {prefix}.environment");
+            Add($"{prefix}.generate.{variable}", $"also set in {prefix}.environment");
         }
         return complete && pathValid && image is not null && command is not null && port is not null
             ? new PreviewApp(name, appPath, image, command, port.Value, environment, generate, healthcheck)
@@ -370,7 +388,7 @@ internal sealed partial class PreviewDefinitionParser
         }
         if (text.Length > 200 || !PrefixPath().IsMatch(text) || text.Split('/').Any(s => s is "." or ".."))
         {
-            _errors.Add($"{path}: must be / or a prefix like /api (segments of letters, digits, . _ ~ -, no trailing slash)");
+            Add(path, "must be / or a prefix like /api (segments of letters, digits, . _ ~ -, no trailing slash)");
             return null;
         }
         return text;
@@ -381,12 +399,12 @@ internal sealed partial class PreviewDefinitionParser
         var services = new List<PreviewService>();
         if (node is not YamlMappingNode mapping)
         {
-            _errors.Add("services: must be a mapping");
+            Add("services", "must be a mapping");
             return services;
         }
         if (mapping.Children.Count > PreviewDefinition.MaxServices)
         {
-            _errors.Add($"services: at most {PreviewDefinition.MaxServices} services");
+            Add("services", $"at most {PreviewDefinition.MaxServices} services");
             return services;
         }
         foreach (var (name, value) in Entries(mapping, "services."))
@@ -394,12 +412,12 @@ internal sealed partial class PreviewDefinitionParser
             var path = $"services.{name}";
             if (!ServiceName().IsMatch(name) || _reservedNames.Contains(name))
             {
-                _errors.Add($"{path}: the name must be a lowercase host name (letters, digits, -) other than app and hub");
+                Add(path, "the name must be a lowercase host name (letters, digits, -) other than app and hub");
                 continue;
             }
             if (value is not YamlMappingNode service)
             {
-                _errors.Add($"{path}: must be a mapping");
+                Add(path, "must be a mapping");
                 continue;
             }
             string? image = null, healthcheck = null;
@@ -422,7 +440,7 @@ internal sealed partial class PreviewDefinitionParser
                         healthcheck = Healthcheck($"{path}.healthcheck", field, "command", (p, v) => Text(p, v));
                         break;
                     default:
-                        _errors.Add($"{path}.{key}: {NotAllowed}");
+                        Add($"{path}.{key}", NotAllowed);
                         break;
                 }
             }
@@ -438,7 +456,7 @@ internal sealed partial class PreviewDefinitionParser
     {
         if (node is not YamlMappingNode mapping)
         {
-            _errors.Add($"{path}: must be a mapping with {field}");
+            Add(path, $"must be a mapping with {field}");
             return null;
         }
         string? result = null;
@@ -450,7 +468,7 @@ internal sealed partial class PreviewDefinitionParser
             }
             else
             {
-                _errors.Add($"{path}.{key}: {NotAllowed}");
+                Add($"{path}.{key}", NotAllowed);
             }
         }
         Required($"{path}.{field}", mapping, field);
@@ -462,7 +480,7 @@ internal sealed partial class PreviewDefinitionParser
         var text = Text(path, node);
         if (text is not null && !UrlPath().IsMatch(text))
         {
-            _errors.Add($"{path}: must be a path starting with /");
+            Add(path, "must be a path starting with /");
             return null;
         }
         return text;
@@ -473,19 +491,19 @@ internal sealed partial class PreviewDefinitionParser
         var environment = new Dictionary<string, string>(StringComparer.Ordinal);
         if (node is not YamlMappingNode mapping)
         {
-            _errors.Add($"{path}: must be a mapping");
+            Add(path, "must be a mapping");
             return environment;
         }
         if (mapping.Children.Count > PreviewDefinition.MaxEnvironment)
         {
-            _errors.Add($"{path}: at most {PreviewDefinition.MaxEnvironment} variables");
+            Add(path, $"at most {PreviewDefinition.MaxEnvironment} variables");
             return environment;
         }
         foreach (var (name, value) in Entries(mapping, path + "."))
         {
             if (!VariableName().IsMatch(name))
             {
-                _errors.Add($"{path}.{name}: not a variable name");
+                Add($"{path}.{name}", "not a variable name");
                 continue;
             }
             // An empty value is a value: "KEY:" sets KEY to "".
@@ -506,7 +524,7 @@ internal sealed partial class PreviewDefinitionParser
         var names = new List<string>();
         if (node is not YamlSequenceNode list)
         {
-            _errors.Add($"{path}: must be a list of variable names");
+            Add(path, "must be a list of variable names");
             return names;
         }
         foreach (var item in list.Children)
@@ -514,7 +532,7 @@ internal sealed partial class PreviewDefinitionParser
             var name = item is YamlScalarNode scalar ? scalar.Value ?? "" : null;
             if (name is null || !VariableName().IsMatch(name))
             {
-                _errors.Add($"{path}.{name ?? "?"}: not a variable name");
+                Add($"{path}.{name ?? "?"}", "not a variable name");
             }
             else if (!names.Contains(name))
             {
@@ -528,7 +546,7 @@ internal sealed partial class PreviewDefinitionParser
     {
         if (node is not YamlSequenceNode list || list.Children.Any(c => c is not YamlScalarNode))
         {
-            _errors.Add($"{path}: must be a list of arguments");
+            Add(path, "must be a list of arguments");
             return null;
         }
         var arguments = new List<string>();
@@ -549,7 +567,7 @@ internal sealed partial class PreviewDefinitionParser
         var text = Text(path, node);
         if (text is not null && (text.Length > 255 || !ImageReference().IsMatch(text)))
         {
-            _errors.Add($"{path}: not an image reference");
+            Add(path, "not an image reference");
             return null;
         }
         return text;
@@ -562,7 +580,7 @@ internal sealed partial class PreviewDefinitionParser
         {
             return number;
         }
-        _errors.Add($"{path}: must be a whole number from {min} to {max}");
+        Add(path, $"must be a whole number from {min} to {max}");
         return null;
     }
 
@@ -571,12 +589,12 @@ internal sealed partial class PreviewDefinitionParser
     {
         if (node is not YamlScalarNode scalar)
         {
-            _errors.Add($"{path}: must be text");
+            Add(path, "must be text");
             return null;
         }
         if (string.IsNullOrEmpty(scalar.Value))
         {
-            _errors.Add($"{path}: required");
+            Add(path, "required");
             return null;
         }
         return Plain(path, scalar.Value) ? scalar.Value : null;
@@ -586,12 +604,12 @@ internal sealed partial class PreviewDefinitionParser
     {
         if (value.Length > PreviewDefinition.MaxTextLength)
         {
-            _errors.Add($"{path}: longer than {PreviewDefinition.MaxTextLength} characters");
+            Add(path, $"longer than {PreviewDefinition.MaxTextLength} characters");
             return false;
         }
         if (value.Contains('\0', StringComparison.Ordinal))
         {
-            _errors.Add($"{path}: contains a NUL character");
+            Add(path, "contains a NUL character");
             return false;
         }
         return true;
@@ -603,7 +621,7 @@ internal sealed partial class PreviewDefinitionParser
         {
             return true;
         }
-        _errors.Add($"{path}: required");
+        Add(path, "required");
         return false;
     }
 
@@ -614,16 +632,35 @@ internal sealed partial class PreviewDefinitionParser
         {
             if (key is YamlScalarNode { Value: { } name })
             {
+                _lines[prefix + name] = (int)key.Start.Line;
                 yield return (name, value);
             }
             else
             {
-                _errors.Add($"{prefix}?: keys must be text");
+                Add($"{prefix}?", "keys must be text");
             }
         }
     }
 
-    private static PreviewDefinitionParse Fail(string error) => new(null, [error]);
+    private void Add(string key, string message) => _errors.Add(new PreviewProblem(key, Line(key), message));
+
+    /// <summary>The line of the key, or of the nearest thing around it that was read (a missing key has no line of its own).</summary>
+    private int? Line(string key)
+    {
+        for (var path = key; ; path = path[..path.LastIndexOfAny(['.', '['])])
+        {
+            if (_lines.TryGetValue(path, out var line))
+            {
+                return line;
+            }
+            if (path.LastIndexOfAny(['.', '[']) < 0)
+            {
+                return null;
+            }
+        }
+    }
+
+    private static PreviewDefinitionParse Fail(string error, int? line = null) => new(null, [new PreviewProblem(null, line, error)]);
 
     // Docker's reference grammar, a little stricter: optional registry (host[:port]/), lowercase path components,
     // optional tag, optional sha256 digest. Nothing that could be read as an option.

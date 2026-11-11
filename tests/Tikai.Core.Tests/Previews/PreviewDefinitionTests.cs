@@ -284,6 +284,53 @@ public class PreviewDefinitionTests
         Assert.Equal(3, errors.Count);
     }
 
+    [Fact]
+    public void Problems_name_the_key_and_its_line()
+    {
+        var problems = PreviewDefinition.Parse("""
+            # A comment first.
+            setup:
+              - image: node:24
+              - run: npm ci
+                user: root
+            app:
+              image: node:24
+              command: node server.js
+              ports: [8000]
+              environment:
+                "bad name": x
+            idle_minutes: 1
+            """).Problems;
+
+        Assert.Equal(
+            [
+                ("setup[0].run", 3, "required"),
+                ("setup[1].user", 5, NotAllowed),
+                ("setup[1].image", 4, "required"),
+                ("app.ports", 9, NotAllowed),
+                ("app.environment.bad name", 11, "not a variable name"),
+                ("app.port", 6, "required"),
+                ("idle_minutes", 12, "must be a whole number from 5 to 240"),
+            ],
+            problems.Select(p => (p.Key!, p.Line!.Value, p.Message)));
+        Assert.Equal("app.port: required", problems[5].Text);
+    }
+
+    [Fact]
+    public void A_problem_with_the_whole_file_has_no_key_and_a_line_only_from_the_yaml_error()
+    {
+        var broken = Assert.Single(PreviewDefinition.Parse("app:\n  image: a\n  command: { b").Problems);
+        Assert.Null(broken.Key);
+        // Where the YAML parser gave up, as in its message.
+        Assert.NotNull(broken.Line);
+        Assert.StartsWith($"not valid YAML (line {broken.Line},", broken.Message, StringComparison.Ordinal);
+        Assert.Equal(broken.Message, broken.Text);
+
+        Assert.Equal([new PreviewProblem(null, null, "the file is empty")], PreviewDefinition.Parse("").Problems);
+        Assert.Equal([new PreviewProblem("app or apps", null, "required")], PreviewDefinition.Parse("idle_minutes: 30").Problems);
+        Assert.Empty(PreviewDefinition.Parse(Minimal).Problems);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
@@ -514,6 +561,8 @@ public class PreviewDefinitionTests
         Assert.Contains("apps.web.generate.S: also set in apps.web.environment", errors);
         Assert.Contains("apps.web.generate.bad name: not a variable name", errors);
     }
+
+    private const string NotAllowed = "not allowed; a preview definition only describes how to start the app, the hub decides what it may do";
 
     private static PreviewDefinition Ok(string yaml)
     {

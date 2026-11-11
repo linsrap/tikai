@@ -121,6 +121,15 @@ internal sealed partial class TikaiTools(
         return reply ?? throw new McpException($"There is no review thread '{thread_id}' for you. Call get_review_comments for the open threads.");
     }
 
+    [McpServerTool(Name = "get_preview_spec", ReadOnly = true)]
+    [Description("Returns the format of tikai-preview.yml, the file at the repository root that tells Tikai how to start your change as a preview for the reviewer: keys, rules and examples (markdown). Read it before you write or change that file.")]
+    public string GetPreviewSpec() => runs.PreviewSpec();
+
+    [McpServerTool(Name = "check_preview_definition", ReadOnly = true)]
+    [Description("Checks the text of your tikai-preview.yml with the parser the hub uses to start previews. Returns result \"valid\", or \"invalid\" with every error (key, line, message). It does not start a preview, so it cannot tell whether the app comes up. Call it before submit_for_review whenever you changed the file.")]
+    public PreviewCheckResult CheckPreviewDefinition([Description("The whole text of tikai-preview.yml.")] string content) =>
+        runs.CheckPreviewDefinition(content ?? throw new McpException("content: required (the whole text of tikai-preview.yml)."));
+
     private async Task<AttentionAnswer> RaiseAndWaitAsync<TPayload>(
         RequestContext<CallToolRequestParams> request,
         IProgress<ProgressNotificationValue> progress,

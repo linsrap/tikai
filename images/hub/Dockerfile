@@ -14,6 +14,8 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS api
 WORKDIR /src
 COPY global.json Directory.Build.props Directory.Packages.props Tikai.slnx .editorconfig ./
 COPY src/ src/
+# Embedded in the API for the agents' get_preview_spec tool.
+COPY docs/preview-file.md docs/
 # The OpenAPI document is generated in development and checked in CI; not needed here.
 RUN dotnet publish src/Tikai.Api/Tikai.Api.csproj -c Release -o /app -p:OpenApiGenerateDocuments=false
 

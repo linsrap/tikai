@@ -12,6 +12,7 @@ using Tikai.Core.Tickets;
 using Tikai.Data;
 using Tikai.Data.Runs;
 using Tikai.Mcp;
+using Tikai.Orchestrator.Previews;
 
 namespace Tikai.Api.Runs;
 
@@ -114,6 +115,16 @@ internal sealed class RunTools(
         await events.PublishAsync(ChangeSet.Topic, changeSetId.Value, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return "Reply added.";
+    }
+
+    public string PreviewSpec() => Previews.PreviewSpec.Text;
+
+    public PreviewCheckResult CheckPreviewDefinition(string content)
+    {
+        var problems = PreviewDefinition.Parse(content).Problems;
+        return new PreviewCheckResult(
+            problems.Count == 0 ? PreviewCheckResult.Valid : PreviewCheckResult.Invalid,
+            [.. problems.Select(p => new PreviewCheckError(p.Key, p.Line, p.Message))]);
     }
 
     /// <summary>Open threads of the run's change set with at least one comment sent to the agent.</summary>
