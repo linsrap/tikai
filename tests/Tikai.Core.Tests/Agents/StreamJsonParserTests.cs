@@ -150,13 +150,25 @@ public class StreamJsonParserTests
 
         var started = Assert.Single(parser.ParseLine("""{"type":"system","subtype":"task_started","task_id":"b1","run_id":"r","tool_use_id":"toolu_1","description":"Run backend on a scratch database","is_backgrounded":true,"task_type":"local_bash","uuid":"u","session_id":"s"}"""));
         var ended = Assert.Single(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b1","run_id":"r","tool_use_id":"toolu_1","status":"completed","output_file":"","summary":"Run backend on a scratch database","uuid":"u","session_id":"s"}"""));
-        var bare = Assert.Single(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b2"}"""));
 
         Assert.Equal(RunEventKind.Log, started.Kind);
         Assert.Equal("Background task started: Run backend on a scratch database", (string?)started.Payload["text"]);
         Assert.Equal("Background task completed: Run backend on a scratch database", (string?)ended.Payload["text"]);
-        Assert.Equal("Background task ended: (no description)", (string?)bare.Payload["text"]);
         Assert.Null(started.Payload["raw"]);
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b1","status":"completed"}"""));
+    }
+
+    [Fact]
+    public void A_longer_bash_call_in_the_foreground_gives_no_task_lines()
+    {
+        // Claude Code reports a task for most longer Bash calls (54 of 58 in real runs were in the foreground); the
+        // tool call and its result already show them.
+        var parser = new StreamJsonParser();
+
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_started","task_id":"b2","tool_use_id":"toolu_2","description":"npm ci && npm test","is_backgrounded":false,"task_type":"local_bash"}"""));
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b2","status":"completed","summary":"npm ci && npm test"}"""));
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_started","task_id":"b3","description":"no flag"}"""));
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b9","status":"failed"}"""));
     }
 
     [Fact]
