@@ -282,6 +282,49 @@ public sealed class PreviewEnvironmentTests(AgentHost agents) : IClassFixture<Ag
         Assert.Contains(log, l => l.Source == "app" && l.Text == "cannot start");
     }
 
+    [Fact]
+    public async Task A_hub_container_that_never_joined_the_network_does_not_stop_the_teardown()
+    {
+        // A hub in a container (HubContainer set) joins a preview's network only once the network exists. A preview that
+        // ends before (a failed setup step) is torn down too, and Docker 29 answers the hub's disconnect from a network it
+        // is not on, or one that does not exist, with 500 "is not connected". Runs on every engine: a sleeping container
+        // stands in for the hub.
+        var ct = TestContext.Current.CancellationToken;
+        var hub = (await agents.Docker.Containers.CreateContainerAsync(new Docker.DotNet.Models.CreateContainerParameters
+        {
+            Image = AgentHost.BaseImage,
+            Cmd = ["sleep", "300"],
+            Name = "tikai-test-hub-" + Guid.NewGuid().ToString("N")[..12],
+            HostConfig = new Docker.DotNet.Models.HostConfig { AutoRemove = false },
+        }, ct)).ID;
+        try
+        {
+            await agents.Docker.Containers.StartContainerAsync(hub, new Docker.DotNet.Models.ContainerStartParameters(), ct);
+            var runtime = new DockerContainerRuntime(agents.Docker, Options.Create(new OrchestratorOptions()), Options.Create(new PreviewOptions
+            {
+                PreviewsVolume = _volume,
+                Upstream = PreviewUpstream.Network,
+                HubContainer = hub,
+            }));
+
+            await runtime.RemovePreviewAsync(NewPreview(), ct); // no network was ever made
+
+            var joined = NewPreview();
+            await runtime.CreatePreviewNetworkAsync(joined, ct);
+            Assert.Contains(DockerContainerRuntime.PreviewNetwork(joined), await NetworksOfAsync(hub));
+            await runtime.RemovePreviewAsync(joined, ct);
+            Assert.DoesNotContain(DockerContainerRuntime.PreviewNetwork(joined), await NetworksOfAsync(hub));
+            Assert.DoesNotContain(await agents.Docker.Networks.ListNetworksAsync(cancellationToken: ct), n => n.Name == DockerContainerRuntime.PreviewNetwork(joined));
+        }
+        finally
+        {
+            await agents.Docker.Containers.RemoveContainerAsync(hub, new Docker.DotNet.Models.ContainerRemoveParameters { Force = true }, CancellationToken.None);
+        }
+
+        async Task<IEnumerable<string>> NetworksOfAsync(string id) =>
+            (await agents.Docker.Containers.InspectContainerAsync(id, ct)).NetworkSettings?.Networks?.Keys ?? [];
+    }
+
     private (PreviewEnvironment Environment, DockerContainerRuntime Runtime) Create()
     {
         var agentOptions = new OrchestratorOptions

@@ -117,7 +117,12 @@ export function eventSummary(event: RunEventInfo): string {
     case 'result':
       return `Result: ${text(p.subtype)}${p.is_error ? ' (error)' : ''}, ${text(p.num_turns)} turns`
     case 'log':
-      return `${p.source === 'hub' ? 'Hub' : text(p.stream) || 'Agent'}: ${text(p.text)}${p.reason ? ` (${text(p.reason)})` : ''}`
+      // A line the adapter does not know has no text, only its type: name it rather than show an empty row.
+      return `${p.source === 'hub' ? 'Hub' : text(p.stream) || 'Agent'}: ${
+        p.text === undefined && p.type !== undefined
+          ? [text(p.type), text(p.subtype)].filter(Boolean).join(' / ')
+          : text(p.text)
+      }${p.reason ? ` (${text(p.reason)})` : ''}`
   }
 }
 
