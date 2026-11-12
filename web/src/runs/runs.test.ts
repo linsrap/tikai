@@ -90,6 +90,16 @@ describe('eventSummary', () => {
     expect(eventSummary(event('log', { source: 'agent', stream: 'stderr', text: 'warn' }))).toBe(
       'stderr: warn',
     )
+    expect(
+      eventSummary(
+        event('log', {
+          source: 'agent',
+          type: 'system',
+          subtype: 'compact_boundary',
+          raw: '{"type":"system"}',
+        }),
+      ),
+    ).toBe('Agent: system / compact_boundary')
   })
 })
 

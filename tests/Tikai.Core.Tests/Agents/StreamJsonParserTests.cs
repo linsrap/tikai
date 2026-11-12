@@ -134,6 +134,43 @@ public class StreamJsonParserTests
         Assert.Equal("compact_boundary", (string?)e.Payload["subtype"]);
     }
 
+    [Theory]
+    [InlineData("""{"type":"system","subtype":"thinking_tokens","estimated_tokens":242,"estimated_tokens_delta":192,"session_id":"s","uuid":"u"}""")]
+    [InlineData("""{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1","run_id":"r","task_type":"local_bash","description":"Run backend"}],"session_id":"s"}""")]
+    [InlineData("""{"type":"system","subtype":"task_updated","task_id":"b1","session_id":"s"}""")]
+    public void Bookkeeping_lines_are_not_stored(string line)
+    {
+        Assert.Empty(new StreamJsonParser().ParseLine(line));
+    }
+
+    [Fact]
+    public void Background_tasks_become_one_line_when_they_start_and_end()
+    {
+        var parser = new StreamJsonParser();
+
+        var started = Assert.Single(parser.ParseLine("""{"type":"system","subtype":"task_started","task_id":"b1","run_id":"r","tool_use_id":"toolu_1","description":"Run backend on a scratch database","is_backgrounded":true,"task_type":"local_bash","uuid":"u","session_id":"s"}"""));
+        var ended = Assert.Single(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b1","run_id":"r","tool_use_id":"toolu_1","status":"completed","output_file":"","summary":"Run backend on a scratch database","uuid":"u","session_id":"s"}"""));
+
+        Assert.Equal(RunEventKind.Log, started.Kind);
+        Assert.Equal("Background task started: Run backend on a scratch database", (string?)started.Payload["text"]);
+        Assert.Equal("Background task completed: Run backend on a scratch database", (string?)ended.Payload["text"]);
+        Assert.Null(started.Payload["raw"]);
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b1","status":"completed"}"""));
+    }
+
+    [Fact]
+    public void A_longer_bash_call_in_the_foreground_gives_no_task_lines()
+    {
+        // Claude Code reports a task for most longer Bash calls (54 of 58 in real runs were in the foreground); the
+        // tool call and its result already show them.
+        var parser = new StreamJsonParser();
+
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_started","task_id":"b2","tool_use_id":"toolu_2","description":"npm ci && npm test","is_backgrounded":false,"task_type":"local_bash"}"""));
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b2","status":"completed","summary":"npm ci && npm test"}"""));
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_started","task_id":"b3","description":"no flag"}"""));
+        Assert.Empty(parser.ParseLine("""{"type":"system","subtype":"task_notification","task_id":"b9","status":"failed"}"""));
+    }
+
     [Fact]
     public void Heartbeats_of_a_waiting_tool_are_not_stored_but_other_tool_progress_is()
     {

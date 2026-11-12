@@ -289,7 +289,9 @@ public sealed partial class DockerContainerRuntime
 
     private async Task RemoveNetworkAsync(string name, CancellationToken cancellationToken)
     {
-        if (Previews.HubContainer is { } hub)
+        // Only when the hub is on the network: Docker 29 answers a disconnect from a network the container is not on, or
+        // one that does not exist, with 500 "is not connected" (a preview that ended before its network was made).
+        if (Previews.HubContainer is { } hub && await IsOnNetworkAsync(hub, name, cancellationToken))
         {
             try
             {
@@ -309,6 +311,19 @@ public sealed partial class DockerContainerRuntime
         }
         catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
+        }
+    }
+
+    private async Task<bool> IsOnNetworkAsync(string container, string network, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var inspected = await docker.Containers.InspectContainerAsync(container, cancellationToken);
+            return inspected.NetworkSettings?.Networks?.ContainsKey(network) == true;
+        }
+        catch (DockerContainerNotFoundException)
+        {
+            return false;
         }
     }
 
