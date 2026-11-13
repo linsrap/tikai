@@ -122,13 +122,14 @@ public sealed class AgentRunTests(PostgresFixture postgres, AgentHost agents) : 
         await using var hub = await agents.StartHubAsync(postgres, new Dictionary<string, string> { ["Tikai:Agents:McpUrl"] = AgentHost.McpUrl(AgentHost.FreePort()) });
         var ticket = await hub.CreateTicketAsync("ok");
 
-        var started = DateTimeOffset.UtcNow;
         var run = await hub.WaitForEndAsync((await hub.AssignAsync(ticket)).Id);
 
         Assert.Equal(AgentRunState.Failed, run.State);
         Assert.Contains("could not connect to the Tikai MCP server", run.FailureReason, StringComparison.Ordinal);
-        Assert.True(DateTimeOffset.UtcNow - started < TimeSpan.FromSeconds(28), "The stub waits 30 s; the hub must stop it before.");
+        // From the agent's start (the clone before it can take long on a busy machine) to the run's end.
+        Assert.NotNull(run.StartedAt);
         Assert.NotNull(run.EndedAt);
+        Assert.True(run.EndedAt - run.StartedAt < TimeSpan.FromSeconds(28), $"The stub waits 30 s; the hub must stop it before ({run.EndedAt - run.StartedAt}).");
         Assert.Equal(TicketStatus.Open, (await TicketAsync(hub, ticket)).Status);
         var failure = (await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items")).Single(i => i.Kind == AttentionKind.Failure);
         Assert.Equal(run.Id, failure.RunId);

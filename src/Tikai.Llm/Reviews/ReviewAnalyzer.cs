@@ -24,10 +24,10 @@ public sealed record AnalyzerResult(
 /// </summary>
 public sealed partial class ReviewAnalyzer(IChatClientFactory factory, ILogger<ReviewAnalyzer> logger)
 {
-    public const string PromptName = "review-analysis.v2";
+    public const string PromptName = "review-analysis.v3";
 
     /// <summary>For a later round: the same schema, read from the previous analysis and the interdiff.</summary>
-    public const string InterdiffPromptName = "review-analysis-interdiff.v2";
+    public const string InterdiffPromptName = "review-analysis-interdiff.v3";
     public static readonly TimeSpan Limit = TimeSpan.FromMinutes(5);
 
     private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)

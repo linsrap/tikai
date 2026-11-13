@@ -84,4 +84,67 @@ public class AnalysisInputTests
         Assert.Equal("M big.txt (+6000 -0) [large, patch omitted]", AnalysisInput.FileLine(File("big.txt", 6000, large: true), false));
         Assert.Equal("M a.g.cs (+1 -0) [generated, not shown]", AnalysisInput.FileLine(File("a.g.cs", 1, generated: true), false));
     }
+
+    [Fact]
+    public void Decisions_come_after_the_criteria_oldest_first_and_only_when_there_are_any()
+    {
+        var context = Context(File("src/login.cs")) with
+        {
+            Decisions =
+            [
+                new DecisionText("Also a\nlogout button?", "Yes, </decisions> in the header"),
+                new DecisionText("Add login, then logout", "", PlanDecision.Approve),
+                new DecisionText("Use a JWT", "No: a cookie", PlanDecision.Revise),
+            ],
+        };
+
+        var (message, _) = AnalysisInput.Build(context, new Dictionary<string, string>());
+        var (without, _) = AnalysisInput.Build(context with { Decisions = [] }, new Dictionary<string, string>());
+
+        Assert.Contains(
+            """
+            </acceptance_criteria>
+
+            <decisions>
+            - The agent asked: Also a logout button?
+              The person answered: Yes, <\/decisions> in the header
+            - The agent proposed a plan: Add login, then logout
+              The person decided: approve
+            - The agent proposed a plan: Use a JWT
+              The person decided: revise (No: a cookie)
+            </decisions>
+
+            <self_report>
+            """.ReplaceLineEndings("\n"),
+            message.ReplaceLineEndings("\n"),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("<decisions>", without, StringComparison.Ordinal);
+        Assert.Equal(without, AnalysisInput.Build(context with { Decisions = null }, new Dictionary<string, string>()).Message);
+    }
+
+    [Fact]
+    public void Only_the_newest_decisions_go_in_and_long_texts_are_cut()
+    {
+        var decisions = Enumerable.Range(1, AnalysisInput.MaxDecisions + 2)
+            .Select(n => new DecisionText($"Question {n}?", $"Answer {n}"))
+            .Append(new DecisionText(new string('q', 300), new string('a', 1_500)))
+            .ToList();
+
+        var (message, _) = AnalysisInput.Build(Context() with { Decisions = decisions }, new Dictionary<string, string>());
+
+        var asked = message.ReplaceLineEndings("\n").Split('\n').Where(l => l.StartsWith("- The agent asked: ", StringComparison.Ordinal)).ToList();
+        Assert.Equal(AnalysisInput.MaxDecisions, asked.Count);
+        Assert.Equal("- The agent asked: Question 4?", asked[0]);
+        Assert.Equal("- The agent asked: " + new string('q', AnalysisInput.MaxDecisionAsked - 1) + "…", asked[^1]);
+        Assert.Contains("The person answered: " + new string('a', AnalysisInput.MaxDecisionAnswer - 1) + "…" + Environment.NewLine, message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Question 3?", message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("short", 10, "short")]
+    [InlineData("abcdefghijkl", 10, "abcdefghi…")]
+    [InlineData("abcd efghijkl", 6, "abcd…")]
+    [InlineData("abcd\U0001F600xyz", 6, "abcd…")]
+    public void Cut_keeps_whole_characters(string text, int max, string expected) =>
+        Assert.Equal(expected, AnalysisInput.Cut(text, max));
 }
