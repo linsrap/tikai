@@ -146,8 +146,8 @@ public sealed class RepositoryApiTests(PostgresFixture postgres) : IAsyncLifetim
 
         await WaitUntilAsync(async () =>
             (await browser.GetJsonAsync<List<BranchInfo>>($"{Repos}/{created.Id}/branches")).Any(b => b is { Name: "main", IsRemote: false } && b.Sha == second));
-        var fetched = await browser.GetJsonAsync<RepositoryInfo>($"{Repos}/{created.Id}");
-        Assert.True(fetched.LastFetchedAt > ready.LastFetchedAt);
+        // The fetch moves the ref first and writes the time right after it.
+        await WaitUntilAsync(async () => (await browser.GetJsonAsync<RepositoryInfo>($"{Repos}/{created.Id}")).LastFetchedAt > ready.LastFetchedAt);
     }
 
     [Fact]
