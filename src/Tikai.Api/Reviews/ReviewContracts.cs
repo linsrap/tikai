@@ -11,6 +11,7 @@ namespace Tikai.Api.Reviews;
 
 /// <summary>A change set with its ticket, run and rounds (oldest first), for the review screen.</summary>
 /// <param name="Criteria">The ticket's acceptance criteria as they are now.</param>
+/// <param name="PlanApproved">The run had a plan approved; false when the agent judged the change small and started without one.</param>
 public sealed record ChangeSetInfo(
     Guid Id,
     ChangeSetStatus Status,
@@ -27,7 +28,8 @@ public sealed record ChangeSetInfo(
     IReadOnlyList<CriterionInfo> Criteria,
     IReadOnlyList<ReviewRoundInfo> Rounds,
     DateTimeOffset CreatedAt,
-    DeliveryInfo Delivery);
+    DeliveryInfo Delivery,
+    bool PlanApproved);
 
 /// <summary>What Approve does for this change set, and how its delivery went.</summary>
 /// <param name="Mode">The project's setting; a repository without a remote always merges in the hub.</param>

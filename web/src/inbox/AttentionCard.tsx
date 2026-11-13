@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import type { components } from '../api/schema'
 import { RunLog } from '../live/RunLog'
-import { SelfReport } from '../review/SelfReport'
+import { NoPlanLine, SelfReport } from '../review/SelfReport'
 import { useRebase } from '../review/review'
 import { eventSummary, runStateLabel } from '../runs/runs'
 import { Button } from '../ui/Button'
@@ -102,6 +102,7 @@ export function AttentionCard({ item }: { item: AttentionItem }) {
           analysis={item.analysis}
           round={item.round ?? null}
           deliveryError={item.deliveryError ?? null}
+          planApproved={item.planApproved ?? null}
         />
       )}
 
@@ -235,6 +236,7 @@ function ReviewReport({
   analysis,
   round,
   deliveryError,
+  planApproved,
 }: {
   id: string
   review: ReviewPayload
@@ -244,6 +246,7 @@ function ReviewReport({
   analysis: AttentionItem['analysis']
   round: RoundBrief | null
   deliveryError: string | null
+  planApproved: boolean | null
 }) {
   const dismiss = useDismiss(id)
   const roundText = roundLine(round)
@@ -256,6 +259,7 @@ function ReviewReport({
           Approved, but it did not get through: {deliveryError}
         </p>
       )}
+      <NoPlanLine planApproved={planApproved} />
       {done ? (
         <div className="flex flex-col gap-2">
           {analysis.headline && (

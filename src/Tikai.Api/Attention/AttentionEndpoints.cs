@@ -196,6 +196,8 @@ internal static class AttentionEndpoints
                 .GroupBy(c => c.TicketId).Select(g => new { TicketId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(g => g.TicketId, g => g.Count, cancellationToken);
 
+        var planned = await RunPlans.ApprovedAsync(db, runIds, cancellationToken);
+
         var result = new List<AttentionItemInfo>(rows.Count);
         foreach (var x in rows)
         {
@@ -232,7 +234,8 @@ internal static class AttentionEndpoints
                 item.Kind == AttentionKind.Review && item.Status == AttentionStatus.Open && item.RunId is { } delivered
                     ? deliveryErrors.GetValueOrDefault(delivered) : null,
                 item.Kind is AttentionKind.Review or AttentionKind.Conflict && item.RunId is { } changed && changeSetStatuses.TryGetValue(changed, out var changeSetStatus)
-                    ? changeSetStatus : null));
+                    ? changeSetStatus : null,
+                item.Kind == AttentionKind.Review && item.RunId is { } reviewedRun ? planned.Contains(reviewedRun) : null));
         }
         return [.. result.OrderByDescending(i => i.Blocking).ThenByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id)];
     }

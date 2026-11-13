@@ -21,6 +21,7 @@ namespace Tikai.Api.Attention;
 /// <param name="Conflict">For a conflict: the approved round, the default branch and the files that conflict.</param>
 /// <param name="DeliveryError">For a review: why an earlier approval did not get through (it came back to the inbox).</param>
 /// <param name="ChangeSetStatus">For a review or a conflict with a change set: where it stands; only an open one takes a verdict.</param>
+/// <param name="PlanApproved">For a review: whether the run had a plan approved (an agent skips it for a change it judges small).</param>
 public sealed record AttentionItemInfo(
     Guid Id,
     AttentionKind Kind,
@@ -46,7 +47,8 @@ public sealed record AttentionItemInfo(
     RoundBrief? Round = null,
     ConflictPayload? Conflict = null,
     string? DeliveryError = null,
-    ChangeSetStatus? ChangeSetStatus = null);
+    ChangeSetStatus? ChangeSetStatus = null,
+    bool? PlanApproved = null);
 
 /// <param name="Answered">Threads with comments sent to the agent that it replied to after the last one.</param>
 /// <param name="Unanswered">Such threads without a reply since.</param>

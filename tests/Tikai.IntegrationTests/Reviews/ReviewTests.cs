@@ -54,6 +54,8 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
         var changeSet = await hub.Browser.GetJsonAsync<ChangeSetInfo>($"/api/change-sets/{run.ChangeSetId}");
         Assert.Equal(ChangeSetStatus.Open, changeSet.Status);
         Assert.Equal(run.Branch, changeSet.Branch);
+        // The stub went to work without proposing a plan (a change it judged small).
+        Assert.False(changeSet.PlanApproved);
         Assert.Equal("main", changeSet.DefaultBranch);
         var round = Assert.Single(changeSet.Rounds);
         Assert.Equal(1, round.RoundNo);
@@ -347,6 +349,28 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
             message.ReplaceLineEndings("\n"),
             StringComparison.Ordinal);
         Assert.Contains("`<decisions>`", request.Body.GetProperty("system")[0].GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_run_with_an_approved_plan_says_so_in_the_review_and_the_inbox()
+    {
+        await using var hub = await agents.StartHubAsync(postgres);
+        var ticket = await hub.CreateTicketAsync("plan-wait");
+        var started = await hub.AssignAsync(ticket);
+
+        var planned = await hub.WaitForAsync(started.Id, r => r is { State: AgentRunState.Blocked, Waiting: [{ Kind: AttentionKind.PlanApproval }] });
+        using (var approve = await hub.Browser.PostAsync($"/api/attention-items/{planned.Waiting[0].Id}/answer", new { decision = "approve" }))
+        {
+            Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
+        }
+        var asked = await hub.WaitForAsync(started.Id, r => r is { State: AgentRunState.Blocked, Waiting: [{ Kind: AttentionKind.Question }] });
+        await hub.AnswerAsync(asked.Waiting[0].Id, "alpha");
+        var run = await hub.WaitForAsync(started.Id, r => r.State == AgentRunState.InReview);
+
+        Assert.True((await hub.Browser.GetJsonAsync<ChangeSetInfo>($"/api/change-sets/{run.ChangeSetId}")).PlanApproved);
+        var items = await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items");
+        Assert.True(items.Single(i => i.Kind == AttentionKind.Review && i.RunId == run.Id).PlanApproved);
+        Assert.All(items.Where(i => i.Kind != AttentionKind.Review), i => Assert.Null(i.PlanApproved));
     }
 
     /// <summary>The latest round's analysis once it is no longer pending.</summary>

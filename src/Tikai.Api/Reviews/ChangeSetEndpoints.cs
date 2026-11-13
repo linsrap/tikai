@@ -531,7 +531,8 @@ internal static class ChangeSetEndpoints
                 row.RemoteUrl is not null,
                 row.ChangeSet.DeliveredSha,
                 row.ChangeSet.DeliveryError,
-                conflict is null ? null : new ConflictInfo(conflict.Id, AttentionJson.Deserialize<ConflictPayload>(conflict.Payload).Files)));
+                conflict is null ? null : new ConflictInfo(conflict.Id, AttentionJson.Deserialize<ConflictPayload>(conflict.Payload).Files)),
+            (await RunPlans.ApprovedAsync(db, [row.Run.Id], cancellationToken)).Count > 0);
     }
 
     internal static AnalysisInfo? Analysis(ReviewRound round) => round.AnalysisStatus is { } status
