@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Tikai.Api.Projects;
 using Tikai.Core.Events;
+using Tikai.Core.Git;
 using Tikai.Core.Jobs;
 using Tikai.Core.Previews;
 using Tikai.Core.Reviews;
@@ -17,6 +18,7 @@ internal sealed class PreviewStore(
     TikaiDbContext db,
     IJobQueue jobs,
     IEventPublisher events,
+    IGitService git,
     MirrorPaths mirrors,
     IOptions<PreviewOptions> options,
     TimeProvider timeProvider) : IPreviewStore
@@ -25,12 +27,15 @@ internal sealed class PreviewStore(
     {
         var target = await (
             from p in db.Previews
-            join c in db.ChangeSets on p.ChangeSetId equals c.Id
-            join r in db.Repositories on c.RepositoryId equals r.Id
+            join r in db.Repositories on p.RepositoryId equals r.Id
             where p.Id == previewId && p.State == PreviewState.Preparing
-            select new { p.ChangeSetId, p.RoundNo, p.Definition, r.ProjectId, RepositoryId = r.Id }).SingleOrDefaultAsync(cancellationToken);
-        return target is null ? null : new PreviewStartInfo(
-            previewId, mirrors.For(target.ProjectId, target.RepositoryId), ReviewRules.RoundRef(target.ChangeSetId, target.RoundNo), target.Definition);
+            select new { p.ChangeSetId, p.RoundNo, p.Branch, p.HeadSha, p.Definition, r.ProjectId, RepositoryId = r.Id }).SingleOrDefaultAsync(cancellationToken);
+        if (target is null)
+        {
+            return null;
+        }
+        var reference = target.Branch is { } branch ? PreviewRules.BranchRef(branch) : ReviewRules.RoundRef(target.ChangeSetId!.Value, target.RoundNo!.Value);
+        return new PreviewStartInfo(previewId, mirrors.For(target.ProjectId, target.RepositoryId), reference, target.HeadSha, target.Definition);
     }
 
     public async Task AppendLogAsync(Guid previewId, IReadOnlyList<PreviewLogEntry> lines, CancellationToken cancellationToken)
@@ -154,17 +159,43 @@ internal sealed class PreviewStore(
     {
         var active = PreviewRules.Active.Select(s => JsonNamingPolicy.SnakeCaseLower.ConvertName(s.ToString())).ToArray();
         var rows = await db.Database.SqlQuery<ActiveRow>($"""
-            SELECT p.id AS id, p.state AS state, c.status IN ('open', 'delivering') AS change_set_open, p.upstreams::text AS upstreams,
+            SELECT p.id AS id, p.state AS state, COALESCE(c.status IN ('open', 'delivering'), false) AS change_set_open,
+                   p.branch AS branch, p.head_sha AS head_sha, r.project_id AS project_id, p.repository_id AS repository_id,
+                   (pr.archived_at IS NOT NULL OR pr.deleting_at IS NOT NULL) AS project_closed, p.upstreams::text AS upstreams,
                    EXISTS (SELECT 1 FROM jobs j WHERE j.queue = {PreviewJob.StartQueue} AND j.dead_at IS NULL AND j.payload->>'preview_id' = p.id::text) AS has_live_start_job,
                    EXTRACT(EPOCH FROM now() - p.created_at)::float8 AS age_seconds,
                    EXTRACT(EPOCH FROM now() - COALESCE(p.last_request_at, p.running_at))::float8 AS idle_seconds,
                    p.idle_minutes AS idle_minutes
-            FROM previews p JOIN change_sets c ON c.id = p.change_set_id
+            FROM previews p
+            JOIN repositories r ON r.id = p.repository_id
+            JOIN projects pr ON pr.id = r.project_id
+            LEFT JOIN change_sets c ON c.id = p.change_set_id
             WHERE p.state = ANY({active})
             """).ToListAsync(cancellationToken);
-        return [.. rows.Select(r => new ActivePreview(
-            r.Id, Enum.Parse<PreviewState>(r.State.Replace("_", "", StringComparison.Ordinal), ignoreCase: true), r.ChangeSetOpen, PreviewUpstreams.FromJson(r.Upstreams), r.HasLiveStartJob,
-            TimeSpan.FromSeconds(r.AgeSeconds), r.IdleSeconds is { } idle ? TimeSpan.FromSeconds(idle) : null, r.IdleMinutes))];
+        var previews = new List<ActivePreview>();
+        foreach (var r in rows)
+        {
+            previews.Add(new ActivePreview(
+                r.Id, Enum.Parse<PreviewState>(r.State.Replace("_", "", StringComparison.Ordinal), ignoreCase: true), await EndReasonAsync(r, cancellationToken),
+                PreviewUpstreams.FromJson(r.Upstreams), r.HasLiveStartJob,
+                TimeSpan.FromSeconds(r.AgeSeconds), r.IdleSeconds is { } idle ? TimeSpan.FromSeconds(idle) : null, r.IdleMinutes));
+        }
+        return previews;
+    }
+
+    /// <summary>A round's preview ends with its change set; a branch preview with its project, or when the branch moved.</summary>
+    private async Task<string?> EndReasonAsync(ActiveRow row, CancellationToken cancellationToken)
+    {
+        if (row.Branch is not { } branch)
+        {
+            return row.ChangeSetOpen ? null : PreviewReconciliation.ChangeSetEnded;
+        }
+        if (row.ProjectClosed)
+        {
+            return PreviewReconciliation.ProjectClosed;
+        }
+        var head = await git.ResolveCommitAsync(mirrors.For(row.ProjectId, row.RepositoryId), PreviewRules.BranchRef(branch), cancellationToken);
+        return head == row.HeadSha ? null : PreviewReconciliation.BranchMoved(branch, head);
     }
 
     public async Task<IReadOnlyList<Guid>> ListUncleanedAsync(CancellationToken cancellationToken)
@@ -206,5 +237,7 @@ internal sealed class PreviewStore(
         return true;
     }
 
-    private sealed record ActiveRow(Guid Id, string State, bool ChangeSetOpen, string? Upstreams, bool HasLiveStartJob, double AgeSeconds, double? IdleSeconds, int IdleMinutes);
+    private sealed record ActiveRow(
+        Guid Id, string State, bool ChangeSetOpen, string? Branch, string HeadSha, Guid ProjectId, Guid RepositoryId, bool ProjectClosed,
+        string? Upstreams, bool HasLiveStartJob, double AgeSeconds, double? IdleSeconds, int IdleMinutes);
 }

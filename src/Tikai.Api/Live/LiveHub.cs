@@ -75,7 +75,8 @@ public sealed record ChangeSetChange(Guid ChangeSetId, string ProjectSlug, int T
 
 public sealed record RunEventsChange(Guid RunId);
 
-public sealed record PreviewChange(Guid PreviewId, Guid ChangeSetId, string ProjectSlug, int TicketNumber);
+/// <param name="ChangeSetId">With <paramref name="TicketNumber"/>, set for a round's preview; null for a branch preview.</param>
+public sealed record PreviewChange(Guid PreviewId, Guid RepositoryId, Guid? ChangeSetId, string ProjectSlug, int? TicketNumber);
 
 internal static class LiveGroups
 {

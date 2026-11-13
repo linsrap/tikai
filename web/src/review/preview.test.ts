@@ -2,19 +2,23 @@ import { describe, expect, it } from 'vitest'
 import {
   appsLine,
   canStart,
+  canStartBranch,
   filterLog,
   logFilterOptions,
   logStart,
   previewLine,
   type ChangeSetPreview,
   type Preview,
+  type RepositoryPreview,
   type PreviewLogLine,
 } from './preview'
 
 const preview = (over: Partial<Preview> = {}): Preview => ({
   id: 'p1',
+  repositoryId: 'r1',
   changeSetId: 'c1',
   roundNo: 2,
+  branch: null,
   headSha: 'abc',
   state: 'running',
   error: null,
@@ -60,7 +64,63 @@ describe('canStart', () => {
   })
 })
 
+const branchPreview = (over: Partial<Preview> = {}): Preview =>
+  preview({
+    changeSetId: null,
+    roundNo: null,
+    branch: 'main',
+    headSha: '1a2b3c4d5e6f7a8b',
+    ...over,
+  })
+
+const repository = (over: Partial<RepositoryPreview> = {}): RepositoryPreview => ({
+  available: true,
+  unavailableReason: null,
+  branch: 'main',
+  headSha: '1a2b3c4d5e6f7a8b',
+  found: true,
+  errors: [],
+  preview: null,
+  ...over,
+})
+
+describe('canStartBranch', () => {
+  it('starts the head of the default branch when it has a usable definition', () => {
+    expect(canStartBranch(repository())).toBe(true)
+    expect(canStartBranch(repository({ found: false }))).toBe(false)
+    expect(canStartBranch(repository({ errors: ['app: required'] }))).toBe(false)
+    expect(canStartBranch(repository({ available: false, unavailableReason: 'archived' }))).toBe(
+      false,
+    )
+  })
+
+  it('does not start the same head again while it runs, but does a newer head', () => {
+    expect(canStartBranch(repository({ preview: branchPreview() }))).toBe(false)
+    expect(canStartBranch(repository({ preview: branchPreview({ headSha: 'old' }) }))).toBe(true)
+    expect(canStartBranch(repository({ preview: branchPreview({ state: 'stopped' }) }))).toBe(true)
+  })
+})
+
 describe('previewLine', () => {
+  it('names the branch and its commit for a preview of the default branch', () => {
+    expect(previewLine(branchPreview({ state: 'preparing' }))).toBe(
+      'Cloning main at 1a2b3c4 and running its setup…',
+    )
+    expect(previewLine(branchPreview())).toBe(
+      'main at 1a2b3c4 runs. It stops after 30 minutes without use, or when main moves.',
+    )
+    expect(
+      previewLine(
+        branchPreview({
+          state: 'stopped',
+          stopReason: 'main moved to 9f8e7d6c5b4a. Start a new preview to see it.',
+        }),
+      ),
+    ).toBe(
+      'The preview of main at 1a2b3c4 stopped. main moved to 9f8e7d6c5b4a. Start a new preview to see it.',
+    )
+  })
+
   it('says what happens and why it ended', () => {
     expect(previewLine(preview({ state: 'preparing' }))).toBe(
       'Cloning round 2 and running its setup…',

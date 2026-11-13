@@ -2483,6 +2483,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{slug}/repositories/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RepositoryPreviewInfo"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{slug}/repositories/{id}/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PreviewInfo"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/previews/{id}/stop": {
         parameters: {
             query?: never;
@@ -2969,9 +3045,12 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            changeSetId: string;
+            repositoryId: string;
+            /** Format: uuid */
+            changeSetId: null | string;
             /** Format: int32 */
-            roundNo: number;
+            roundNo: null | number;
+            branch: null | string;
             headSha: string;
             state: components["schemas"]["PreviewState"];
             error: null | string;
@@ -3045,6 +3124,15 @@ export interface components {
             lastFetchedAt: null | string;
             /** Format: date-time */
             createdAt: string;
+        };
+        RepositoryPreviewInfo: {
+            available: boolean;
+            unavailableReason: null | string;
+            branch: string;
+            headSha: null | string;
+            found: boolean;
+            errors: string[];
+            preview: null | components["schemas"]["PreviewInfo"];
         };
         /** @enum {unknown} */
         RepositoryStatus: "cloning" | "ready" | "failed";

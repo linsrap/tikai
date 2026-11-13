@@ -38,13 +38,21 @@ public class PreviewReconciliationTests
     [InlineData(PreviewState.Preparing)]
     [InlineData(PreviewState.Starting)]
     [InlineData(PreviewState.Running)]
-    public void A_preview_of_a_change_set_that_ended_is_stopped(PreviewState state)
+    public void A_preview_that_must_end_is_stopped_in_any_state(PreviewState state)
     {
-        var preview = Running(_a) with { State = state, ChangeSetOpen = false, HasLiveStartJob = state != PreviewState.Running };
+        var preview = Running(_a) with { State = state, EndReason = PreviewReconciliation.ChangeSetEnded, HasLiveStartJob = state != PreviewState.Running };
 
         var stop = Assert.IsType<StopPreviewAction>(Assert.Single(Plan([App(_a)], [preview])));
 
         Assert.Equal("The change set was merged, pushed or closed.", stop.Reason);
+    }
+
+    [Fact]
+    public void A_branch_preview_names_where_the_branch_moved()
+    {
+        Assert.Equal("main moved to 0123456789ab. Start a new preview to see it.",
+            PreviewReconciliation.BranchMoved("main", "0123456789abcdef0123456789abcdef01234567"));
+        Assert.Equal("The branch main is gone.", PreviewReconciliation.BranchMoved("main", null));
     }
 
     [Theory]
@@ -131,7 +139,7 @@ public class PreviewReconciliationTests
         [.. PreviewReconciliation.Plan(resources, previews, uncleaned ?? [], _maxLifetime)];
 
     private static ActivePreview Running(Guid id, TimeSpan? idleFor = null, TimeSpan? age = null) =>
-        new(id, PreviewState.Running, ChangeSetOpen: true, Apps: [new PreviewAppUpstream("app", "/", "http://x", "app-" + id)], HasLiveStartJob: false,
+        new(id, PreviewState.Running, EndReason: null, Apps: [new PreviewAppUpstream("app", "/", "http://x", "app-" + id)], HasLiveStartJob: false,
             Age: age ?? TimeSpan.FromMinutes(40), IdleFor: idleFor ?? TimeSpan.FromMinutes(1), IdleMinutes: 30);
 
     private static PreviewResource App(Guid id, bool running = true) => new(false, "app-" + id, id, PreviewRole.App, running);

@@ -1,6 +1,6 @@
 # tikai-preview.yml
 
-**Preview** on the review screen starts a round in containers, using `tikai-preview.yml` at the repository root. Agents can write and maintain the file. The hub checks it strictly: when something is wrong, the review screen lists the errors instead of starting a preview. Tikai's own [`tikai-preview.yml`](../tikai-preview.yml) is a working example.
+**Preview** on the review screen starts a round in containers, using `tikai-preview.yml` at the repository root. Agents can write and maintain the file. The project's Tickets page uses the same file to preview the default branch as it is now (for example once every ticket is done); that preview stops when the branch moves. The hub checks the file strictly: when something is wrong, the review screen lists the errors instead of starting a preview. Tikai's own [`tikai-preview.yml`](../tikai-preview.yml) is a working example.
 
 A preview is for apps served over HTTP: a person opens it in the browser. A project with nothing to serve (a desktop app such as WPF, a mobile app, a command line tool, a library) gets no `tikai-preview.yml`; the reviewer uses **Try locally** on the review screen and builds the round on their own machine.
 

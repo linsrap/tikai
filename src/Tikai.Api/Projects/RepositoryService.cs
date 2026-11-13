@@ -122,6 +122,9 @@ internal sealed class RepositoryService(
     public async Task DeleteAsync(Repository repository, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Ended and torn-down branch previews (their log lines and entries cascade); anything else keeps the foreign key.
+        await db.Database.ExecuteSqlAsync(
+            $"DELETE FROM previews WHERE repository_id = {repository.Id} AND change_set_id IS NULL AND cleaned_at IS NOT NULL", cancellationToken);
         db.Repositories.Remove(repository);
         await db.SaveChangesAsync(cancellationToken);
         await GitJob.EnqueueAsync(jobs, GitJob.Delete, repository, cancellationToken);

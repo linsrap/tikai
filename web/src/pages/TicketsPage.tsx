@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
+import { BranchPreviews } from '../projects/BranchPreviews'
 import { projectQuery } from '../projects/projects'
 import {
   emptyTicketForm,
@@ -57,6 +58,7 @@ export function TicketsPage({ slug }: { slug: string }) {
         }
       />
       <PageBody>
+        <BranchPreviews slug={slug} />
         <div className="mb-3">
           <Segmented
             label="Filter"

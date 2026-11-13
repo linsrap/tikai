@@ -7,7 +7,7 @@ using Tikai.Core.Jobs;
 namespace Tikai.Orchestrator.Previews;
 
 /// <summary>
-/// Starts a preview (queue <see cref="PreviewJob.StartQueue"/>): bundle the round's pinned ref from the mirror (the only
+/// Starts a preview (queue <see cref="PreviewJob.StartQueue"/>): bundle the round's pinned ref or the default branch from the mirror (the only
 /// git the hub runs for it), clone, setup steps, services and apps (<see cref="PreviewEnvironment"/>), then follow the
 /// apps' logs. Between steps it checks that the preview is still wanted; a stop meanwhile wins. Any failure fails the
 /// preview with a reason people can act on and queues its teardown. A start is tried once: after a hub restart the
@@ -55,15 +55,20 @@ public sealed partial class PreviewStarter(
         var bundle = Path.Combine(Path.GetTempPath(), $"tikai-preview-{previewId:N}.bundle");
         try
         {
-            var head = await git.CreateRefBundleAsync(info.MirrorPath, info.RoundRef, bundle, cancellationToken);
-            await log([new PreviewLogEntry("hub", $"Preparing round head {head[..12]}")], cancellationToken);
+            var head = await git.CreateRefBundleAsync(info.MirrorPath, info.Ref, bundle, cancellationToken);
+            if (head != info.HeadSha)
+            {
+                // Only a branch moves (a round ref is pinned); its preview would show another commit than it says.
+                throw new PreviewStartException("The branch moved while the preview started. Start it again.");
+            }
+            await log([new PreviewLogEntry("hub", $"Preparing {head[..12]}")], cancellationToken);
             await environment.WriteSourceAsync(previewId, bundle, cancellationToken);
         }
         finally
         {
             File.Delete(bundle);
         }
-        await environment.CloneAsync(previewId, info.RoundRef, log, cancellationToken);
+        await environment.CloneAsync(previewId, info.Ref, log, cancellationToken);
         for (var i = 0; i < definition.Setup.Count; i++)
         {
             if (!await store.IsActiveAsync(previewId, cancellationToken))

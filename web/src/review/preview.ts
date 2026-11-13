@@ -5,6 +5,7 @@ import type { components } from '../api/schema'
 import type { Tone } from '../ui/Tag'
 
 export type ChangeSetPreview = components['schemas']['ChangeSetPreviewInfo']
+export type RepositoryPreview = components['schemas']['RepositoryPreviewInfo']
 export type Preview = components['schemas']['PreviewInfo']
 export type PreviewState = Preview['state']
 export type PreviewLogLine = components['schemas']['PreviewLogLineInfo']
@@ -19,6 +20,19 @@ export const changeSetPreviewQuery = (changeSetId: string) =>
     queryFn: () =>
       unwrap(
         api.GET('/api/change-sets/{id}/preview', { params: { path: { id: changeSetId } } }),
+        'load the preview',
+      ),
+  })
+
+/** A repository's default branch: whether it can be previewed, and its latest branch preview. */
+export const repositoryPreviewQuery = (slug: string, repositoryId: string) =>
+  queryOptions({
+    queryKey: ['repository-preview', repositoryId],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/projects/{slug}/repositories/{id}/preview', {
+          params: { path: { slug, id: repositoryId } },
+        }),
         'load the preview',
       ),
   })
@@ -63,19 +77,30 @@ export const previewStateTone: Record<PreviewState, Tone> = {
   failed: 'bad',
 }
 
+/** What a preview runs, for people: "round 2", or "main at 1a2b3c4" for a preview of the default branch. */
+export const previewSubject = (preview: Pick<Preview, 'branch' | 'roundNo' | 'headSha'>) =>
+  preview.branch ? `${preview.branch} at ${shortSha(preview.headSha)}` : `round ${preview.roundNo}`
+
+export const shortSha = (sha: string) => sha.slice(0, 7)
+
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
 /** One line about the latest preview, for people. */
 export function previewLine(preview: Preview): string {
+  const subject = previewSubject(preview)
   switch (preview.state) {
     case 'preparing':
-      return `Cloning round ${preview.roundNo} and running its setup…`
+      return `Cloning ${subject} and running its setup…`
     case 'starting':
-      return `Starting round ${preview.roundNo}…`
+      return `Starting ${subject}…`
     case 'running':
-      return `Round ${preview.roundNo} runs. It stops after ${preview.idleMinutes} minutes without use.`
+      return preview.branch
+        ? `${subject} runs. It stops after ${preview.idleMinutes} minutes without use, or when ${preview.branch} moves.`
+        : `${capitalized(subject)} runs. It stops after ${preview.idleMinutes} minutes without use.`
     case 'stopped':
-      return `The preview of round ${preview.roundNo} stopped. ${preview.stopReason ?? ''}`.trim()
+      return `The preview of ${subject} stopped. ${preview.stopReason ?? ''}`.trim()
     case 'failed':
-      return `The preview of round ${preview.roundNo} failed: ${preview.error ?? 'no reason given'}`
+      return `The preview of ${subject} failed: ${preview.error ?? 'no reason given'}`
   }
 }
 
@@ -118,6 +143,16 @@ export function canStart(info: ChangeSetPreview, open: boolean): boolean {
       isActive(info.preview.state) &&
       info.preview.roundNo === info.definition.roundNo
     )
+  )
+}
+
+/** A start of the branch's current head, unless one runs for that head already. */
+export function canStartBranch(info: RepositoryPreview): boolean {
+  return (
+    info.available &&
+    info.found &&
+    info.errors.length === 0 &&
+    !(info.preview && isActive(info.preview.state) && info.preview.headSha === info.headSha)
   )
 }
 
@@ -164,7 +199,25 @@ export function useStartPreview(changeSetId: string) {
   })
 }
 
-export function useStopPreview(changeSetId: string) {
+export function useStartBranchPreview(slug: string, repositoryId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      await ensureAntiforgery()
+      return unwrap(
+        api.POST('/api/projects/{slug}/repositories/{id}/previews', {
+          params: { path: { slug, id: repositoryId } },
+        }),
+        'start the preview',
+      )
+    },
+    onSettled: () =>
+      void queryClient.invalidateQueries({ queryKey: ['repository-preview', repositoryId] }),
+  })
+}
+
+/** Stops a preview; queryKey is the view that shows it (the review's or the repository's preview). */
+export function useStopPreview(queryKey: unknown[]) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (previewId: string) => {
@@ -174,8 +227,7 @@ export function useStopPreview(changeSetId: string) {
         'stop the preview',
       )
     },
-    onSettled: () =>
-      void queryClient.invalidateQueries({ queryKey: ['change-set-preview', changeSetId] }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey }),
   })
 }
 

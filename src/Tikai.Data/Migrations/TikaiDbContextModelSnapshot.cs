@@ -365,7 +365,12 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("ChangeSetId")
+                    b.Property<string>("Branch")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("branch");
+
+                    b.Property<Guid?>("ChangeSetId")
                         .HasColumnType("uuid")
                         .HasColumnName("change_set_id");
 
@@ -411,7 +416,11 @@ namespace Tikai.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_request_at");
 
-                    b.Property<int>("RoundNo")
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("repository_id");
+
+                    b.Property<int?>("RoundNo")
                         .HasColumnType("integer")
                         .HasColumnName("round_no");
 
@@ -458,11 +467,19 @@ namespace Tikai.Data.Migrations
                     b.HasIndex("ChangeSetId")
                         .HasDatabaseName("ix_previews_change_set_id");
 
+                    b.HasIndex("RepositoryId")
+                        .HasDatabaseName("ix_previews_repository_id");
+
                     b.HasIndex("StartedById")
                         .HasDatabaseName("ix_previews_started_by_id");
 
                     b.HasIndex("State")
                         .HasDatabaseName("ix_previews_state");
+
+                    b.HasIndex(new[] { "RepositoryId" }, "ux_previews_active_branch")
+                        .IsUnique()
+                        .HasDatabaseName("ux_previews_active_branch")
+                        .HasFilter("branch IS NOT NULL AND state IN ('preparing', 'starting', 'running')");
 
                     b.HasIndex(new[] { "ChangeSetId" }, "ux_previews_active_change_set")
                         .IsUnique()
@@ -478,6 +495,8 @@ namespace Tikai.Data.Migrations
                             t.HasCheckConstraint("ck_previews_round_no", "round_no > 0");
 
                             t.HasCheckConstraint("ck_previews_state", "state IN ('preparing', 'starting', 'running', 'stopped', 'failed')");
+
+                            t.HasCheckConstraint("ck_previews_target", "(change_set_id IS NOT NULL AND round_no IS NOT NULL AND branch IS NULL) OR (change_set_id IS NULL AND round_no IS NULL AND branch IS NOT NULL)");
                         });
                 });
 
@@ -1779,8 +1798,14 @@ namespace Tikai.Data.Migrations
                         .WithMany()
                         .HasForeignKey("ChangeSetId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
                         .HasConstraintName("fk_previews_change_sets_change_set_id");
+
+                    b.HasOne("Tikai.Core.Projects.Repository", null)
+                        .WithMany()
+                        .HasForeignKey("RepositoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_previews_repositories_repository_id");
 
                     b.HasOne("Tikai.Data.Identity.TikaiUser", null)
                         .WithMany()
