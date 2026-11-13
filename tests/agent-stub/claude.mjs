@@ -11,7 +11,7 @@
 //   big             a huge tool result and a line over 1 MB, then ok
 //   hang            waits until stopped
 //   ask             ask_human, gives up waiting after 2 s, exits 0 (the item stays open)
-//   slow:<s>        waits <s> seconds after get_ticket, then ok
+//   slow:<s>        waits <s> seconds after get_ticket, then ok (report_progress retried for a minute, as in plan-wait)
 //   wait            commits before.txt, asks "Which word?" and waits (a dropped call is asked again, up to 10 times,
 //                   1 s apart, like Claude Code's model does), writes the answer to answer.txt, commits, submits
 //   wait-badresume  like wait, but a --resume of its session fails (error result, exit 1)
@@ -569,7 +569,9 @@ async function main() {
     process.stdout.write("x".repeat(1_200_000) + "\n");
   }
 
-  await tool("report_progress", { step: "Writing hello.txt", note: "stub" });
+  // After slow:<s> the hub may still be restarting (it takes longer than <s> on a busy machine): retried for a minute.
+  const progress = () => tool("report_progress", { step: "Writing hello.txt", note: "stub" });
+  await (scenario.startsWith("slow:") ? patiently(progress) : progress());
   const stubFacts = facts();
   bash("printf 'hello\\n' > hello.txt && git add hello.txt && git commit --quiet -m 'Add hello.txt'");
   stubFacts.last_commit = bash("git log -1 --format='%an <%ae>%n%B'");
