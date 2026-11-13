@@ -26,9 +26,9 @@ public sealed partial class ClaudeCodeAdapter(IOptions<ClaudeCodeOptions> option
 {
     public const string McpConfigFile = "mcp.json";
     public const string ConfigDirectory = "claude";
-    public const string PromptVersion = "run-start.v4";
+    public const string PromptVersion = "run-start.v5";
     public const string ResumePromptVersion = "run-resume.v1";
-    public const string SummaryPromptVersion = "run-summary.v3";
+    public const string SummaryPromptVersion = "run-summary.v4";
     public const string ChangesPromptVersion = "run-changes.v1";
     public const string RebasePromptVersion = "run-rebase.v1";
 

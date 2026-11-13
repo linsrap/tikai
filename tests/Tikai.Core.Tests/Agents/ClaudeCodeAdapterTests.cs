@@ -63,7 +63,7 @@ public class ClaudeCodeAdapterTests
     {
         var prompt = ClaudeCodeAdapter.Prompt(Context());
 
-        Assert.Equal("run-start.v4", ClaudeCodeAdapter.PromptVersion);
+        Assert.Equal("run-start.v5", ClaudeCodeAdapter.PromptVersion);
         Assert.Contains("Whenever you changed it, call check_preview_definition", prompt, StringComparison.Ordinal);
         Assert.True(prompt.IndexOf("get_preview_spec", StringComparison.Ordinal) < prompt.IndexOf("check_preview_definition", StringComparison.Ordinal));
         Assert.True(prompt.IndexOf("check_preview_definition", StringComparison.Ordinal) < prompt.LastIndexOf("submit_for_review", StringComparison.Ordinal));
@@ -75,7 +75,7 @@ public class ClaudeCodeAdapterTests
         var start = ClaudeCodeAdapter.Prompt(Context());
         var summary = ClaudeCodeAdapter.SummaryPrompt(Context(), new FreshSession(null, [], "", ""));
 
-        Assert.Equal("run-summary.v3", ClaudeCodeAdapter.SummaryPromptVersion);
+        Assert.Equal("run-summary.v4", ClaudeCodeAdapter.SummaryPromptVersion);
         foreach (var prompt in new[] { start, summary })
         {
             // Real runs installed SDKs into /tmp first (noexec) and probed for browsers and apt in every run.
@@ -87,6 +87,23 @@ public class ClaudeCodeAdapterTests
             Assert.Contains("Whenever you changed it, call check_preview_definition", prompt, StringComparison.Ordinal);
             Assert.True(prompt.IndexOf("check_preview_definition", StringComparison.Ordinal) < prompt.LastIndexOf("submit_for_review", StringComparison.Ordinal));
         }
+    }
+
+    [Fact]
+    public void Fresh_sessions_skip_the_plan_only_for_a_small_change()
+    {
+        var start = ClaudeCodeAdapter.Prompt(Context());
+        var summary = ClaudeCodeAdapter.SummaryPrompt(Context(), new FreshSession(null, [], "", ""));
+
+        foreach (var prompt in new[] { start, summary })
+        {
+            // Plans were mostly approved with one click (step 26); a small change goes on without one, an unsure size does not.
+            Assert.Contains("It is small only if all of these hold: it changes at most 3 files", prompt, StringComparison.Ordinal);
+            Assert.Contains("When you are unsure, it is not small.", prompt, StringComparison.Ordinal);
+            Assert.Contains("turns out larger", prompt, StringComparison.Ordinal);
+        }
+        Assert.True(start.IndexOf("is small only if", StringComparison.Ordinal) < start.IndexOf("propose_plan", StringComparison.Ordinal));
+        Assert.Contains("Do not change files before the plan is approved.", start, StringComparison.Ordinal);
     }
 
     [Fact]

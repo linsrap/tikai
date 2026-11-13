@@ -48,7 +48,7 @@ import {
   type ReviewThread,
 } from '../review/review'
 import { AnalysisPanel } from '../review/AnalysisPanel'
-import { SelfReport } from '../review/SelfReport'
+import { NoPlanLine, SelfReport } from '../review/SelfReport'
 import { GeneralComments, NewThreadForm, ThreadView } from '../review/Threads'
 import { PreviewPanel } from '../review/PreviewPanel'
 import { TryLocally } from '../review/TryLocally'
@@ -117,6 +117,7 @@ export function ReviewPage({ id }: { id: string }) {
           <div className="flex flex-col gap-5 px-4 pt-5 pb-12 sm:px-6">
             <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
               <div className="flex min-w-0 flex-col gap-5">
+                <NoPlanLine planApproved={data.planApproved} />
                 <AnalysisPanel
                   changeSet={data}
                   round={round}

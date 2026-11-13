@@ -2766,6 +2766,7 @@ export interface components {
             conflict?: null | components["schemas"]["ConflictPayload"];
             deliveryError?: null | string;
             changeSetStatus?: null | components["schemas"]["ChangeSetStatus"];
+            planApproved?: null | boolean;
         };
         /** @enum {unknown} */
         AttentionKind: "question" | "permission" | "plan_approval" | "review" | "conflict" | "failure";
@@ -2801,6 +2802,7 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             delivery: components["schemas"]["DeliveryInfo"];
+            planApproved: boolean;
         };
         ChangeSetPreviewInfo: {
             available: boolean;

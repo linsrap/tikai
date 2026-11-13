@@ -1,5 +1,5 @@
 import type { ReviewCoverage } from '../inbox/inbox'
-import { coverageSummary, selfReportLine } from '../inbox/inbox'
+import { coverageSummary, planLine, selfReportLine } from '../inbox/inbox'
 import { Disclosure } from '../ui/layout'
 import { Tag } from '../ui/Tag'
 import { coverageTone } from './coverage'
@@ -103,5 +103,16 @@ function ReportDetails({
         </div>
       )}
     </div>
+  )
+}
+
+/** Says that the run started without an approved plan (the agent judged the change small); nothing otherwise. */
+export function NoPlanLine({ planApproved }: { planApproved: boolean | null }) {
+  const line = planLine(planApproved)
+  if (!line) return null
+  return (
+    <p className="m-0 text-sm text-wait" role="note" aria-label="Plan approval">
+      {line}
+    </p>
   )
 }

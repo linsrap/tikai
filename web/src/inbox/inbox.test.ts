@@ -6,6 +6,7 @@ import {
   orderedOptions,
   planDetails,
   planHeadline,
+  planLine,
   roundLine,
   selfReportLine,
   waitingCount,
@@ -55,6 +56,14 @@ describe('inbox', () => {
     expect(orderedOptions({ options: ['a', 'b', 'c'], recommended: 'b' })).toEqual(['b', 'a', 'c'])
     expect(orderedOptions({ options: ['a', 'b'], recommended: null })).toEqual(['a', 'b'])
     expect(orderedOptions({ options: ['a', 'b'], recommended: 'z' })).toEqual(['a', 'b'])
+  })
+
+  it('says when a run started without an approved plan, and only then', () => {
+    expect(planLine(false)).toBe('Started without plan approval (judged small)')
+    expect(planLine(true)).toBeNull()
+    // Not a review, or a list from before the flag.
+    expect(planLine(null)).toBeNull()
+    expect(planLine(undefined)).toBeNull()
   })
 
   it('names a later round and how the agent answered the comments', () => {

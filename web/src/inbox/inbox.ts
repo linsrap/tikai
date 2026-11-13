@@ -63,6 +63,11 @@ export function analysisLine(brief: AnalysisBrief): string {
   return verdictLine(brief)
 }
 
+/** For a review whose run started without an approved plan (the agent judged the change small); null otherwise. */
+export function planLine(planApproved: boolean | null | undefined): string | null {
+  return planApproved === false ? 'Started without plan approval (judged small)' : null
+}
+
 /** "Round 2 · the agent answered 3 of 4 threads", for a later round; null for the first. */
 export function roundLine(round: RoundBrief | null): string | null {
   if (!round || round.roundNo < 2) return null

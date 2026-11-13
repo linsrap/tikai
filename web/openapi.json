@@ -3005,6 +3005,12 @@
                 "$ref": "#/components/schemas/ChangeSetStatus"
               }
             ]
+          },
+          "planApproved": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -3083,7 +3089,8 @@
           "criteria",
           "rounds",
           "createdAt",
-          "delivery"
+          "delivery",
+          "planApproved"
         ],
         "type": "object",
         "properties": {
@@ -3147,6 +3154,9 @@
           },
           "delivery": {
             "$ref": "#/components/schemas/DeliveryInfo"
+          },
+          "planApproved": {
+            "type": "boolean"
           }
         }
       },
