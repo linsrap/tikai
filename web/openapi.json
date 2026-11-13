@@ -2401,6 +2401,82 @@
         }
       }
     },
+    "/api/projects/{slug}/repositories/{id}/preview": {
+      "get": {
+        "tags": [
+          "Previews"
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryPreviewInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{slug}/repositories/{id}/previews": {
+      "post": {
+        "tags": [
+          "Previews"
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/previews/{id}/stop": {
       "post": {
         "tags": [
@@ -4066,8 +4142,10 @@
       "PreviewInfo": {
         "required": [
           "id",
+          "repositoryId",
           "changeSetId",
           "roundNo",
+          "branch",
           "headSha",
           "state",
           "error",
@@ -4086,13 +4164,29 @@
             "type": "string",
             "format": "uuid"
           },
-          "changeSetId": {
+          "repositoryId": {
             "type": "string",
             "format": "uuid"
           },
+          "changeSetId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
           "roundNo": {
-            "type": "integer",
+            "type": [
+              "null",
+              "integer"
+            ],
             "format": "int32"
+          },
+          "branch": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "headSha": {
             "type": "string"
@@ -4369,6 +4463,57 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "RepositoryPreviewInfo": {
+        "required": [
+          "available",
+          "unavailableReason",
+          "branch",
+          "headSha",
+          "found",
+          "errors",
+          "preview"
+        ],
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "unavailableReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "branch": {
+            "type": "string"
+          },
+          "headSha": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "found": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "preview": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PreviewInfo"
+              }
+            ]
           }
         }
       },

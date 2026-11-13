@@ -117,15 +117,16 @@ internal sealed partial class LiveUpdates(IEventBus bus, IHubContext<LiveHub, IL
         var db = scope.ServiceProvider.GetRequiredService<TikaiDbContext>();
         var target = await (
             from v in db.Previews
-            join c in db.ChangeSets on v.ChangeSetId equals c.Id
-            join t in db.Tickets on c.TicketId equals t.Id
-            join p in db.Projects on t.ProjectId equals p.Id
+            join r in db.Repositories on v.RepositoryId equals r.Id
+            join p in db.Projects on r.ProjectId equals p.Id
+            from c in db.ChangeSets.Where(c => c.Id == v.ChangeSetId).DefaultIfEmpty()
+            from t in db.Tickets.Where(t => t.Id == c!.TicketId).DefaultIfEmpty()
             where v.Id == previewId
-            select new { ProjectId = p.Id, ChangeSetId = c.Id, p.Slug, t.Number }).SingleOrDefaultAsync(cancellationToken);
+            select new { ProjectId = p.Id, v.RepositoryId, v.ChangeSetId, p.Slug, TicketNumber = (int?)t!.Number }).SingleOrDefaultAsync(cancellationToken);
         if (target is not null)
         {
             await hub.Clients.Groups(LiveGroups.All, LiveGroups.Project(target.ProjectId))
-                .PreviewChanged(new(previewId, target.ChangeSetId, target.Slug, target.Number));
+                .PreviewChanged(new(previewId, target.RepositoryId, target.ChangeSetId, target.Slug, target.TicketNumber));
         }
     }
 

@@ -144,14 +144,14 @@ internal sealed partial class ProjectLifecycle(
     private partial void LogCancelFailed(Guid projectId, Exception exception);
 }
 
-/// <summary>What belongs to a project, through its tickets.</summary>
+/// <summary>What belongs to a project: runs through its tickets, previews through its repositories.</summary>
 internal static class ProjectRows
 {
     public static IQueryable<AgentRun> Runs(TikaiDbContext db, Guid projectId) =>
         db.AgentRuns.Where(r => db.Tickets.Any(t => t.Id == r.TicketId && t.ProjectId == projectId));
 
     public static IQueryable<Preview> Previews(TikaiDbContext db, Guid projectId) =>
-        db.Previews.Where(p => db.ChangeSets.Any(c => c.Id == p.ChangeSetId && db.Tickets.Any(t => t.Id == c.TicketId && t.ProjectId == projectId)));
+        db.Previews.Where(p => db.Repositories.Any(r => r.Id == p.RepositoryId && r.ProjectId == projectId));
 }
 
 /// <summary>
@@ -243,14 +243,13 @@ internal sealed partial class ProjectDeletionHandler(
                 (j.queue = {RunJob.Queue} AND j.payload->>'run_id' IN (
                     SELECT r.id::text FROM agent_runs r JOIN tickets t ON t.id = r.ticket_id WHERE t.project_id = {projectId}))
                 OR (j.queue IN ({PreviewJob.StartQueue}, {PreviewJob.TeardownQueue}) AND j.payload->>'preview_id' IN (
-                    SELECT p.id::text FROM previews p JOIN change_sets c ON c.id = p.change_set_id JOIN tickets t ON t.id = c.ticket_id WHERE t.project_id = {projectId}))
+                    SELECT p.id::text FROM previews p JOIN repositories r ON r.id = p.repository_id WHERE r.project_id = {projectId}))
                 OR (j.queue IN ({GitJob.Queue}, {ProjectJob.Queue}) AND j.payload->>'projectId' = {id}))
             """, cancellationToken);
         // Children before parents: the foreign keys restrict, except where a row is nothing without its parent
         // (log lines, entries, comments, viewed marks, run events, criteria, the project's providers).
         await db.Database.ExecuteSqlAsync($"""
-            DELETE FROM previews WHERE change_set_id IN (
-                SELECT c.id FROM change_sets c JOIN tickets t ON t.id = c.ticket_id WHERE t.project_id = {projectId})
+            DELETE FROM previews WHERE repository_id IN (SELECT id FROM repositories WHERE project_id = {projectId})
             """, cancellationToken);
         await db.Database.ExecuteSqlAsync($"""
             DELETE FROM review_threads WHERE change_set_id IN (

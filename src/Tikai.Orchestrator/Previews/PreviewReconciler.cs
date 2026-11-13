@@ -10,7 +10,7 @@ namespace Tikai.Orchestrator.Previews;
 /// <summary>Something the reconciler does to bring previews and their containers back in line.</summary>
 public abstract record PreviewReconcileAction(Guid PreviewId);
 
-/// <summary>Stop the preview (idle, time limit, change set ended); its teardown is queued with it.</summary>
+/// <summary>Stop the preview (idle, time limit, change set ended, branch moved); its teardown is queued with it.</summary>
 public sealed record StopPreviewAction(Guid PreviewId, string Reason) : PreviewReconcileAction(PreviewId);
 
 /// <summary>Fail the preview if it is still in that state (nobody starts it any more, or its app stopped).</summary>
@@ -24,15 +24,21 @@ public static class PreviewReconciliation
 {
     public const string ChangeSetEnded = "The change set was merged, pushed or closed.";
 
+    public const string ProjectClosed = "The project was archived or is being deleted.";
+
+    /// <summary>A branch preview runs the head it was started with; a newer head means it shows an old state.</summary>
+    public static string BranchMoved(string branch, string? head) =>
+        head is null ? $"The branch {branch} is gone." : $"{branch} moved to {head[..Math.Min(12, head.Length)]}. Start a new preview to see it.";
+
     public static IReadOnlyList<PreviewReconcileAction> Plan(
         IReadOnlyList<PreviewResource> resources, IReadOnlyList<ActivePreview> previews, IReadOnlyList<Guid> uncleaned, TimeSpan maxLifetime)
     {
         var actions = new List<PreviewReconcileAction>();
         foreach (var preview in previews)
         {
-            if (!preview.ChangeSetOpen)
+            if (preview.EndReason is { } reason)
             {
-                actions.Add(new StopPreviewAction(preview.PreviewId, ChangeSetEnded));
+                actions.Add(new StopPreviewAction(preview.PreviewId, reason));
                 continue;
             }
             if (preview.State != PreviewState.Running)
@@ -77,7 +83,7 @@ public static class PreviewReconciliation
 
 /// <summary>
 /// Brings previews and containers back in line every <see cref="OrchestratorOptions.ReconcileInterval"/>: stops idle
-/// previews, previews past the time limit and previews of ended change sets, fails starts nobody works on and previews
+/// previews, previews past the time limit, previews of ended change sets and of branches that moved, fails starts nobody works on and previews
 /// with an app that stopped, and queues the teardown of whatever ended previews left behind.
 /// </summary>
 public sealed partial class PreviewReconciler(

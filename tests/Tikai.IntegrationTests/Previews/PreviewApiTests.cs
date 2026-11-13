@@ -8,6 +8,7 @@ using Tikai.Core.Previews;
 using Tikai.Core.Runs;
 using Tikai.Data;
 using Tikai.IntegrationTests.Auth;
+using Tikai.IntegrationTests.Git;
 using Tikai.IntegrationTests.Runs;
 
 namespace Tikai.IntegrationTests.Previews;
@@ -139,6 +140,67 @@ public sealed class PreviewApiTests(PostgresFixture postgres, AgentHost agents) 
         Assert.Equal(PreviewState.Preparing, next.State);
         (await hub.Browser.PostAsync($"/api/previews/{next.Id}/stop", new { })).EnsureSuccessStatusCode();
         await WaitForCleanedAsync(hub, next.Id);
+    }
+
+    [Fact]
+    public async Task The_default_branch_is_previewed_from_the_project_and_stops_when_the_branch_moves()
+    {
+        await using var hub = await agents.StartHubAsync(postgres);
+        var ct = TestContext.Current.CancellationToken;
+        var ticket = await hub.CreateTicketAsync("preview");
+        var slug = hub.Slugs[ticket.Id];
+        var mirror = await hub.MirrorAsync(ticket);
+        var repositoryId = (await hub.Browser.GetJsonAsync<List<Tikai.Api.Projects.RepositoryInfo>>($"/api/projects/{slug}/repositories")).Single().Id;
+        var path = $"/api/projects/{slug}/repositories/{repositoryId}";
+
+        // Before the merge, main has no tikai-preview.yml.
+        var empty = await hub.Browser.GetJsonAsync<RepositoryPreviewInfo>(path + "/preview");
+        Assert.Equal(("main", false, true), (empty.Branch, empty.Found, empty.Available));
+        using (var refused = await hub.Browser.PostAsync(path + "/previews", new { }))
+        {
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+            Assert.Contains("main at ", await refused.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+        }
+
+        // The agent's app is merged into main; now main can be previewed.
+        var run = await hub.WaitForEndAsync((await hub.AssignAsync(ticket)).Id);
+        (await hub.Browser.PostAsync($"/api/change-sets/{run.ChangeSetId}/verdict", new { verdict = "approve" })).EnsureSuccessStatusCode();
+        await hub.WaitForAsync(run.Id, r => r.State == AgentRunState.Merged);
+        var head = (await TestGit.TryResolveAsync(mirror, "refs/heads/main"))!;
+        var info = await hub.Browser.GetJsonAsync<RepositoryPreviewInfo>(path + "/preview");
+        Assert.Equal((head, true, 0), (info.HeadSha, info.Found, info.Errors.Count));
+
+        using (var response = await hub.Browser.PostAsync(path + "/previews", new { }))
+        {
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(ct));
+            var started = (await response.Content.ReadFromJsonAsync<PreviewInfo>(TikaiJson.Options, ct))!;
+            Assert.Equal(("main", head, (Guid?)null, (int?)null, repositoryId), (started.Branch, started.HeadSha, started.ChangeSetId, started.RoundNo, started.RepositoryId));
+        }
+        var preview = (await hub.Browser.GetJsonAsync<RepositoryPreviewInfo>(path + "/preview")).Preview!;
+        await WaitForStateAsync(hub, preview.Id, PreviewState.Running);
+        // The project's own repository list cannot drop it while it runs.
+        using (var delete = await hub.Browser.DeleteAsync(path))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, delete.StatusCode);
+        }
+
+        // Someone moves main (a merge, a fetch): the reconciler stops the preview, which would show an old state.
+        var tree = await TestGit.RunAsync(mirror, "rev-parse", head + "^{tree}");
+        var next = await TestGit.RunAsync(mirror, "commit-tree", tree, "-p", head, "-m", "Next");
+        await TestGit.RunAsync(mirror, "update-ref", "refs/heads/main", next);
+        var stopped = await WaitForStateAsync(hub, preview.Id, PreviewState.Stopped);
+        Assert.Equal($"main moved to {next[..12]}. Start a new preview to see it.", stopped.StopReason);
+        await WaitForCleanedAsync(hub, preview.Id);
+        Assert.DoesNotContain(await RuntimeAsync(hub), r => r.PreviewId == preview.Id);
+
+        // An archived project starts nothing.
+        (await hub.Browser.PostAsync($"/api/projects/{slug}/archive", new { })).EnsureSuccessStatusCode();
+        var archived = await hub.Browser.GetJsonAsync<RepositoryPreviewInfo>(path + "/preview");
+        Assert.False(archived.Available);
+        using (var closed = await hub.Browser.PostAsync(path + "/previews", new { }))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, closed.StatusCode);
+        }
     }
 
     /// <summary>A ticket whose stub run submitted its work; returns the change set.</summary>

@@ -41,18 +41,20 @@ public interface IPreviewStore
     Task RequestTeardownAsync(Guid previewId, CancellationToken cancellationToken);
 }
 
-/// <param name="RoundRef">The round's pinned ref in the mirror, which is bundled and checked out.</param>
+/// <param name="Ref">What is bundled and checked out: the round's pinned ref, or the default branch for a branch preview.</param>
+/// <param name="HeadSha">The commit the preview was started for; a branch that moved since fails the start.</param>
 /// <param name="Definition">The tikai-preview.yml text checked when the preview was started.</param>
-public sealed record PreviewStartInfo(Guid PreviewId, string MirrorPath, string RoundRef, string Definition);
+public sealed record PreviewStartInfo(Guid PreviewId, string MirrorPath, string Ref, string HeadSha, string Definition);
 
-/// <param name="ChangeSetOpen">Open or being delivered; a preview of a merged, pushed or closed change set stops.</param>
+/// <param name="EndReason">Why it must stop now, for people; null while it may run. A round's preview stops when its
+/// change set is merged, pushed or closed; a branch preview when the branch moved or the project was put away.</param>
 /// <param name="Age">Since the preview was started.</param>
 /// <param name="Apps">The apps and their containers while it runs; empty before.</param>
 /// <param name="IdleFor">Since the last proxied request (or since it runs); null before it runs.</param>
 public sealed record ActivePreview(
     Guid PreviewId,
     PreviewState State,
-    bool ChangeSetOpen,
+    string? EndReason,
     IReadOnlyList<PreviewAppUpstream> Apps,
     bool HasLiveStartJob,
     TimeSpan Age,

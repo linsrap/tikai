@@ -14,11 +14,13 @@ type RunChange = { runId: string; projectSlug: string; ticketNumber: number }
 type AttentionChange = { itemId: string; projectSlug: string; ticketNumber: number }
 type ChangeSetChange = { changeSetId: string; projectSlug: string; ticketNumber: number }
 type RunEventsChange = { runId: string }
+/** A round's preview has a change set and a ticket; a preview of a repository's default branch has neither. */
 type PreviewChange = {
   previewId: string
-  changeSetId: string
+  repositoryId: string
+  changeSetId: string | null
   projectSlug: string
-  ticketNumber: number
+  ticketNumber: number | null
 }
 
 /** Wait before the next attempt: at once, 2 s, 5 s, 10 s, then every 30 s, for as long as it takes. */
@@ -28,7 +30,12 @@ export const retryDelay = (previousRetryCount: number): number =>
 /** The queries a change makes stale. The client re-reads them; the hub sends ids only. */
 export function staleKeys(
   message: 'RunChanged' | 'AttentionChanged' | 'ChangeSetChanged' | 'PreviewChanged',
-  change: { projectSlug: string; ticketNumber: number; changeSetId?: string },
+  change: {
+    projectSlug: string
+    ticketNumber?: number | null
+    changeSetId?: string | null
+    repositoryId?: string
+  },
 ): unknown[][] {
   const ticket = ['projects', change.projectSlug, 'tickets', change.ticketNumber]
   switch (message) {
@@ -55,8 +62,11 @@ export function staleKeys(
         ['attention-items'],
       ]
     case 'PreviewChanged':
-      // Its state or new log lines: the preview's line in the review (its log's key follows the last seq).
-      return [['change-set-preview', change.changeSetId]]
+      // Its state or new log lines: the preview's line in the review, or on the project page for a branch preview
+      // (its log's key follows the last seq).
+      return change.changeSetId
+        ? [['change-set-preview', change.changeSetId]]
+        : [['repository-preview', change.repositoryId]]
   }
 }
 
@@ -86,6 +96,7 @@ export const liveKeys: unknown[][] = [
   ['change-sets'],
   ['change-set-threads'],
   ['change-set-preview'],
+  ['repository-preview'],
 ]
 
 type Watch = { method: 'WatchAll' | 'WatchProject' | 'WatchRun'; arg?: string; count: number }

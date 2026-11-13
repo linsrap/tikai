@@ -10,6 +10,7 @@ using Tikai.Core.Events;
 using Tikai.Core.Git;
 using Tikai.Core.Jobs;
 using Tikai.Core.Previews;
+using Tikai.Core.Projects;
 using Tikai.Core.Reviews;
 using Tikai.Data;
 using Tikai.Orchestrator;
@@ -17,7 +18,7 @@ using Tikai.Orchestrator.Previews;
 
 namespace Tikai.Api.Previews;
 
-/// <summary>Start, stop and watch previews of a review round (the latest one).</summary>
+/// <summary>Start, stop and watch previews of a review round (the latest one) or of a repository's default branch.</summary>
 internal static class PreviewEndpoints
 {
     public const int MaxLogLines = 1_000;
@@ -27,6 +28,10 @@ internal static class PreviewEndpoints
         var changeSets = api.MapGroup("/change-sets").WithTags("Previews").RequireAuthorization();
         changeSets.MapGet("/{id:guid}/preview", GetForChangeSetAsync);
         changeSets.MapPost("/{id:guid}/previews", StartAsync);
+
+        var repositories = api.MapGroup("/projects/{slug}/repositories").WithTags("Previews").RequireAuthorization();
+        repositories.MapGet("/{id:guid}/preview", GetForRepositoryAsync);
+        repositories.MapPost("/{id:guid}/previews", StartBranchAsync);
 
         var previews = api.MapGroup("/previews").WithTags("Previews").RequireAuthorization();
         previews.MapPost("/{id:guid}/stop", StopAsync);
@@ -46,12 +51,32 @@ internal static class PreviewEndpoints
         var latest = await previews.LatestAsync(id, request, cancellationToken);
         var unavailable = previews.Unavailable(request);
         return TypedResults.Ok(new ChangeSetPreviewInfo(unavailable is null, unavailable,
-            new PreviewDefinitionInfo(target.RoundNo, definition.Found, definition.Errors), latest));
+            new PreviewDefinitionInfo(target.RoundNo!.Value, definition.Found, definition.Errors), latest));
     }
 
     private static async Task<Results<Ok<PreviewInfo>, ProblemHttpResult>> StartAsync(
         Guid id, HttpRequest request, ClaimsPrincipal user, PreviewService previews, CancellationToken cancellationToken) =>
         await previews.StartAsync(id, LlmProviderService.UserId(user), request, cancellationToken);
+
+    /// <summary>The repository's default branch at its head: whether it can be previewed, and its latest branch preview.</summary>
+    private static async Task<Results<Ok<RepositoryPreviewInfo>, ProblemHttpResult>> GetForRepositoryAsync(
+        string slug, Guid id, HttpRequest request, PreviewService previews, CancellationToken cancellationToken)
+    {
+        if (await previews.BranchTargetAsync(slug, id, cancellationToken) is not { } found)
+        {
+            return ProjectEndpoints.NotFound("Repository");
+        }
+        var definition = found.Target is { } target
+            ? await previews.ReadDefinitionAsync(target, cancellationToken)
+            : new DefinitionRead(false, null, [], null);
+        var unavailable = previews.Unavailable(request) ?? found.Blocked?.Detail;
+        return TypedResults.Ok(new RepositoryPreviewInfo(unavailable is null, unavailable, found.Branch, found.Target?.HeadSha,
+            definition.Found, definition.Errors, await previews.LatestForBranchAsync(id, request, cancellationToken)));
+    }
+
+    private static async Task<Results<Ok<PreviewInfo>, ProblemHttpResult>> StartBranchAsync(
+        string slug, Guid id, HttpRequest request, ClaimsPrincipal user, PreviewService previews, CancellationToken cancellationToken) =>
+        await previews.StartBranchAsync(slug, id, LlmProviderService.UserId(user), request, cancellationToken);
 
     /// <summary>
     /// A one-time link into a running preview for this person's browser (valid for two minutes): the hub's login does
@@ -119,8 +144,20 @@ internal static class PreviewEndpoints
     }
 }
 
-/// <summary>The change set's latest round, where its repository's mirror is, and whether it is open.</summary>
-internal sealed record PreviewTarget(Guid ChangeSetId, ChangeSetStatus Status, int RoundNo, string HeadSha, string Mirror);
+/// <summary>
+/// What a preview runs: a change set's latest round (with whether the change set is open) or a repository's default
+/// branch at its head, and where the repository's mirror is.
+/// </summary>
+internal sealed record PreviewTarget(Guid RepositoryId, Guid? ChangeSetId, ChangeSetStatus? Status, int? RoundNo, string? Branch, string HeadSha, string Mirror)
+{
+    /// <summary>For people: "Round 2" or "main at 1a2b3c4d5e6f".</summary>
+    public string Label => Branch is null ? $"Round {RoundNo}" : $"{Branch} at {HeadSha[..Math.Min(12, HeadSha.Length)]}";
+}
+
+/// <summary>A repository's default branch: the target when it can be previewed, else why not (<see cref="Blocked"/>).</summary>
+internal sealed record BranchTarget(string Branch, PreviewTarget? Target, BranchBlocked? Blocked);
+
+internal sealed record BranchBlocked(string Title, string Detail);
 
 /// <summary>What the hub read from a round's tikai-preview.yml.</summary>
 internal sealed record DefinitionRead(bool Found, string? Text, IReadOnlyList<string> Errors, PreviewDefinition? Definition);
@@ -155,7 +192,41 @@ internal sealed class PreviewService(
         }
         var round = await db.ReviewRounds.Where(r => r.ChangeSetId == changeSetId).OrderByDescending(r => r.RoundNo)
             .Select(r => new { r.RoundNo, r.HeadSha }).FirstAsync(cancellationToken);
-        return new PreviewTarget(changeSetId, target.Status, round.RoundNo, round.HeadSha, mirrors.For(target.ProjectId, target.RepositoryId));
+        return new PreviewTarget(
+            target.RepositoryId, changeSetId, target.Status, round.RoundNo, null, round.HeadSha, mirrors.For(target.ProjectId, target.RepositoryId));
+    }
+
+    /// <summary>
+    /// The repository's default branch as runs clone it (<c>refs/heads/&lt;default&gt;</c> in the mirror, kept current by
+    /// fetches and merges); null when the project has no such repository.
+    /// </summary>
+    public async Task<BranchTarget?> BranchTargetAsync(string slug, Guid repositoryId, CancellationToken cancellationToken)
+    {
+        var found = await (
+            from r in db.Repositories
+            join p in db.Projects on r.ProjectId equals p.Id
+            where r.Id == repositoryId && p.Slug == slug
+            select new { Repository = r, Project = p }).AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+        if (found is null)
+        {
+            return null;
+        }
+        var branch = found.Repository.DefaultBranch;
+        if (ProjectEndpoints.ClosedReason(found.Project) is var (title, detail))
+        {
+            return new BranchTarget(branch, null, new BranchBlocked(title, detail));
+        }
+        if (found.Repository.Status != RepositoryStatus.Ready)
+        {
+            return new BranchTarget(branch, null, new BranchBlocked("The repository is not ready",
+                found.Repository.Status == RepositoryStatus.Cloning ? "The repository is still being cloned." : "The repository could not be cloned."));
+        }
+        var mirror = mirrors.For(found.Project.Id, repositoryId);
+        if (await git.ResolveCommitAsync(mirror, PreviewRules.BranchRef(branch), cancellationToken) is not { } head)
+        {
+            return new BranchTarget(branch, null, new BranchBlocked("Nothing to preview", $"The branch \"{branch}\" has no commits yet."));
+        }
+        return new BranchTarget(branch, new PreviewTarget(repositoryId, null, null, null, branch, head, mirror), null);
     }
 
     public async Task<DefinitionRead> ReadDefinitionAsync(PreviewTarget target, CancellationToken cancellationToken)
@@ -219,11 +290,37 @@ internal sealed class PreviewService(
         {
             return Problem(StatusCodes.Status409Conflict, "Not open", "Only an open change set can be previewed.");
         }
+        return await StartAsync(target, userId, request, cancellationToken);
+    }
+
+    /// <summary>A preview of the repository's default branch at its current head; it stops when the branch moves.</summary>
+    public async Task<Results<Ok<PreviewInfo>, ProblemHttpResult>> StartBranchAsync(
+        string slug, Guid repositoryId, Guid userId, HttpRequest request, CancellationToken cancellationToken)
+    {
+        if (Unavailable(request) is { } reason)
+        {
+            return Problem(StatusCodes.Status409Conflict, "Previews are off", reason);
+        }
+        var found = await BranchTargetAsync(slug, repositoryId, cancellationToken);
+        if (found is null)
+        {
+            return ProjectEndpoints.NotFound("Repository");
+        }
+        if (found.Blocked is { } blocked)
+        {
+            return Problem(StatusCodes.Status409Conflict, blocked.Title, blocked.Detail);
+        }
+        return await StartAsync(found.Target!, userId, request, cancellationToken);
+    }
+
+    private async Task<Results<Ok<PreviewInfo>, ProblemHttpResult>> StartAsync(
+        PreviewTarget target, Guid userId, HttpRequest request, CancellationToken cancellationToken)
+    {
         var definition = await ReadDefinitionAsync(target, cancellationToken);
         if (!definition.Found)
         {
             return Problem(StatusCodes.Status422UnprocessableEntity, "No preview definition",
-                $"Round {target.RoundNo} has no {PreviewDefinition.FileName} at the repository root.");
+                $"{target.Label} has no {PreviewDefinition.FileName} at the repository root.");
         }
         if (definition is not { Definition: { } parsed, Text: { } text })
         {
@@ -235,7 +332,14 @@ internal sealed class PreviewService(
         await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
         {
             await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({StartLock})", cancellationToken);
-            await PreviewStops.ForChangeSetAsync(db, jobs, events, changeSetId, "Replaced by a new preview.", now, cancellationToken);
+            if (target.ChangeSetId is { } changeSetId)
+            {
+                await PreviewStops.ForChangeSetAsync(db, jobs, events, changeSetId, PreviewStops.Replaced, now, cancellationToken);
+            }
+            else
+            {
+                await PreviewStops.ForBranchAsync(db, jobs, events, target.RepositoryId, PreviewStops.Replaced, now, cancellationToken);
+            }
             var running = await db.Previews.CountAsync(p => PreviewRules.Active.Contains(p.State), cancellationToken);
             if (running >= options.Value.MaxRunning)
             {
@@ -245,8 +349,10 @@ internal sealed class PreviewService(
             db.Previews.Add(new Preview
             {
                 Id = previewId,
-                ChangeSetId = changeSetId,
+                RepositoryId = target.RepositoryId,
+                ChangeSetId = target.ChangeSetId,
                 RoundNo = target.RoundNo,
+                Branch = target.Branch,
                 HeadSha = target.HeadSha,
                 State = PreviewState.Preparing,
                 Definition = text,
@@ -262,10 +368,15 @@ internal sealed class PreviewService(
         return TypedResults.Ok((await InfoAsync(previewId, request, cancellationToken))!);
     }
 
-    public async Task<PreviewInfo?> LatestAsync(Guid changeSetId, HttpRequest request, CancellationToken cancellationToken)
+    public Task<PreviewInfo?> LatestAsync(Guid changeSetId, HttpRequest request, CancellationToken cancellationToken) =>
+        LatestAsync(db.Previews.Where(p => p.ChangeSetId == changeSetId), request, cancellationToken);
+
+    public Task<PreviewInfo?> LatestForBranchAsync(Guid repositoryId, HttpRequest request, CancellationToken cancellationToken) =>
+        LatestAsync(db.Previews.Where(p => p.RepositoryId == repositoryId && p.Branch != null), request, cancellationToken);
+
+    private async Task<PreviewInfo?> LatestAsync(IQueryable<Preview> previews, HttpRequest request, CancellationToken cancellationToken)
     {
-        var id = await db.Previews.Where(p => p.ChangeSetId == changeSetId).OrderByDescending(p => p.CreatedAt)
-            .Select(p => (Guid?)p.Id).FirstOrDefaultAsync(cancellationToken);
+        var id = await previews.OrderByDescending(p => p.CreatedAt).Select(p => (Guid?)p.Id).FirstOrDefaultAsync(cancellationToken);
         return id is null ? null : await InfoAsync(id.Value, request, cancellationToken);
     }
 
@@ -274,7 +385,7 @@ internal sealed class PreviewService(
     {
         var p = await db.Previews.AsNoTracking().SingleOrDefaultAsync(p => p.Id == previewId, cancellationToken);
         return p is null ? null : new PreviewInfo(
-            p.Id, p.ChangeSetId, p.RoundNo, p.HeadSha, p.State, p.Error, p.StopReason, p.CreatedAt, p.RunningAt, p.StoppedAt,
+            p.Id, p.RepositoryId, p.ChangeSetId, p.RoundNo, p.Branch, p.HeadSha, p.State, p.Error, p.StopReason, p.CreatedAt, p.RunningAt, p.StoppedAt,
             p.IdleMinutes, p.LastLogSeq, p.State == PreviewState.Running && request is not null ? Origin(p.Id, request) : null,
             Apps(p.Definition));
     }

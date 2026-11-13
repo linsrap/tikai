@@ -4,8 +4,9 @@ using Tikai.Core.Common;
 namespace Tikai.Core.Previews;
 
 /// <summary>
-/// A short-lived instance of a review round's app, started from the round's <c>tikai-preview.yml</c>. Every start is a
-/// fresh preview with empty data; nothing is kept after it stops. At most one is active per change set.
+/// A short-lived instance of an app, started from its <c>tikai-preview.yml</c>: a review round's (change set and round)
+/// or a repository's default branch at its head (<see cref="Branch"/>). Every start is a fresh preview with empty data;
+/// nothing is kept after it stops. At most one is active per change set, and one branch preview per repository.
 /// </summary>
 public class Preview : Entity
 {
@@ -15,11 +16,17 @@ public class Preview : Entity
     /// <summary>The only environment until named environments per project exist.</summary>
     public const string DefaultEnvironment = "default";
 
-    public Guid ChangeSetId { get; set; }
+    public Guid RepositoryId { get; set; }
 
-    public int RoundNo { get; set; }
+    /// <summary>Set for a round's preview; null for a branch preview.</summary>
+    public Guid? ChangeSetId { get; set; }
 
-    /// <summary>The round's head, which the preview runs.</summary>
+    public int? RoundNo { get; set; }
+
+    /// <summary>The default branch a branch preview runs (null for a round's preview); it stops when the branch moves.</summary>
+    public string? Branch { get; set; }
+
+    /// <summary>The commit it runs: the round's head, or the branch's head when it was started.</summary>
     public required string HeadSha { get; set; }
 
     public string Environment { get; set; } = DefaultEnvironment;
@@ -29,7 +36,7 @@ public class Preview : Entity
     /// <summary>Why it failed, for people.</summary>
     public string? Error { get; set; }
 
-    /// <summary>Why it stopped: the button, idle time, the time limit, the change set's end, a newer preview.</summary>
+    /// <summary>Why it stopped: the button, idle time, the time limit, the change set's end, the branch moved, a newer preview.</summary>
     public string? StopReason { get; set; }
 
     /// <summary>The definition as it was read and checked when the preview was started.</summary>
@@ -108,6 +115,9 @@ public static class PreviewRules
 
     public const int MaxErrorLength = 4_000;
     public const int MaxSourceLength = 40;
+
+    /// <summary>The ref a branch preview runs: the default branch in the mirror, as runs clone it.</summary>
+    public static string BranchRef(string branch) => "refs/heads/" + branch;
 
     /// <summary>States in which a preview has (or is getting) containers.</summary>
     public static readonly IReadOnlyList<PreviewState> Active = [PreviewState.Preparing, PreviewState.Starting, PreviewState.Running];

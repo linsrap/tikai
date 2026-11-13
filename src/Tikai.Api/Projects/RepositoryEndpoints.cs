@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Tikai.Core.Git;
+using Tikai.Core.Previews;
 using Tikai.Core.Projects;
 using Tikai.Data;
 using Tikai.Git;
@@ -260,6 +261,14 @@ internal static class RepositoryEndpoints
         if (await HasHistoryAsync(db, id, cancellationToken))
         {
             return HasHistory();
+        }
+        // Its branch previews go with it, but only once their containers and directories are gone.
+        if (await db.Previews.AnyAsync(p => p.RepositoryId == id && (PreviewRules.Active.Contains(p.State) || p.CleanedAt == null), cancellationToken))
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A preview of this repository is still running",
+                detail: "Stop the preview first; the repository can be deleted once the preview is torn down.");
         }
         try
         {

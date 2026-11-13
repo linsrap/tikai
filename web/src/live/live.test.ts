@@ -41,8 +41,24 @@ describe('live updates', () => {
 
   it('re-reads the review preview when a preview changes (its log key follows the last seq)', () => {
     expect(
-      staleKeys('PreviewChanged', { projectSlug: 'hub', ticketNumber: 7, changeSetId: 'cs1' }),
+      staleKeys('PreviewChanged', {
+        projectSlug: 'hub',
+        ticketNumber: 7,
+        changeSetId: 'cs1',
+        repositoryId: 'r1',
+      }),
     ).toEqual([['change-set-preview', 'cs1']])
+  })
+
+  it('re-reads the repository preview when a branch preview changes', () => {
+    expect(
+      staleKeys('PreviewChanged', {
+        projectSlug: 'hub',
+        ticketNumber: null,
+        changeSetId: null,
+        repositoryId: 'r1',
+      }),
+    ).toEqual([['repository-preview', 'r1']])
   })
 
   it('re-reads the review, its threads and the links to it when a change set changes, not its files', () => {

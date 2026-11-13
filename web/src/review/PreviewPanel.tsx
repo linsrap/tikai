@@ -38,11 +38,9 @@ export function PreviewPanel({
 }) {
   const query = useQuery(changeSetPreviewQuery(changeSet.id))
   const start = useStartPreview(changeSet.id)
-  const stop = useStopPreview(changeSet.id)
-  const open = useOpenPreview()
   const info = query.data
   const preview = info?.preview ?? null
-  const error = start.error ?? stop.error ?? open.error ?? query.error
+  const error = start.error ?? query.error
 
   return (
     <section
@@ -88,59 +86,96 @@ export function PreviewPanel({
         </div>
       )}
       {info && (preview || canStart(info, changeSet.status === 'open')) && (
-        <div className="flex flex-wrap items-center gap-2">
-          {preview && (
-            <Tag tone={previewStateTone[preview.state]}>{previewStateLabel[preview.state]}</Tag>
-          )}
-          {preview && (
-            <span className="text-sm text-fg-muted" role="status">
-              {previewLine(preview)}
-            </span>
-          )}
-          <span className="ml-auto flex flex-wrap items-center gap-2">
-            {preview?.state === 'running' && (
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={open.isPending}
-                onClick={() => open.mutate(preview.id)}
-              >
-                Open preview
-              </Button>
-            )}
-            {preview && isActive(preview.state) && (
-              <Button
-                variant="danger"
-                size="sm"
-                disabled={stop.isPending}
-                onClick={() => stop.mutate(preview.id)}
-              >
-                <StopIcon size={13} />
-                Stop
-              </Button>
-            )}
-            {canStart(info, changeSet.status === 'open') && (
-              <Button
-                variant={preview?.state === 'running' ? 'secondary' : 'primary'}
-                size="sm"
-                disabled={start.isPending}
-                onClick={() => start.mutate()}
-              >
-                <TerminalIcon size={13} />
-                {preview && isActive(preview.state)
-                  ? `Preview round ${info.definition.roundNo} instead`
-                  : 'Start preview'}
-              </Button>
-            )}
-          </span>
-        </div>
+        <PreviewControls
+          preview={preview}
+          stopKey={['change-set-preview', changeSet.id]}
+          start={
+            canStart(info, changeSet.status === 'open')
+              ? {
+                  label:
+                    preview && isActive(preview.state)
+                      ? `Preview round ${info.definition.roundNo} instead`
+                      : 'Start preview',
+                  pending: start.isPending,
+                  onStart: () => start.mutate(),
+                }
+              : null
+          }
+        />
       )}
+      {error && <ErrorText>{error.message}</ErrorText>}
+    </section>
+  )
+}
+
+/**
+ * A preview's state with its buttons (open, stop, start), the apps it serves and its log; shared by the review screen
+ * and the project page. start is null when nothing can be started now.
+ */
+export function PreviewControls({
+  preview,
+  stopKey,
+  start,
+}: {
+  preview: Preview | null
+  stopKey: unknown[]
+  start: { label: string; pending: boolean; onStart: () => void } | null
+}) {
+  const stop = useStopPreview(stopKey)
+  const open = useOpenPreview()
+  const error = stop.error ?? open.error
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {preview && (
+          <Tag tone={previewStateTone[preview.state]}>{previewStateLabel[preview.state]}</Tag>
+        )}
+        {preview && (
+          <span className="text-sm text-fg-muted" role="status">
+            {previewLine(preview)}
+          </span>
+        )}
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          {preview?.state === 'running' && (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={open.isPending}
+              onClick={() => open.mutate(preview.id)}
+            >
+              Open preview
+            </Button>
+          )}
+          {preview && isActive(preview.state) && (
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={stop.isPending}
+              onClick={() => stop.mutate(preview.id)}
+            >
+              <StopIcon size={13} />
+              Stop
+            </Button>
+          )}
+          {start && (
+            <Button
+              variant={preview?.state === 'running' ? 'secondary' : 'primary'}
+              size="sm"
+              disabled={start.pending}
+              onClick={start.onStart}
+            >
+              <TerminalIcon size={13} />
+              {start.label}
+            </Button>
+          )}
+        </span>
+      </div>
       {preview && isActive(preview.state) && appsLine(preview.apps) && (
         <span className="text-sm text-fg-muted">{appsLine(preview.apps)}</span>
       )}
       {preview && preview.lastLogSeq > 0 && <PreviewLog preview={preview} />}
       {error && <ErrorText>{error.message}</ErrorText>}
-    </section>
+    </>
   )
 }
 
