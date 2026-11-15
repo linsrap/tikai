@@ -301,7 +301,7 @@ public sealed class ReviewTests(PostgresFixture postgres, AgentHost agents) : IC
             var failed = await AnalysisAsync(hub, run.ChangeSetId.Value);
             Assert.Equal(AnalysisStatus.Failed, failed.Status);
             Assert.Null(failed.Result);
-            Assert.Equal("The provider rejected the API key. Anthropic says: invalid x-api-key (model claude-review-test)", failed.Error);
+            Assert.Equal("The provider rejected the API key. The provider says: invalid x-api-key (model claude-review-test)", failed.Error);
             Assert.Equal("claude-review-test", agents.Llm.Requests.Last().Model);
             var unavailable = (await hub.Browser.GetJsonAsync<List<AttentionItemInfo>>("/api/attention-items")).Single(i => i.RunId == run.Id).Analysis!;
             Assert.Equal((AnalysisStatus.Failed, failed.Error), (unavailable.Status, unavailable.Error));

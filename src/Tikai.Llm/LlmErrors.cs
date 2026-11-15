@@ -34,10 +34,13 @@ internal static class LlmErrors
         try
         {
             using var body = JsonDocument.Parse(ex.ResponseBody);
-            return body.RootElement.TryGetProperty("error", out var error)
+            return body.RootElement.ValueKind == JsonValueKind.Object
+                && body.RootElement.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.Object
                 && error.TryGetProperty("message", out var message)
+                && message.ValueKind == JsonValueKind.String
                 && message.GetString() is { Length: > 0 } text
-                    ? $" Anthropic says: {text}"
+                    ? $" The provider says: {text}"
                     : "";
         }
         catch (JsonException)
