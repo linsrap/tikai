@@ -31,6 +31,7 @@ public sealed class ChatClientFactory : IChatClientFactory
             BaseUrl = connection.BaseUrl ?? AnthropicDefaultBaseUrl,
             Timeout = TimeSpan.FromMinutes(10),
             MaxRetries = 2,
+            Handlers = [new GatewayErrorHandler()],
         };
         return new OwningChatClient(client.AsIChatClient(connection.Model), client);
     }

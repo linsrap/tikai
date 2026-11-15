@@ -52,7 +52,23 @@ public sealed class LlmClientTests
         var result = await _tester.TestAsync(Connection(server.BaseUrl), TestContext.Current.CancellationToken);
 
         Assert.False(result.Ok);
-        Assert.Equal("The provider is rate limiting this key, or it is out of credit. Anthropic says: Your credit balance is too low.", result.Message);
+        Assert.Equal("The provider is rate limiting this key, or it is out of credit. The provider says: Your credit balance is too low.", result.Message);
+    }
+
+    [Theory]
+    [InlineData("""{"error":"Invalid API key"}""", "The provider rejected the API key. The provider says: Invalid API key")]
+    [InlineData("""{"error":{"code":401}}""", "The provider rejected the API key.")]
+    [InlineData("""["unexpected"]""", "The provider rejected the API key.")]
+    [InlineData("Unauthorized", "The provider rejected the API key.")]
+    public async Task A_gateways_own_error_format_is_understood(string body, string expected)
+    {
+        // CLIProxyAPI and other gateways answer with their own JSON, e.g. a plain string as "error".
+        await using var server = await FakeAnthropicServer.StartAsync(StatusCodes.Status401Unauthorized, body);
+
+        var result = await _tester.TestAsync(Connection(server.BaseUrl), TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(expected, result.Message);
     }
 
     [Theory]

@@ -25,6 +25,8 @@ services:
       Tikai__Previews__PreviewsVolume: ${COMPOSE_PROJECT_NAME}_previews
       Tikai__Previews__HubContainer: ${COMPOSE_PROJECT_NAME}-hub-1
       Tikai__Previews__Domain: ${TIKAI_PREVIEW_DOMAIN:-}
+      # LLM base URLs may use plain http (a gateway on this machine, e.g. http://host.docker.internal:8317).
+      Tikai__Llm__AllowHttpBaseUrls: ${TIKAI_LLM_ALLOW_HTTP:-false}
     volumes:
       - data:/data # Data Protection keys (encrypted with TIKAI_SECRET) and repository mirrors; hub only
     networks: [default, agents]
