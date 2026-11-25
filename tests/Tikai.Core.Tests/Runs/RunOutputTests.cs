@@ -60,13 +60,42 @@ public class RunOutputTests
     }
 
     [Fact]
-    public void A_payload_that_stays_too_big_becomes_a_preview()
+    public void A_payload_that_stays_too_big_keeps_its_keys_with_shorter_strings()
     {
-        var payload = new JsonObject { ["items"] = new JsonArray([.. Enumerable.Range(0, 20).Select(_ => (JsonNode?)new string('c', 3_000))]) };
+        // An Edit of a large file: both strings near the limit, together far over it.
+        var payload = new JsonObject
+        {
+            ["id"] = "toolu_1",
+            ["name"] = "Edit",
+            ["input"] = new JsonObject
+            {
+                ["file_path"] = "src/big.cs",
+                ["old_string"] = new string('o', 9_000),
+                ["new_string"] = new string('n', 9_000),
+            },
+            ["items"] = new JsonArray([.. Enumerable.Range(0, 5).Select(_ => (JsonNode?)new string('c', 3_000))]),
+        };
 
         var trimmed = RunEventPayload.Trim(payload);
 
         Assert.True((bool)trimmed["truncated"]!);
+        Assert.Equal("Edit", (string?)trimmed["name"]);
+        Assert.Equal("src/big.cs", (string?)trimmed["input"]!["file_path"]);
+        Assert.StartsWith("ooo", (string?)trimmed["input"]!["old_string"], StringComparison.Ordinal);
+        Assert.EndsWith("more characters]", (string?)trimmed["input"]!["new_string"], StringComparison.Ordinal);
+        Assert.Null(trimmed["preview"]);
+        Assert.True(Encoding.UTF8.GetByteCount(trimmed.ToJsonString()) <= RunEventPayload.MaxPayloadBytes);
+    }
+
+    [Fact]
+    public void A_payload_too_big_even_with_short_strings_becomes_a_preview()
+    {
+        var payload = new JsonObject { ["items"] = new JsonArray([.. Enumerable.Range(0, 200).Select(_ => (JsonNode?)new string('c', 300))]) };
+
+        var trimmed = RunEventPayload.Trim(payload);
+
+        Assert.True((bool)trimmed["truncated"]!);
+        Assert.NotNull((string?)trimmed["preview"]);
         Assert.True(Encoding.UTF8.GetByteCount(trimmed.ToJsonString()) <= RunEventPayload.MaxPayloadBytes);
     }
 

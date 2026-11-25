@@ -53,6 +53,20 @@ public class StreamJsonParserTests
     }
 
     [Fact]
+    public void A_subagent_s_messages_and_results_name_their_task_call()
+    {
+        var parser = new StreamJsonParser();
+
+        var said = parser.ParseLine("""{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"text","text":"Searching."}]},"parent_tool_use_id":"toolu_task","session_id":"s"}""");
+        var result = parser.ParseLine("""{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_9","type":"tool_result","content":"3 files"}]},"parent_tool_use_id":"toolu_task"}""");
+        var top = parser.ParseLine("""{"type":"assistant","message":{"id":"msg_3","role":"assistant","content":[{"type":"text","text":"Done."}]},"parent_tool_use_id":null}""");
+
+        Assert.Equal("toolu_task", (string?)Assert.Single(said).Payload["parent_tool_use_id"]);
+        Assert.Equal("toolu_task", (string?)Assert.Single(result).Payload["parent_tool_use_id"]);
+        Assert.False(Assert.Single(top).Payload.ContainsKey("parent_tool_use_id"));
+    }
+
+    [Fact]
     public void Tool_results_keep_their_text_as_a_string_or_from_blocks()
     {
         var parser = new StreamJsonParser();

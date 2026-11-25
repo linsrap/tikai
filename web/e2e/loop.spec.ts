@@ -122,11 +122,18 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
     .getByRole('complementary', { name: 'Live log of E2E-1' })
     .getByRole('log', { name: 'Agent log' })
   await expect(sideLog.getByText(/Line \d+ of 40/).first()).toBeVisible()
+  // The log is a chat: the plan is a card with its steps and the answer it got (near the top; rows out of view are
+  // not rendered).
+  await sideLog.evaluate((el) => el.scrollTo(0, 0))
+  const planCard = sideLog.getByRole('article', { name: /^Proposed a plan/ })
+  await expect(planCard).toBeVisible()
+  await expect(planCard).toContainText('Answer:')
 
-  // The board: the run and its live log.
+  // The board: the run and its live log, here as raw lines.
   await nav.getByRole('link', { name: 'Board', exact: true }).click()
   const run = page.getByRole('article', { name: 'Run of E2E-1' })
   await run.getByRole('button', { name: 'Live log' }).click()
+  await run.getByRole('group', { name: 'Log view' }).getByRole('button', { name: 'Raw' }).click()
   const log = run.getByRole('log', { name: 'Agent log' })
   await expect(log.getByText(/Line \d+ of 40/).first()).toBeVisible()
 

@@ -119,10 +119,10 @@ public sealed class StreamJsonParser : IAgentOutputParser
             switch (Text(block["type"]))
             {
                 case "text":
-                    events.Add(new(RunEventKind.Message, new JsonObject { ["role"] = "assistant", ["text"] = Text(block["text"]) }));
+                    events.Add(new(RunEventKind.Message, WithParent(new JsonObject { ["role"] = "assistant", ["text"] = Text(block["text"]) }, message)));
                     break;
                 case "thinking":
-                    events.Add(new(RunEventKind.Message, new JsonObject { ["role"] = "assistant", ["thinking"] = Text(block["thinking"]) }));
+                    events.Add(new(RunEventKind.Message, WithParent(new JsonObject { ["role"] = "assistant", ["thinking"] = Text(block["thinking"]) }, message)));
                     break;
                 case "tool_use":
                     events.Add(new(RunEventKind.ToolCall, new JsonObject
@@ -148,15 +148,15 @@ public sealed class StreamJsonParser : IAgentOutputParser
             switch (Text(block["type"]))
             {
                 case "tool_result":
-                    events.Add(new(RunEventKind.ToolResult, new JsonObject
+                    events.Add(new(RunEventKind.ToolResult, WithParent(new JsonObject
                     {
                         ["tool_use_id"] = Text(block["tool_use_id"]),
                         ["is_error"] = block["is_error"] is JsonValue e && e.TryGetValue<bool>(out var isError) && isError,
                         ["content"] = Content(block["content"]),
-                    }));
+                    }, message)));
                     break;
                 case "text":
-                    events.Add(new(RunEventKind.Message, new JsonObject { ["role"] = "user", ["text"] = Text(block["text"]) }));
+                    events.Add(new(RunEventKind.Message, WithParent(new JsonObject { ["role"] = "user", ["text"] = Text(block["text"]) }, message)));
                     break;
                 default:
                     break;
@@ -186,6 +186,16 @@ public sealed class StreamJsonParser : IAgentOutputParser
             ["permission_denials"] = message["permission_denials"]?.DeepClone(),
             ["session_id"] = Text(message["session_id"]),
         });
+    }
+
+    /// <summary>Marks a message or result that a subagent wrote, so the browser can nest it under its Task call.</summary>
+    private static JsonObject WithParent(JsonObject payload, JsonObject message)
+    {
+        if (Text(message["parent_tool_use_id"]) is { } parent)
+        {
+            payload["parent_tool_use_id"] = parent;
+        }
+        return payload;
     }
 
     private static long Tokens(JsonObject usage) =>

@@ -1,12 +1,15 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { eventSummary } from '../runs/runs'
 import { Button } from '../ui/Button'
 import { cx } from '../ui/cx'
 import { ErrorText } from '../ui/form'
+import { Segmented } from '../ui/Segmented'
 import { Dot } from '../ui/Tag'
+import { ChatBuilder } from './chat'
 import type { RunEventInfo } from './logBuffer'
 import { logTime } from './logTime'
+import { ChatRow } from './RunChat'
 import { useRunLog } from './useRunLog'
 
 const kindLabel: Record<RunEventInfo['kind'], string> = {
@@ -29,10 +32,43 @@ const kindColor: Record<RunEventInfo['kind'], string> = {
   log: 'text-fg-subtle',
 }
 
+export type LogView = 'chat' | 'raw'
+
+// The chosen view, per browser; storage can be blocked, then it holds for the page.
+const viewKey = 'tikai.logView'
+const viewListeners = new Set<() => void>()
+let viewChoice: LogView = (() => {
+  try {
+    return localStorage.getItem(viewKey) === 'raw' ? 'raw' : 'chat'
+  } catch {
+    return 'chat'
+  }
+})()
+
+function setLogView(next: LogView) {
+  viewChoice = next
+  try {
+    localStorage.setItem(viewKey, next)
+  } catch {
+    // ignored: see above
+  }
+  viewListeners.forEach((l) => l())
+}
+
+function useLogView() {
+  return useSyncExternalStore(
+    (listener) => {
+      viewListeners.add(listener)
+      return () => viewListeners.delete(listener)
+    },
+    () => viewChoice,
+  )
+}
+
 /**
- * A run's live transcript. Only the rows in view are rendered (a run can have 10 000 events). It follows the end while
- * scrolled to the bottom and keeps its place otherwise. A row opens to its raw payload. The data attributes say which
- * seqs it holds, for tests.
+ * A run's live transcript, as a chat (text, tool calls with their results, sessions) or raw (one line per event,
+ * opening to its payload). Only the rows in view are rendered (a run can have 10 000 events). It follows the end
+ * while scrolled to the bottom and keeps its place otherwise. The data attributes say which seqs it holds, for tests.
  */
 export function RunLog({
   runId,
@@ -43,22 +79,12 @@ export function RunLog({
   height?: string
 }) {
   const { events, error } = useRunLog(runId)
-  const scroller = useRef<HTMLDivElement>(null)
+  const view = useLogView()
   const [follow, setFollow] = useState(true)
-  // TanStack Virtual returns functions that change between renders; the React Compiler is not used here.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const virtualizer = useVirtualizer({
-    count: events.length,
-    getScrollElement: () => scroller.current,
-    estimateSize: () => 22,
-    overscan: 20,
-  })
-
-  useEffect(() => {
-    if (follow && events.length > 0) {
-      virtualizer.scrollToIndex(events.length - 1, { align: 'end' })
-    }
-  }, [events.length, follow, virtualizer])
+  const chat = useMemo(() => new ChatBuilder(), [runId]) // eslint-disable-line react-hooks/exhaustive-deps -- one per run
+  // The builder only reads events it has not seen, so this is cheap on every render.
+  chat.update(events)
+  const opened = useMemo(() => new Map<string, boolean>(), [runId]) // eslint-disable-line react-hooks/exhaustive-deps -- one per run
 
   return (
     <div className="flex flex-col gap-2">
@@ -70,45 +96,119 @@ export function RunLog({
           <span className="tabular-nums">
             · {events.length} event{events.length === 1 ? '' : 's'}
           </span>
-          {!follow && events.length > 0 && (
-            <Button
-              variant="ghost"
+          <div className="ml-auto flex items-center gap-2">
+            {!follow && events.length > 0 && (
+              <Button variant="ghost" size="sm" className="h-6" onClick={() => setFollow(true)}>
+                Follow the end
+              </Button>
+            )}
+            <Segmented
+              label="Log view"
               size="sm"
-              className="ml-auto h-6"
-              onClick={() => setFollow(true)}
-            >
-              Follow the end
-            </Button>
-          )}
-        </div>
-        <div
-          ref={scroller}
-          className={cx(height, 'overflow-auto font-mono text-xs leading-5')}
-          role="log"
-          aria-label="Agent log"
-          data-count={events.length}
-          data-first-seq={events[0]?.seq ?? 0}
-          data-last-seq={events.at(-1)?.seq ?? 0}
-          onScroll={(e) => {
-            const el = e.currentTarget
-            setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
-          }}
-        >
-          {events.length === 0 && <p className="m-0 px-3 py-2 text-fg-subtle">No events yet.</p>}
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-            {virtualizer.getVirtualItems().map((row) => (
-              <div
-                key={row.key}
-                data-index={row.index}
-                ref={virtualizer.measureElement}
-                className="absolute top-0 left-0 w-full"
-                style={{ transform: `translateY(${row.start}px)` }}
-              >
-                <LogLine event={events[row.index]} />
-              </div>
-            ))}
+              value={view}
+              onChange={setLogView}
+              options={[
+                { value: 'chat', label: 'Chat' },
+                { value: 'raw', label: 'Raw' },
+              ]}
+            />
           </div>
         </div>
+        {view === 'chat' ? (
+          <Scroller
+            key="chat"
+            className={cx(height, 'text-sm')}
+            events={events}
+            count={chat.items.length}
+            itemKey={(i) => chat.items[i].key}
+            estimate={44}
+            follow={follow}
+            setFollow={setFollow}
+            row={(i) => <ChatRow item={chat.items[i]} cwd={chat.cwd} opened={opened} />}
+          />
+        ) : (
+          <Scroller
+            key="raw"
+            className={cx(height, 'font-mono text-xs leading-5')}
+            events={events}
+            count={events.length}
+            itemKey={(i) => String(events[i].seq)}
+            estimate={22}
+            follow={follow}
+            setFollow={setFollow}
+            row={(i) => <LogLine event={events[i]} />}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The virtualized scroll area both views share. */
+function Scroller({
+  className,
+  events,
+  count,
+  itemKey,
+  estimate,
+  follow,
+  setFollow,
+  row,
+}: {
+  className: string
+  events: readonly RunEventInfo[]
+  count: number
+  itemKey: (index: number) => string
+  estimate: number
+  follow: boolean
+  setFollow: (follow: boolean) => void
+  row: (index: number) => ReactNode
+}) {
+  const scroller = useRef<HTMLDivElement>(null)
+  // TanStack Virtual returns functions that change between renders; the React Compiler is not used here.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => estimate,
+    getItemKey: itemKey,
+    overscan: 20,
+  })
+
+  // Every new event may grow the last row (a tool result) without adding one, so this follows events, not rows.
+  useEffect(() => {
+    if (follow && count > 0) {
+      virtualizer.scrollToIndex(count - 1, { align: 'end' })
+    }
+  }, [events.length, count, follow, virtualizer])
+
+  return (
+    <div
+      ref={scroller}
+      className={cx(className, 'overflow-auto')}
+      role="log"
+      aria-label="Agent log"
+      data-count={events.length}
+      data-first-seq={events[0]?.seq ?? 0}
+      data-last-seq={events.at(-1)?.seq ?? 0}
+      onScroll={(e) => {
+        const el = e.currentTarget
+        setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
+      }}
+    >
+      {count === 0 && <p className="m-0 px-3 py-2 text-xs text-fg-subtle">No events yet.</p>}
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((item) => (
+          <div
+            key={item.key}
+            data-index={item.index}
+            ref={virtualizer.measureElement}
+            className="absolute top-0 left-0 w-full"
+            style={{ transform: `translateY(${item.start}px)` }}
+          >
+            {row(item.index)}
+          </div>
+        ))}
       </div>
     </div>
   )
