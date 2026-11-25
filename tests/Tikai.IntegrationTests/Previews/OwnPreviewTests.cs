@@ -11,7 +11,7 @@ namespace Tikai.IntegrationTests.Previews;
 
 /// <summary>
 /// Tikai previews itself from this repository's committed HEAD and its tikai-preview.yml: web build, API publish, the
-/// hub with Postgres and without Docker. Opt-in (TIKAI_TEST_OWN_PREVIEW=1): it pulls node, the .NET SDK and postgres
+/// hub with Postgres and without Docker, then its seed (the first user and a demo project). Opt-in (TIKAI_TEST_OWN_PREVIEW=1): it pulls node, the .NET SDK and postgres
 /// and builds the whole hub, which takes minutes.
 /// </summary>
 public sealed class OwnPreviewTests(AgentHost agents) : IClassFixture<AgentHost>, IAsyncDisposable
@@ -65,6 +65,13 @@ public sealed class OwnPreviewTests(AgentHost agents) : IClassFixture<AgentHost>
             using var http = new HttpClient { BaseAddress = new Uri(Assert.Single(started.Apps).Url) };
             Assert.Equal(HttpStatusCode.OK, (await http.GetAsync(new Uri("/health/ready", UriKind.Relative), ct)).StatusCode);
             Assert.Contains("<div id=\"root\">", await http.GetStringAsync(new Uri("/", UriKind.Relative), ct), StringComparison.Ordinal);
+            // The seed step signed up the first user, so sign-up is closed, and the login in the hint works.
+            Assert.Contains("\"signUpOpen\":false", await http.GetStringAsync(new Uri("/api/auth/status", UriKind.Relative), ct), StringComparison.Ordinal);
+            Assert.Equal("Log in as demo@example.com / preview-preview", definition.SeedHint);
+            lock (log)
+            {
+                Assert.Contains(log, l => l.Source == "seed 1" && l.Text.StartsWith("Signed up demo@example.com", StringComparison.Ordinal));
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

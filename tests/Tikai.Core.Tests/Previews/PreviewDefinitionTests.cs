@@ -562,6 +562,79 @@ public class PreviewDefinitionTests
         Assert.Contains("apps.web.generate.bad name: not a variable name", errors);
     }
 
+    [Fact]
+    public void Seed_steps_and_the_hint_parse_in_order()
+    {
+        var definition = Ok(Minimal + """
+
+            seed:
+              - image: postgres:17
+                run: psql "postgresql://app:preview@db/app" -f seed/demo.sql
+              - image: node:24-trixie-slim
+                run: node seed/demo.mjs http://app:8000
+                environment: { DEMO_USER: demo@example.com }
+                generate: [Jwt__Secret]
+            seed_hint: Log in as demo@example.com / preview
+            """);
+
+        Assert.Equal(2, definition.Seed.Count);
+        Assert.Equal("postgres:17", definition.Seed[0].Image);
+        Assert.Equal("psql \"postgresql://app:preview@db/app\" -f seed/demo.sql", definition.Seed[0].Run);
+        Assert.Empty(definition.Seed[0].Environment);
+        Assert.Empty(definition.Seed[0].Generate);
+        Assert.Equal("demo@example.com", definition.Seed[1].Environment["DEMO_USER"]);
+        Assert.Equal(["Jwt__Secret"], definition.Seed[1].Generate);
+        Assert.Equal("Log in as demo@example.com / preview", definition.SeedHint);
+    }
+
+    [Fact]
+    public void Without_seed_there_is_no_step_and_no_hint()
+    {
+        var definition = Ok(Minimal);
+
+        Assert.Empty(definition.Seed);
+        Assert.Null(definition.SeedHint);
+    }
+
+    [Fact]
+    public void Seed_steps_have_the_checks_of_setup_steps_and_apps()
+    {
+        var errors = Errors(Minimal + """
+
+            seed:
+              - run: echo hi
+              - image: node:24
+                run: node seed.js
+                environment: { S: x }
+                generate: [S, "bad name"]
+                ports: [8080]
+              - just text
+            """);
+
+        Assert.Contains("seed[0].image: required", errors);
+        Assert.Contains("seed[1].generate.S: also set in seed[1].environment", errors);
+        Assert.Contains("seed[1].generate.bad name: not a variable name", errors);
+        Assert.Contains($"seed[1].ports: {NotAllowed}", errors);
+        Assert.Contains("seed[2]: must be a mapping with image and run", errors);
+    }
+
+    [Fact]
+    public void At_most_ten_seed_steps()
+    {
+        var steps = string.Concat(Enumerable.Repeat("\n  - { image: node:24, run: echo }", PreviewDefinition.MaxSeedSteps + 1));
+
+        Assert.Contains("seed: at most 10 steps", Errors(Minimal + "\nseed:" + steps));
+        Assert.Contains("seed: must be a list", Errors(Minimal + "\nseed: echo hi"));
+    }
+
+    [Fact]
+    public void The_seed_hint_is_one_short_line()
+    {
+        Assert.Contains("seed_hint: at most 200 characters (it has 201)", Errors(Minimal + $"\nseed_hint: {new string('x', 201)}"));
+        Assert.Contains("seed_hint: must be one line", Errors(Minimal + "\nseed_hint: \"one\\ntwo\""));
+        Assert.Contains("seed_hint: must be text", Errors(Minimal + "\nseed_hint: [a, b]"));
+    }
+
     private const string NotAllowed = "not allowed; a preview definition only describes how to start the app, the hub decides what it may do";
 
     private static PreviewDefinition Ok(string yaml)

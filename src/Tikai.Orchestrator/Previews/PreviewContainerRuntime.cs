@@ -24,6 +24,9 @@ public enum PreviewRole
     /// <summary>A sidecar from the definition (stock image).</summary>
     Service,
 
+    /// <summary>One seed step of the definition, once the apps answer: on the preview's network, without internet.</summary>
+    SeedStep,
+
     /// <summary>Removes a stopped preview's directory, without network.</summary>
     Cleanup,
 }
@@ -138,7 +141,8 @@ public sealed partial class DockerContainerRuntime
     /// <summary>
     /// Prep, setup and app run agent-written code like an agent: the agent uid, only the preview's directory (subpath
     /// = the preview's GUID) at /preview, and the sandbox of <see cref="Sandbox"/>; prep without network, setup on the
-    /// agents network (internet for package registries), each app on the preview's network under its name. Services run stock images as
+    /// agents network (internet for package registries), each app on the preview's network under its name, seed steps on the
+    /// preview's network (they reach services and apps by name). Services run stock images as
     /// their own user, without the volume, with a writable root (anonymous volumes of the image only), all capabilities
     /// dropped except <see cref="ServiceCapabilities"/>, no new privileges and the same limits.
     /// </summary>
@@ -146,7 +150,7 @@ public sealed partial class DockerContainerRuntime
     {
         var parameters = spec.Role switch
         {
-            PreviewRole.Prep or PreviewRole.Setup or PreviewRole.App => AgentWritten(spec),
+            PreviewRole.Prep or PreviewRole.Setup or PreviewRole.App or PreviewRole.SeedStep => AgentWritten(spec),
             PreviewRole.Service => Service(spec),
             _ => throw new ArgumentOutOfRangeException(nameof(spec), spec.Role, "Seed and cleanup containers have their own methods."),
         };

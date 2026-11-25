@@ -41,6 +41,9 @@ public sealed class PreviewOptions
     /// <summary>Limit for the services to be healthy and the app to answer.</summary>
     public TimeSpan StartTimeout { get; set; } = TimeSpan.FromMinutes(3);
 
+    /// <summary>Limit for one seed step.</summary>
+    public TimeSpan SeedTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
     /// <summary>Memory of each preview container (setup, app, each service).</summary>
     public long MemoryBytes { get; set; } = 4L * 1024 * 1024 * 1024;
 

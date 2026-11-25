@@ -112,6 +112,13 @@ export function appsLine(apps: PreviewApp[]): string | null {
   return 'Apps: ' + apps.map((a) => `${a.name} on ${a.path}`).join(', ')
 }
 
+/** The definition's seed_hint (e.g. the seeded login) while the preview starts or runs; agent-written, plain text. */
+export function seedHint(preview: Pick<Preview, 'state' | 'seedHint'>): string | null {
+  return preview.seedHint && (preview.state === 'starting' || preview.state === 'running')
+    ? preview.seedHint
+    : null
+}
+
 /** "all" or one app's log source. */
 export type LogFilter = string
 

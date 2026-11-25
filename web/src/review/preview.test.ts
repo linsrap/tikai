@@ -7,6 +7,7 @@ import {
   logFilterOptions,
   logStart,
   previewLine,
+  seedHint,
   type ChangeSetPreview,
   type Preview,
   type RepositoryPreview,
@@ -30,6 +31,7 @@ const preview = (over: Partial<Preview> = {}): Preview => ({
   lastLogSeq: 12,
   url: 'http://p1.preview.localhost:8080',
   apps: [{ name: 'app', path: '/', logSource: 'app' }],
+  seedHint: null,
   ...over,
 })
 
@@ -164,6 +166,14 @@ describe('several apps', () => {
   it('says which app serves which path, only when there are several', () => {
     expect(appsLine(apps)).toBe('Apps: web on /, api on /api')
     expect(appsLine([{ name: 'app', path: '/', logSource: 'app' }])).toBeNull()
+  })
+
+  it('shows the seed hint while the preview starts or runs', () => {
+    const hint = 'Log in as demo@example.com / preview'
+    expect(seedHint(preview({ seedHint: hint }))).toBe(hint)
+    expect(seedHint(preview({ seedHint: hint, state: 'starting' }))).toBe(hint)
+    expect(seedHint(preview({ seedHint: hint, state: 'stopped' }))).toBeNull()
+    expect(seedHint(preview())).toBeNull()
   })
 
   it('offers a log filter per app only when there are several', () => {

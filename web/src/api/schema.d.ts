@@ -3069,6 +3069,7 @@ export interface components {
             lastLogSeq: number;
             url: null | string;
             apps: components["schemas"]["PreviewAppInfo"][];
+            seedHint: null | string;
         };
         PreviewLogLineInfo: {
             /** Format: int64 */

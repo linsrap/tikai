@@ -9,7 +9,7 @@ using Tikai.Core.Runs;
 namespace Tikai.Orchestrator.Previews;
 
 /// <summary>One line of a preview's log.</summary>
-/// <param name="Source">hub, setup 1, app (or app &lt;name&gt;), a service's name</param>
+/// <param name="Source">hub, setup 1, app (or app &lt;name&gt;), a service's name, seed 1</param>
 public sealed record PreviewLogEntry(string Source, string Text);
 
 /// <summary>Stores lines of a preview's log (already redacted).</summary>
@@ -175,13 +175,14 @@ public sealed class PreviewEnvironment(
     }
 
     /// <summary>
-    /// The preview's network, the services (started, then healthy), and the apps; returns once every app answers on its
-    /// health check path (any answer on / without one). Each generated value is random per preview and the same in every
-    /// app that lists it.
+    /// The preview's network, the services (started, then healthy), the apps, and then the seed steps; returns once every
+    /// app answers on its health check path (any answer on / without one) and every seed step succeeded. Each generated
+    /// value is random per preview and the same in every app and seed step that lists it.
     /// </summary>
     public async Task<PreviewStarted> StartAsync(Guid previewId, PreviewDefinition definition, PreviewLogSink log, CancellationToken cancellationToken)
     {
-        foreach (var image in definition.Services.Select(s => s.Image).Concat(definition.Apps.Select(a => a.Image)).Distinct(StringComparer.Ordinal))
+        foreach (var image in definition.Services.Select(s => s.Image).Concat(definition.Apps.Select(a => a.Image))
+                     .Concat(definition.Seed.Select(s => s.Image)).Distinct(StringComparer.Ordinal))
         {
             await PullAsync(image, log, cancellationToken);
         }
@@ -212,7 +213,7 @@ public sealed class PreviewEnvironment(
             throw new PreviewStartException($"The services were not healthy within {_options.StartTimeout}.");
         }
 
-        var secrets = definition.Apps.SelectMany(a => a.Generate).Distinct(StringComparer.Ordinal)
+        var secrets = definition.Apps.SelectMany(a => a.Generate).Concat(definition.Seed.SelectMany(s => s.Generate)).Distinct(StringComparer.Ordinal)
             .ToDictionary(name => name, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), StringComparer.Ordinal);
         var redactor = new SecretRedactor(secrets.Values);
         var apps = new List<(PreviewApp App, string Id)>();
@@ -251,7 +252,53 @@ public sealed class PreviewEnvironment(
                 throw;
             }
         }
+        for (var i = 0; i < definition.Seed.Count; i++)
+        {
+            await RunSeedAsync(previewId, i + 1, definition.Seed[i], secrets, redactor, log, cancellationToken);
+        }
         return new PreviewStarted(upstreams, [.. secrets.Values]);
+    }
+
+    /// <summary>
+    /// Runs one seed step to its end with its output in the log (generated values redacted); a non-zero exit or the
+    /// time limit fails the preview.
+    /// </summary>
+    /// <param name="number">1-based, as people count the steps.</param>
+    private async Task RunSeedAsync(
+        Guid previewId, int number, PreviewSeedStep step, Dictionary<string, string> secrets, SecretRedactor redactor,
+        PreviewLogSink log, CancellationToken cancellationToken)
+    {
+        var source = $"seed {number.ToString(CultureInfo.InvariantCulture)}";
+        await log([new PreviewLogEntry("hub", $"Seed step {number}: {redactor.Redact(step.Run)}")], cancellationToken);
+        await containers.RemoveAsync(DockerContainerRuntime.PreviewName(PreviewRole.SeedStep, previewId), CancellationToken.None);
+        var container = await containers.CreatePreviewAsync(new PreviewContainerSpec(
+            previewId, PreviewRole.SeedStep, step.Image, Entrypoint: ["/bin/sh", "-c", step.Run], Command: [],
+            Environment: [.. step.Environment.Select(e => new ContainerEnv(e.Key, e.Value)), .. step.Generate.Select(name => new ContainerEnv(name, secrets[name], IsSecret: true))]),
+            cancellationToken);
+        try
+        {
+            await containers.StartAsync(container, cancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(_options.SeedTimeout);
+            long exitCode;
+            try
+            {
+                await PumpLogAsync(container, source, redactor, log, timeout.Token);
+                exitCode = await containers.WaitAsync(container, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new PreviewStartException($"Seed step {number} took longer than {_options.SeedTimeout}.");
+            }
+            if (exitCode != 0)
+            {
+                throw new PreviewStartException($"Seed step {number} failed with exit code {exitCode}; see the preview log.");
+            }
+        }
+        finally
+        {
+            await containers.RemoveAsync(container, CancellationToken.None);
+        }
     }
 
     /// <summary>Follows each app's log into the preview log until it ends or <paramref name="cancellationToken"/> stops it.</summary>

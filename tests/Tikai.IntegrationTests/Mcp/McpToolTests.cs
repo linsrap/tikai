@@ -157,9 +157,11 @@ public sealed class McpToolTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Contains("| `idle_minutes` | no | 5 to 240, default 30.", spec, StringComparison.Ordinal);
         Assert.Contains("Unknown keys are errors", spec, StringComparison.Ordinal);
         Assert.Contains("check_preview_definition", spec, StringComparison.Ordinal);
+        Assert.Contains("## Seed data", spec, StringComparison.Ordinal);
         // The page cannot drift from the parser: every example on it is a file the hub accepts.
         var examples = Regex.Matches(spec, "```yaml\n(.*?)```", RegexOptions.Singleline);
-        Assert.Equal(3, examples.Count);
+        Assert.Equal(4, examples.Count);
+        Assert.Contains(examples, e => e.Groups[1].Value.Contains("seed_hint:", StringComparison.Ordinal));
         foreach (Match example in examples)
         {
             var check = (await agent.CallAsync("check_preview_definition", new { content = example.Groups[1].Value })).Json();

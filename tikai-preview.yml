@@ -25,4 +25,9 @@ services:
     image: postgres:17
     environment: { POSTGRES_DB: tikai, POSTGRES_USER: tikai, POSTGRES_PASSWORD: preview }
     healthcheck: { command: pg_isready -U tikai -d tikai }
+seed:
+  # The first user (admin) and a demo project with a ticket, through the API like the web app.
+  - image: node:24-trixie-slim
+    run: node scripts/preview-seed.mjs http://app:8080
+seed_hint: Log in as demo@example.com / preview-preview
 idle_minutes: 30

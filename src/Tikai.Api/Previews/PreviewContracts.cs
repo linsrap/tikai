@@ -26,6 +26,7 @@ public sealed record RepositoryPreviewInfo(
 /// <param name="Apps">The app processes of its definition with the path prefix each serves on that origin.</param>
 /// <param name="ChangeSetId">With <paramref name="RoundNo"/>, set for a round's preview.</param>
 /// <param name="Branch">Set for a preview of the repository's default branch, which stops when the branch moves.</param>
+/// <param name="SeedHint">The definition's seed_hint (e.g. the seeded login); agent-written, so plain text only.</param>
 public sealed record PreviewInfo(
     Guid Id,
     Guid RepositoryId,
@@ -42,7 +43,8 @@ public sealed record PreviewInfo(
     int IdleMinutes,
     long LastLogSeq,
     string? Url,
-    IReadOnlyList<PreviewAppInfo> Apps);
+    IReadOnlyList<PreviewAppInfo> Apps,
+    string? SeedHint);
 
 /// <param name="Path">The path prefix it serves; the longest match wins.</param>
 /// <param name="LogSource">The source of its lines in the preview log (<c>app</c> for a single app, else <c>app &lt;name&gt;</c>).</param>

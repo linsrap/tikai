@@ -384,17 +384,18 @@ internal sealed class PreviewService(
     public async Task<PreviewInfo?> InfoAsync(Guid previewId, HttpRequest? request, CancellationToken cancellationToken)
     {
         var p = await db.Previews.AsNoTracking().SingleOrDefaultAsync(p => p.Id == previewId, cancellationToken);
-        return p is null ? null : new PreviewInfo(
+        if (p is null)
+        {
+            return null;
+        }
+        // The definition stored with the preview was checked when it was started.
+        var parsed = PreviewDefinition.Parse(p.Definition).Definition;
+        return new PreviewInfo(
             p.Id, p.RepositoryId, p.ChangeSetId, p.RoundNo, p.Branch, p.HeadSha, p.State, p.Error, p.StopReason, p.CreatedAt, p.RunningAt, p.StoppedAt,
             p.IdleMinutes, p.LastLogSeq, p.State == PreviewState.Running && request is not null ? Origin(p.Id, request) : null,
-            Apps(p.Definition));
+            parsed is null ? [] : [.. parsed.Apps.Select(a => new PreviewAppInfo(a.Name, a.Path, a.LogSource))],
+            parsed?.SeedHint);
     }
-
-    /// <summary>The apps of the definition stored with the preview (checked when it was started).</summary>
-    private static List<PreviewAppInfo> Apps(string definition) =>
-        PreviewDefinition.Parse(definition).Definition is { } parsed
-            ? [.. parsed.Apps.Select(a => new PreviewAppInfo(a.Name, a.Path, a.LogSource))]
-            : [];
 
     private static ProblemHttpResult Problem(int status, string title, string detail) =>
         TypedResults.Problem(statusCode: status, title: title, detail: detail);

@@ -63,7 +63,7 @@ public class ClaudeCodeAdapterTests
     {
         var prompt = ClaudeCodeAdapter.Prompt(Context());
 
-        Assert.Equal("run-start.v5", ClaudeCodeAdapter.PromptVersion);
+        Assert.Equal("run-start.v6", ClaudeCodeAdapter.PromptVersion);
         Assert.Contains("Whenever you changed it, call check_preview_definition", prompt, StringComparison.Ordinal);
         Assert.True(prompt.IndexOf("get_preview_spec", StringComparison.Ordinal) < prompt.IndexOf("check_preview_definition", StringComparison.Ordinal));
         Assert.True(prompt.IndexOf("check_preview_definition", StringComparison.Ordinal) < prompt.LastIndexOf("submit_for_review", StringComparison.Ordinal));
@@ -75,7 +75,7 @@ public class ClaudeCodeAdapterTests
         var start = ClaudeCodeAdapter.Prompt(Context());
         var summary = ClaudeCodeAdapter.SummaryPrompt(Context(), new FreshSession(null, [], "", ""));
 
-        Assert.Equal("run-summary.v4", ClaudeCodeAdapter.SummaryPromptVersion);
+        Assert.Equal("run-summary.v5", ClaudeCodeAdapter.SummaryPromptVersion);
         foreach (var prompt in new[] { start, summary })
         {
             // Real runs installed SDKs into /tmp first (noexec) and probed for browsers and apt in every run.
@@ -86,6 +86,8 @@ public class ClaudeCodeAdapterTests
             Assert.Contains("pkill -f also matches the command line of your own shell", prompt, StringComparison.Ordinal);
             Assert.Contains("Whenever you changed it, call check_preview_definition", prompt, StringComparison.Ordinal);
             Assert.True(prompt.IndexOf("check_preview_definition", StringComparison.Ordinal) < prompt.LastIndexOf("submit_for_review", StringComparison.Ordinal));
+            // Previews start empty unless the seed fills them (step 33).
+            Assert.Contains("add or extend its seed so the reviewer sees the change with data", prompt, StringComparison.Ordinal);
         }
     }
 

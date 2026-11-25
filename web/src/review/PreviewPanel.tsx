@@ -7,6 +7,7 @@ import { Segmented } from '../ui/Segmented'
 import { Tag } from '../ui/Tag'
 import {
   appsLine,
+  seedHint,
   canStart,
   changeSetPreviewQuery,
   exampleApps,
@@ -172,6 +173,13 @@ export function PreviewControls({
       </div>
       {preview && isActive(preview.state) && appsLine(preview.apps) && (
         <span className="text-sm text-fg-muted">{appsLine(preview.apps)}</span>
+      )}
+      {preview && seedHint(preview) && (
+        // Written by the agent: shown as text, never as a link or markdown.
+        <p className="m-0 text-sm text-fg-2" aria-label="Seed data hint">
+          <span className="text-fg-muted">Seed data: </span>
+          {seedHint(preview)}
+        </p>
       )}
       {preview && preview.lastLogSeq > 0 && <PreviewLog preview={preview} />}
       {error && <ErrorText>{error.message}</ErrorText>}

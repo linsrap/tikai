@@ -18,11 +18,18 @@ namespace Tikai.Orchestrator.Previews;
 /// <c>app</c> is one app named <see cref="PreviewApp.SingleName"/> on <c>/</c>.
 /// </param>
 /// <param name="Services">Sidecars (stock images) on the preview's network, reachable by their name.</param>
+/// <param name="Seed">
+/// Run in order once every app answers (its migrations ran), each in its own container on the preview's network without
+/// internet: fills the preview with data from the repository.
+/// </param>
+/// <param name="SeedHint">One line for the person who opens the preview, e.g. the seeded login; shown as plain text.</param>
 public sealed record PreviewDefinition(
     IReadOnlyList<PreviewSetupStep> Setup,
     IReadOnlyList<PreviewApp> Apps,
     IReadOnlyList<PreviewService> Services,
-    int IdleMinutes)
+    int IdleMinutes,
+    IReadOnlyList<PreviewSeedStep> Seed,
+    string? SeedHint)
 {
     /// <summary>At the repository root (not under .tikai/: it is part of the code and the agent keeps it current).</summary>
     public const string FileName = "tikai-preview.yml";
@@ -35,6 +42,8 @@ public sealed record PreviewDefinition(
     public const int MaxIdleMinutes = 240;
 
     public const int MaxSetupSteps = 10;
+    public const int MaxSeedSteps = 10;
+    public const int MaxSeedHintLength = 200;
     public const int MaxApps = 5;
     public const int MaxServices = 5;
     public const int MaxEnvironment = 50;
@@ -45,6 +54,13 @@ public sealed record PreviewDefinition(
 }
 
 public sealed record PreviewSetupStep(string Image, string Run);
+
+/// <param name="Generate">Variables with the preview's generated values (the same as in the apps that list them).</param>
+public sealed record PreviewSeedStep(
+    string Image,
+    string Run,
+    IReadOnlyDictionary<string, string> Environment,
+    IReadOnlyList<string> Generate);
 
 /// <param name="Name">Its host name on the preview's network (other apps and services reach it by this name).</param>
 /// <param name="Path">
@@ -155,6 +171,8 @@ internal sealed partial class PreviewDefinitionParser
         IReadOnlyList<PreviewSetupStep> setup = [];
         List<PreviewApp> apps = [];
         IReadOnlyList<PreviewService> services = [];
+        IReadOnlyList<PreviewSeedStep> seed = [];
+        string? seedHint = null;
         var idleMinutes = PreviewDefinition.DefaultIdleMinutes;
         foreach (var (key, value) in Entries(mapping, ""))
         {
@@ -174,6 +192,12 @@ internal sealed partial class PreviewDefinitionParser
                     break;
                 case "services":
                     services = ParseServices(value);
+                    break;
+                case "seed":
+                    seed = ParseSeed(value);
+                    break;
+                case "seed_hint":
+                    seedHint = SeedHint(value);
                     break;
                 case "idle_minutes":
                     idleMinutes = Number("idle_minutes", value, PreviewDefinition.MinIdleMinutes, PreviewDefinition.MaxIdleMinutes) ?? idleMinutes;
@@ -198,7 +222,7 @@ internal sealed partial class PreviewDefinitionParser
         }
         return _errors.Count > 0 || apps.Count == 0
             ? new PreviewDefinitionParse(null, _errors)
-            : new PreviewDefinitionParse(new PreviewDefinition(setup, apps, services, idleMinutes), []);
+            : new PreviewDefinitionParse(new PreviewDefinition(setup, apps, services, idleMinutes, seed, seedHint), []);
     }
 
     private static string? Scan(string yaml)
@@ -267,6 +291,85 @@ internal sealed partial class PreviewDefinitionParser
             }
         }
         return steps;
+    }
+
+    private List<PreviewSeedStep> ParseSeed(YamlNode node)
+    {
+        var steps = new List<PreviewSeedStep>();
+        if (node is not YamlSequenceNode list)
+        {
+            Add("seed", "must be a list");
+            return steps;
+        }
+        if (list.Children.Count > PreviewDefinition.MaxSeedSteps)
+        {
+            Add("seed", $"at most {PreviewDefinition.MaxSeedSteps} steps");
+            return steps;
+        }
+        for (var i = 0; i < list.Children.Count; i++)
+        {
+            var path = $"seed[{i}]";
+            _lines[path] = (int)list.Children[i].Start.Line;
+            if (list.Children[i] is not YamlMappingNode step)
+            {
+                Add(path, "must be a mapping with image and run");
+                continue;
+            }
+            string? image = null, run = null;
+            IReadOnlyDictionary<string, string> environment = new Dictionary<string, string>();
+            IReadOnlyList<string> generate = [];
+            foreach (var (key, value) in Entries(step, path + "."))
+            {
+                switch (key)
+                {
+                    case "image":
+                        image = Image($"{path}.image", value);
+                        break;
+                    case "run":
+                        run = Text($"{path}.run", value);
+                        break;
+                    case "environment":
+                        environment = Environment($"{path}.environment", value);
+                        break;
+                    case "generate":
+                        generate = Generate($"{path}.generate", value);
+                        break;
+                    default:
+                        Add($"{path}.{key}", NotAllowed);
+                        break;
+                }
+            }
+            foreach (var variable in generate.Where(environment.ContainsKey))
+            {
+                Add($"{path}.generate.{variable}", $"also set in {path}.environment");
+            }
+            if ((Required($"{path}.image", step, "image") & Required($"{path}.run", step, "run")) && image is not null && run is not null)
+            {
+                steps.Add(new PreviewSeedStep(image, run, environment, generate));
+            }
+        }
+        return steps;
+    }
+
+    /// <summary>One line of text for people: no line breaks or control characters.</summary>
+    private string? SeedHint(YamlNode node)
+    {
+        var text = Text("seed_hint", node);
+        if (text is null)
+        {
+            return null;
+        }
+        if (text.Length > PreviewDefinition.MaxSeedHintLength)
+        {
+            Add("seed_hint", $"at most {PreviewDefinition.MaxSeedHintLength} characters (it has {text.Length})");
+            return null;
+        }
+        if (text.Any(char.IsControl))
+        {
+            Add("seed_hint", "must be one line");
+            return null;
+        }
+        return text;
     }
 
     private List<PreviewApp> ParseApps(YamlNode node)
