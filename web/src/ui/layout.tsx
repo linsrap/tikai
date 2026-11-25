@@ -2,6 +2,12 @@ import type { FormHTMLAttributes, HTMLAttributes, ReactNode } from 'react'
 import { cx } from './cx'
 import { ChevronRightIcon } from './icons'
 
+/** How wide a page's content gets: normal, wide (tables) or the whole window (side panels). */
+export type PageWidth = boolean | 'full'
+
+const maxWidth = (wide: PageWidth) =>
+  wide === 'full' ? 'max-w-none' : wide ? 'max-w-[1240px]' : 'max-w-[1040px]'
+
 /** Details on demand: a summary line with a chevron that opens what is under it (native details, keyboard included). */
 export function Disclosure({
   summary,
@@ -30,20 +36,10 @@ export function PageBody({
   className,
 }: {
   children: ReactNode
-  wide?: boolean
+  wide?: PageWidth
   className?: string
 }) {
-  return (
-    <div
-      className={cx(
-        'px-4 pt-5 pb-12 sm:px-10',
-        wide ? 'max-w-[1240px]' : 'max-w-[1040px]',
-        className,
-      )}
-    >
-      {children}
-    </div>
-  )
+  return <div className={cx('px-4 pt-5 pb-12 sm:px-10', maxWidth(wide), className)}>{children}</div>
 }
 
 /**
@@ -65,17 +61,11 @@ export function PageHeader({
   subtitle?: ReactNode
   actions?: ReactNode
   tabs?: ReactNode
-  wide?: boolean
+  wide?: PageWidth
 }) {
   return (
     <header className={cx(tabs != null && 'border-b border-line bg-surface')}>
-      <div
-        className={cx(
-          'px-4 pt-5 sm:px-10',
-          tabs == null && 'pb-0',
-          wide ? 'max-w-[1240px]' : 'max-w-[1040px]',
-        )}
-      >
+      <div className={cx('px-4 pt-5 sm:px-10', tabs == null && 'pb-0', maxWidth(wide))}>
         {crumbs && (
           <nav
             aria-label="Breadcrumb"

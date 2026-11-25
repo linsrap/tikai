@@ -52,11 +52,11 @@ export function InboxPage() {
       <PageHeader
         title="Inbox"
         subtitle={items.data && subtitle(waiting.length, others.length)}
-        wide={!!panel}
+        wide={panel ? 'full' : false}
       />
       <PageBody
-        wide={!!panel}
-        className={panel ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,32rem)] gap-6' : undefined}
+        wide={panel ? 'full' : false}
+        className={panel ? 'grid grid-cols-[minmax(26rem,1fr)_minmax(0,1.25fr)] gap-6' : undefined}
       >
         <div className="min-w-0">
           <WorkingRuns
