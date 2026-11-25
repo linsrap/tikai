@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useWatch } from '../live/live'
 import { RunLog } from '../live/RunLog'
 import {
@@ -15,6 +15,7 @@ import {
   type RunInfo,
 } from '../runs/runs'
 import { runStateTone } from '../runs/tones'
+import { useNow } from '../runs/useNow'
 import { Button } from '../ui/Button'
 import { cx } from '../ui/cx'
 import { ErrorText } from '../ui/form'
@@ -82,16 +83,6 @@ export function BoardPage() {
       </PageBody>
     </AppShell>
   )
-}
-
-/** The current time, every second, for elapsed times. */
-function useNow() {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-  return now
 }
 
 function BoardRun({ run, now }: { run: RunInfo; now: number }) {

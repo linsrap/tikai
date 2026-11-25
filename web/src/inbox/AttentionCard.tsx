@@ -86,8 +86,8 @@ export function AttentionCard({ item }: { item: AttentionItem }) {
         )}
       </header>
 
-      {item.plan && <PlanAnswer id={item.id} plan={item.plan} />}
-      {item.question && <QuestionAnswer id={item.id} question={item.question} />}
+      {item.plan && <PlanAnswer id={item.id} plan={item.plan} runId={item.runId} />}
+      {item.question && <QuestionAnswer id={item.id} question={item.question} runId={item.runId} />}
       {item.failure && <FailureActions id={item.id} failure={item.failure} />}
       {item.conflict && item.changeSetId && (
         <ConflictActions id={item.id} changeSetId={item.changeSetId} conflict={item.conflict} />

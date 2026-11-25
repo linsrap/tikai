@@ -3,6 +3,7 @@ import { api, ensureAntiforgery } from '../api/client'
 import type { components } from '../api/schema'
 import { unwrap } from '../api/result'
 import { verdictLine } from '../review/review'
+import { noteAnswered } from './answered'
 
 export type AttentionItem = components['schemas']['AttentionItemInfo']
 export type AttentionKind = components['schemas']['AttentionKind']
@@ -148,13 +149,16 @@ function useItemMutation<TInput>(send: (input: TInput) => Promise<unknown>) {
   })
 }
 
-export const useAnswer = (id: string) =>
-  useItemMutation((body: AnswerRequest) =>
-    unwrap(
+/** Answers a question or plan; with the run's id, the inbox shows that run's log and whether it continued. */
+export const useAnswer = (id: string, runId?: string | null) =>
+  useItemMutation(async (body: AnswerRequest) => {
+    const result = await unwrap(
       api.POST('/api/attention-items/{id}/answer', { params: { path: { id } }, body }),
       'send the answer',
-    ),
-  )
+    )
+    if (runId) noteAnswered(runId)
+    return result
+  })
 
 export const useDismiss = (id: string) =>
   useItemMutation(() =>
@@ -171,3 +175,10 @@ export const useRetry = (id: string) =>
       'retry the run',
     ),
   )
+
+const runIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The inbox's search: `?log=<run id>` is the run whose live log is open. Anything else is dropped. */
+export function inboxSearch(search: Record<string, unknown>): { log?: string } {
+  return typeof search.log === 'string' && runIdPattern.test(search.log) ? { log: search.log } : {}
+}

@@ -34,7 +34,14 @@ const kindColor: Record<RunEventInfo['kind'], string> = {
  * scrolled to the bottom and keeps its place otherwise. A row opens to its raw payload. The data attributes say which
  * seqs it holds, for tests.
  */
-export function RunLog({ runId }: { runId: string }) {
+export function RunLog({
+  runId,
+  height = 'h-72',
+}: {
+  runId: string
+  /** The scroll area's height class; the inbox's side panel fills the window. */
+  height?: string
+}) {
   const { events, error } = useRunLog(runId)
   const scroller = useRef<HTMLDivElement>(null)
   const [follow, setFollow] = useState(true)
@@ -76,7 +83,7 @@ export function RunLog({ runId }: { runId: string }) {
         </div>
         <div
           ref={scroller}
-          className="h-72 overflow-auto font-mono text-xs leading-5"
+          className={cx(height, 'overflow-auto font-mono text-xs leading-5')}
           role="log"
           aria-label="Agent log"
           data-count={events.length}

@@ -26,6 +26,10 @@ export const runStateLabel: Record<RunState, string> = {
 export const isActive = (state: RunState) =>
   !['merged', 'pushed', 'failed', 'cancelled'].includes(state)
 
+/** States in which an agent works or is about to: not ended and not in review (a review is an inbox item). */
+export const isWorking = (state: RunState) =>
+  ['queued', 'preparing', 'running', 'blocked', 'changes_requested'].includes(state)
+
 /** "1:05:09" or "4:02": how long the run has been going, or went (ended runs). */
 export function elapsed(
   run: Pick<RunInfo, 'startedAt' | 'createdAt' | 'endedAt'>,

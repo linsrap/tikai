@@ -7,7 +7,7 @@ import {
   redirect,
 } from '@tanstack/react-router'
 import { authStatusQuery, entryRouteFor } from './auth/auth'
-import { inboxQuery } from './inbox/inbox'
+import { inboxQuery, inboxSearch } from './inbox/inbox'
 import { projectQuery } from './projects/projects'
 import { BoardPage } from './pages/BoardPage'
 import { InboxPage } from './pages/InboxPage'
@@ -70,6 +70,7 @@ const reviewId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
+  validateSearch: inboxSearch,
   beforeLoad: guard('/'),
   component: InboxPage,
 })

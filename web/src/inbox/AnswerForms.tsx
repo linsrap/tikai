@@ -12,8 +12,17 @@ type PlanPayload = components['schemas']['PlanPayload']
 type QuestionPayload = components['schemas']['QuestionPayload']
 
 /** An agent's plan: its summary first, steps, risks and files on demand; approved or sent back with notes. */
-export function PlanAnswer({ id, plan }: { id: string; plan: PlanPayload }) {
-  const answer = useAnswer(id)
+export function PlanAnswer({
+  id,
+  plan,
+  runId,
+}: {
+  id: string
+  plan: PlanPayload
+  /** Given in the inbox: answering there opens the run's log. */
+  runId?: string | null
+}) {
+  const answer = useAnswer(id, runId)
   const [revising, setRevising] = useState(false)
   const [notes, setNotes] = useState('')
 
@@ -122,8 +131,17 @@ function PlanDetails({ plan }: { plan: PlanPayload }) {
  * An agent's question: one button per option (the recommended one first), "Other…" for an answer in one's own
  * words, and the agent's reasons on demand. Picking an option answers with its text.
  */
-export function QuestionAnswer({ id, question }: { id: string; question: QuestionPayload }) {
-  const answer = useAnswer(id)
+export function QuestionAnswer({
+  id,
+  question,
+  runId,
+}: {
+  id: string
+  question: QuestionPayload
+  /** Given in the inbox: answering there opens the run's log. */
+  runId?: string | null
+}) {
+  const answer = useAnswer(id, runId)
   const options = orderedOptions(question)
   const [writing, setWriting] = useState(options.length === 0)
   const [text, setText] = useState('')

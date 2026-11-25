@@ -113,6 +113,16 @@ test('create ticket, assign, approve the plan, answer the question, live to revi
   await expect(question).toBeHidden()
   await expect(page.getByRole('link', { name: 'Inbox, 0 waiting' })).toBeVisible()
 
+  // The inbox shows the agent at work: approving the plan opened its log beside the items, and the run says it
+  // took up the answer, with no trip to the board.
+  const working = page.getByRole('region', { name: 'Agents working' })
+  await expect(working.getByRole('article', { name: 'Run of E2E-1' })).toBeVisible()
+  await expect(working.getByText('Your answer was delivered · running again')).toBeVisible()
+  const sideLog = page
+    .getByRole('complementary', { name: 'Live log of E2E-1' })
+    .getByRole('log', { name: 'Agent log' })
+  await expect(sideLog.getByText(/Line \d+ of 40/).first()).toBeVisible()
+
   // The board: the run and its live log.
   await nav.getByRole('link', { name: 'Board', exact: true }).click()
   const run = page.getByRole('article', { name: 'Run of E2E-1' })
