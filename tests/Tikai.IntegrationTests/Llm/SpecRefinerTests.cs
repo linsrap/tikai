@@ -177,7 +177,7 @@ public sealed class SpecRefinerTests
 
         var result = await Refiner(new ChatClientFactory()).RefineAsync(_connection with { BaseUrl = server.BaseUrl }, _draft, TestContext.Current.CancellationToken);
 
-        Assert.Equal("The provider is rate limiting this key, or it is out of credit. Anthropic says: Your credit balance is too low.", result.Error);
+        Assert.Equal("The provider is rate limiting this key, or it is out of credit. The provider says: Your credit balance is too low.", result.Error);
     }
 
     private static SpecRefiner Refiner(IChatClient chat) => Refiner(new SingleClientFactory(chat));

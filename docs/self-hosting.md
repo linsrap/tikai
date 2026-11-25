@@ -63,7 +63,7 @@ Tikai never ships or shares an LLM key: you bring your own. Under **Settings →
 
 **Test connection** sends one short message ("Reply with OK") with that key and model, which costs a fraction of a cent, and shows the answer and the time, or what went wrong (key rejected, model not found, rate limited, provider not reachable).
 
-The optional **base URL** is for a gateway or proxy in front of the Anthropic API. Tikai sends the key as `Authorization: Bearer …` (Anthropic API version 2026-10-21); a gateway that only reads `X-Api-Key` will reject it. It must be `https://` unless the hub runs with `Tikai__Llm__AllowHttpBaseUrls=true` (for a gateway on the same host or network; the key then crosses that network in clear text).
+The optional **base URL** is for a gateway or proxy in front of the Anthropic API. Tikai sends the key as `Authorization: Bearer …` (Anthropic API version 2026-10-21); a gateway that only reads `X-Api-Key` will reject it. It must be `https://` unless the hub runs with `Tikai__Llm__AllowHttpBaseUrls=true` (`TIKAI_LLM_ALLOW_HTTP=true` in `.env`; for a gateway on the same host or network; the key then crosses that network in clear text). A gateway on the Docker host is `http://host.docker.internal:<port>` for the hub and the agents; it must listen on all interfaces, not only `127.0.0.1`, and a certificate the containers don't trust fails as "provider not reachable".
 
 ## Projects and repositories
 
